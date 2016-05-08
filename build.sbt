@@ -1,9 +1,13 @@
+import sbt.Keys._
+import sbt.Resolver
+
 name := "SimpleAccess"
 
 val commonSettings = Seq(
   organization := "io.doolse",
   version := "0.1-SNAPSHOT",
-  scalaVersion := "2.11.8"
+  scalaVersion := "2.11.8",
+  resolvers += Resolver.sonatypeRepo("snapshots")
 )
 val subSettings = Seq(
   name := "SimpleAccess-" + baseDirectory.value.getName,

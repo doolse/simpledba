@@ -2,12 +2,23 @@ package test
 
 import cats.Monad
 import cats.syntax.all._
-import io.doolse.simpledba.{ColumnName, RelationIO, SelectQuery}
+import io.doolse.simpledba.{ColumnName, RelationIO, RelationMapper, SelectQuery}
+import shapeless.HList
 
 /**
   * Created by jolz on 5/05/16.
   */
 object TestQuery {
+
+  def doQueryWithTable[F[_] : Monad, RS[_] : Monad, T, FK <: HList](mapper: RelationMapper[F, RS])(pt: mapper.PhysicalTable[T, FK, _], key: FK) = {
+    val selectAll = SelectQuery(pt.name, pt.allColumns, pt.fullKey.columnNames)
+    val relIO = mapper.relIO
+    for {
+      rs <- relIO.query(selectAll, pt.fullKey.queryParameters(key))
+      t <- relIO.usingResults(rs, relIO.resultSetOperations.nextResult.flatMap(_ => pt.fromResultSet))
+    } yield t
+  }
+
 
   def doQuery[F[_] : Monad, RSOps[_]: Monad](db: RelationIO[F, RSOps])(boolCol: db.CT[Boolean], stringCol: db.CT[String], longCol: db.CT[Long]) = {
     import db._

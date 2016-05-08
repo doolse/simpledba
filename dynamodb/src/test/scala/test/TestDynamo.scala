@@ -2,7 +2,9 @@ package test
 
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient
 import com.amazonaws.services.dynamodbv2.model._
+import io.doolse.simpledba.SelectQuery
 import io.doolse.simpledba.dynamodb.{DynamoDBColumn, DynamoDBMapper, DynamoDBRelationIO, DynamoDBSession}
+import shapeless.{HList, HNil}
 import shapeless.labelled.FieldType
 
 import scala.collection.JavaConverters._
@@ -29,10 +31,10 @@ object TestDynamo extends App {
   import mapper._
 
   val table = mapper.table[Inst]("institution").key('uniqueid)
-  val tableDDL = mapper.generateDDL(table)
+  val pt = mapper.physicalTable(table)
 
   Try { client.deleteTable("institution") }
-  client.createTable(tableDDL)
+  client.createTable(mapper.genDDL(pt))
 
   val res = client.putItem("institution", Map(
     "uniqueid" -> new AttributeValue().withN(517573426L.toString),
@@ -41,11 +43,6 @@ object TestDynamo extends App {
     "enabled" -> new AttributeValue().withBOOL(true)
   ).asJava)
 
-
-  val longCol = DynamoDBColumn[Long](_.getN.toLong, l => new AttributeValue().withN(l.toString), ScalarAttributeType.N)
-  val boolCol = DynamoDBColumn[Boolean](_.getBOOL, l => new AttributeValue().withBOOL(l), ScalarAttributeType.S)
-  val stringCol = DynamoDBColumn[String](_.getS, new AttributeValue(_), ScalarAttributeType.S)
-  val dynamoDB = new DynamoDBRelationIO()
-
-  println(TestQuery.doQuery(dynamoDB)(boolCol, stringCol, longCol).run(DynamoDBSession(client)))
+  val q = TestQuery.doQueryWithTable(mapper)(pt, HList(517573426L))
+  println(q.run(DynamoDBSession(client)))
 }
