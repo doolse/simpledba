@@ -5,17 +5,19 @@ import java.util.concurrent.ExecutionException
 import com.datastax.driver.core._
 import com.datastax.driver.core.policies.{DCAwareRoundRobinPolicy, DowngradingConsistencyRetryPolicy, LoggingRetryPolicy, TokenAwarePolicy}
 import com.google.common.util.concurrent.ListenableFuture
+import fs2.Strategy
+import fs2.util.Task
 import io.doolse.simpledba.ColumnName
 
 import scala.concurrent.ExecutionContext.Implicits
 import scala.util.{Failure, Success, Try}
-import scalaz.concurrent.Task
-import scalaz.{-\/, \/-}
 
 /**
   * Created by jolz on 5/05/16.
   */
 object CassandraSession {
+
+  implicit val strat = Strategy.fromExecutionContext(Implicits.global)
 
   def simpleSession(hosts: String, ks: Option[String]) = {
     val cluster = Cluster.builder()
@@ -33,9 +35,9 @@ object CassandraSession {
     lf.addListener(new Runnable {
       override def run(): Unit = k {
         Try(lf.get()) match {
-          case Success(a) ⇒ \/-(a)
-          case Failure(ee: ExecutionException) ⇒ -\/(new CassandraIOException(s"Failed executing - $stmt", ee.getCause))
-          case Failure(x) ⇒ -\/(x)
+          case Success(a) ⇒ Right(a)
+          case Failure(ee: ExecutionException) ⇒ Left(new CassandraIOException(s"Failed executing - $stmt", ee.getCause))
+          case Failure(x) ⇒ Left(x)
         }
       }
     }, Implicits.global)

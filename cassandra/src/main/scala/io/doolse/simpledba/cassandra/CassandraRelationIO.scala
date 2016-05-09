@@ -8,10 +8,10 @@ import com.datastax.driver.core._
 import com.datastax.driver.core.querybuilder.{Clause, QueryBuilder}
 import io.doolse.simpledba._
 import CassandraSession._
+import fs2.util.Task
 import io.doolse.simpledba.cassandra.CassandraRelationIO.{Effect, ResultSetT}
 
 import scala.collection.JavaConverters._
-import scalaz.concurrent.Task
 
 /**
   * Created by jolz on 5/05/16.

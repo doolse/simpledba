@@ -1,8 +1,8 @@
 package test
 
-import cats.Monad
 import io.doolse.simpledba.cassandra._
 import shapeless.HList
+import fs2.interop.cats._
 
 /**
   * Created by jolz on 5/05/16.
@@ -10,14 +10,6 @@ import shapeless.HList
 object TestCassandra extends App {
 
   val cassdb = CassandraRelationIO()
-
-  implicit def catsMonad[F[_]](implicit SM: scalaz.Monad[F]) = new Monad[F] {
-    override def map[A, B](fa: F[A])(f: (A) => B): F[B] = SM.map(fa)(f)
-
-    def flatMap[A, B](fa: F[A])(f: (A) => F[B]): F[B] = SM.bind(fa)(f)
-
-    def pure[A](x: A): F[A] = SM.pure(x)
-  }
 
   case class Inst(uniqueid: Long, adminpassword: String, enabled: Boolean)
 
@@ -29,5 +21,5 @@ object TestCassandra extends App {
   val pt = mapper.physicalTable(table)
 
   val init = CassandraRelationIO.initialiseSession(CassandraSession.simpleSession("localhost", Some("eps")))
-  println(TestQuery.doQueryWithTable(mapper)(pt, HList(517573426L)) .run(init).unsafePerformSync)
+  println(TestQuery.doQueryWithTable(mapper)(pt, HList(517573426L)).run(init).unsafeRun)
 }
