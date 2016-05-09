@@ -19,7 +19,9 @@ object TestCassandra extends App {
 
   val table = mapper.table[Inst]("institution").key('uniqueid)
   val pt = mapper.physicalTable(table)
+  val queries = mapper.queries(pt).key[Long]
 
   val init = CassandraRelationIO.initialiseSession(CassandraSession.simpleSession("localhost", Some("eps")))
-  println(TestQuery.doQueryWithTable(mapper)(pt, HList(517573426L)).run(init).unsafeRun)
+  val q = TestQuery.insertAndQuery(queries, Inst(517573426L, "ok", true), 517573426L)
+  println(q.run(init).unsafeRun)
 }

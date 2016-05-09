@@ -4,33 +4,34 @@ import cats.Monad
 import shapeless._
 import shapeless.labelled.FieldType
 import shapeless.ops.hlist._
-import shapeless.ops.record.{Fields, Keys, SelectAll}
+import shapeless.ops.record.{Fields, Keys, SelectAll, Values}
 import cats.syntax.all._
 
 /**
   * Created by jolz on 5/05/16.
   */
 
-abstract class RelationMapper[IO[_], ResultSetOps[_]](implicit RM: Monad[ResultSetOps]) {
+abstract class RelationMapper[IO[_] : Monad, RSOps[_]](implicit RM: Monad[RSOps]) {
   type CT[A]
   type DDL
 
-  val relIO: RelationIO.Aux[IO, ResultSetOps, CT]
+  val connection: RelationIO.Aux[IO, RSOps, CT]
+  val resultSet: ResultSetOps[RSOps, CT]
+
+  type QP = connection.QP
 
   case class PhysicalColumn[T](meta: ColumnMetadata, column: ColumnAtom[T])
 
   type AtomRecord[T] = (_ <: Symbol, ColumnAtom[T])
-
-  type AtomWithValue[T] = (T, ColumnAtom[T])
 
   trait ColumnAtom[FT] {
     type ColType
 
     def column: CT[ColType]
 
-    def parameter(t: FT): relIO.QP[Any]
+    def parameter(t: FT): QP
 
-    def fromResults(colRef: ColumnReference): ResultSetOps[FT]
+    def fromResults(colRef: ColumnReference): RSOps[FT]
   }
 
   object ColumnAtom {
@@ -43,15 +44,15 @@ abstract class RelationMapper[IO[_], ResultSetOps[_]](implicit RM: Monad[ResultS
 
       def column = stdCol
 
-      def parameter(t: T): relIO.QP[Any] = relIO.parameter(stdCol, t).asInstanceOf[relIO.QP[Any]]
+      def parameter(t: T): QP = connection.parameter(stdCol, t)
 
-      def fromResults(colRef: ColumnReference): ResultSetOps[T] = relIO.resultSetOperations.getColumn(colRef, stdCol).map(_.getOrElse(sys.error("Data is bad")))
+      def fromResults(colRef: ColumnReference): RSOps[T] = resultSet.getColumn(colRef, stdCol).map(_.getOrElse(sys.error("Data is bad")))
     }
 
   }
 
   object atomToResultOp extends Poly {
-    implicit def recordToResults[S <: Symbol, T, L <: HList] = use { (t: (S, ColumnAtom[T]), rs: ResultSetOps[L]) =>
+    implicit def recordToResults[S <: Symbol, T, L <: HList] = use { (t: (S, ColumnAtom[T]), rs: RSOps[L]) =>
       rs.flatMap(l => t._2.fromResults(ColumnName(t._1.name)).map(c => labelled.field[S](c) :: l))
     }
   }
@@ -60,7 +61,7 @@ abstract class RelationMapper[IO[_], ResultSetOps[_]](implicit RM: Monad[ResultS
   trait KeyQuery[KeyValue <: HList] {
     def columnNames: List[ColumnName]
 
-    def queryParameters(fkv: KeyValue): Iterable[relIO.QP[Any]]
+    def queryParameters(fkv: KeyValue): Iterable[QP]
   }
 
   trait KeyQueryBuilder[TR, K] extends DepFn1[TR]
@@ -70,23 +71,26 @@ abstract class RelationMapper[IO[_], ResultSetOps[_]](implicit RM: Monad[ResultS
       type Out = KeyQuery[V0]
     }
 
-    implicit def fromKeyList[TR <: HList, K <: HList, KC <: HList, KS <: HList, KO <: HList, Raw <: HList, ZV <: HList]
+    object toQueryParameter extends Poly1 {
+      implicit def allCols[T0] = at[(T0, ColumnAtom[T0])](c => c._2.parameter(c._1) )
+    }
+
+    implicit def fromKeyList[TR <: HList, K <: HList, KC <: HList, KS <: HList, KO <: HList, Raw <: HList, ZV <: HList, MZ <: HList]
     (implicit select: SelectAll.Aux[TR, K, KC],
      zipWithKeys: ZipWithKeys.Aux[K, KC, KS],
      keys: Keys.Aux[KS, KO],
      withoutAtom: Comapped.Aux[KC, ColumnAtom, Raw],
      zippedVals: Zip.Aux[Raw :: KC :: HNil, ZV],
-     toListZip: ToList[ZV, AtomWithValue[_]],
+     mappedZipped: Mapper.Aux[toQueryParameter.type, ZV, MZ],
+     toListZip: ToList[MZ, QP],
      toList: ToList[KO, Symbol]) = new KeyQueryBuilder[TR, K] {
       type Out = KeyQuery[Raw]
 
       def apply(t: TR): KeyQuery[Raw] = new KeyQuery[Raw] {
         def columnNames: List[ColumnName] = toList(keys()).map(s => ColumnName(s.name))
 
-        def queryParameters(fkv: Raw): Iterable[relIO.QP[Any]] = {
-          toListZip(zippedVals(fkv :: select(t) :: HNil)).map {
-            case (v, cat) => cat.parameter(v)
-          }
+        def queryParameters(fkv: Raw): Iterable[QP] = {
+          toListZip(mappedZipped.apply(zippedVals(fkv :: select(t) :: HNil)))
         }
       }
     }
@@ -106,24 +110,32 @@ abstract class RelationMapper[IO[_], ResultSetOps[_]](implicit RM: Monad[ResultS
     }
 
     implicit def physicalTable[T, K <: HList, SK <: HList, TR <: HList, V <: HList,
-    CR <: HList, FKV <: HList, PKV <: HList, PhysFields <: HList, CRV <: HList]
+    CR <: HList, FKV <: HList, PKV <: HList, PhysFields <: HList, CRV <: HList, AllKeys <: HList,
+    CRVO <: HList]
     (implicit
      columnizer: Columnizer.Aux[T, TR, V],
      keySelect: KeySelector.Aux[T, TR, V, (K, SK), CR, CRV, FKV, PKV],
+     crValsOnly: Values.Aux[CRV, CRVO],
+     allColumnKeys: Keys.Aux[CR, AllKeys],
+     insertQP: KeyQueryBuilder.Aux[CR, AllKeys, CRVO],
      fields: Fields.Aux[CR, PhysFields],
-     toResMapper: RightFolder.Aux[PhysFields, ResultSetOps[HNil], atomToResultOp.type, ResultSetOps[CRV]],
+     toResMapper: RightFolder.Aux[PhysFields, RSOps[HNil], atomToResultOp.type, RSOps[CRV]],
      toList: ToList[PhysFields, (_ <: Symbol, ColumnAtom[_])])
     = new PhysicalTableBuilder[T, K, SK] {
       type Out = PhysicalTable[T, FKV, PKV]
 
-      val (origColumns, f) = columnizer()
+      val (origColumns, from, to) = columnizer()
+
       def apply(t: TableBuilder[T, K, SK]): PhysicalTable[T, FKV, PKV] = {
-        val (allCols, fullKeyQ, partialKeyQ, c) = keySelect(origColumns)
+
+        val (allCols, fullKeyQ, partialKeyQ, c, toQP) = keySelect(origColumns)
+        val allVals = insertQP(allCols)
+
         new PhysicalTable[T, FKV, PKV] {
           def name: String = t.name
 
-          def fromResultSet: ResultSetOps[T] = {
-            fields(allCols).foldRight(RM.pure(HNil : HNil))(atomToResultOp).map(c andThen f)
+          def fromResultSet: RSOps[T] = {
+            fields(allCols).foldRight(RM.pure(HNil : HNil))(atomToResultOp).map(c andThen from)
           }
 
           lazy val columns: List[PhysicalColumn[_]] = {
@@ -137,6 +149,8 @@ abstract class RelationMapper[IO[_], ResultSetOps[_]](implicit RM: Monad[ResultS
 
           val fullKey = fullKeyQ
           val partialKey = partialKeyQ
+
+          def parameters(t: T): Iterable[QP] = allVals.queryParameters(crValsOnly(toQP(to(t))))
         }
       }
     }
@@ -147,7 +161,7 @@ abstract class RelationMapper[IO[_], ResultSetOps[_]](implicit RM: Monad[ResultS
 
   object KeySelector {
     type Aux[T, TR <: HList, V <: HList, Keys, CR0 <: HList, OutVals <: HList, FKV0 <: HList, PKV0 <: HList] = KeySelector[T, TR, V, Keys] {
-      type Out = (CR0, KeyQuery[FKV0], KeyQuery[PKV0], OutVals => V)
+      type Out = (CR0, KeyQuery[FKV0], KeyQuery[PKV0], OutVals => V, V => OutVals)
     }
   }
 
@@ -160,7 +174,9 @@ abstract class RelationMapper[IO[_], ResultSetOps[_]](implicit RM: Monad[ResultS
 
     def columns: List[PhysicalColumn[_]]
 
-    def fromResultSet: ResultSetOps[T]
+    def parameters(t: T): Iterable[QP]
+
+    def fromResultSet: RSOps[T]
 
     lazy val allColumns: List[ColumnName] = columns.map(c => ColumnName(c.meta.name))
 
@@ -170,33 +186,35 @@ abstract class RelationMapper[IO[_], ResultSetOps[_]](implicit RM: Monad[ResultS
 
   object Columnizer {
     type Aux[T, CR0 <: HList, Vals0 <: HList] = Columnizer[T] {
-      type Out = (CR0, Vals0 => T)
+      type Out = (CR0, Vals0 => T, T => Vals0)
     }
 
-    implicit def lgColumnizer[T, Repr <: HList, ColRecord <: HList, ColVals <: HList]
-    (implicit lg: LabelledGeneric.Aux[T, Repr], columnizer: Columnizer.Aux[Repr, ColRecord, ColVals]) = new Columnizer[T] {
-      type Out = (ColRecord, ColVals => T)
+    implicit def lgColumnizer[T, ColRecord <: HList, ColVals <: HList]
+    (implicit lg: LabelledGeneric.Aux[T, ColVals], columnizer: Columnizer.Aux[ColVals, ColRecord, ColVals]) = new Columnizer[T] {
+      type Out = (ColRecord, ColVals => T, T => ColVals)
 
-      def apply(): (ColRecord, ColVals => T) = {
-        val (c, f) = columnizer()
-        (c, f andThen lg.from)
+      def apply(): Out = {
+        val (c, from, to) = columnizer()
+        (c, lg.from, lg.to)
       }
     }
 
     implicit def hnilColumnizer = new Columnizer[HNil] {
-      type Out = (HNil, HNil => HNil)
+      type Out = (HNil, HNil => HNil, HNil => HNil)
 
-      def apply(): (HNil, HNil => HNil) = (HNil, identity)
+      def apply(): (HNil, HNil => HNil, HNil => HNil) = (HNil, identity, identity)
     }
 
-    implicit def atomColumnizer[S <: Symbol, H, T <: HList, TCR <: HList, TVals <: HList](implicit atom: ColumnAtom[H], tailCols: Columnizer.Aux[T, TCR, TVals]) = new Columnizer[FieldType[S, H] :: T] {
+    implicit def atomColumnizer[S <: Symbol, H, T <: HList, TCR <: HList, TVals <: HList]
+    (implicit atom: ColumnAtom[H], tailCols: Columnizer.Aux[T, TCR, TVals]) = new Columnizer[FieldType[S, H] :: T] {
       type ColumnsRecord = FieldType[S, ColumnAtom[H]] :: TCR
       type Vals = FieldType[S, H] :: TVals
-      type Out = (ColumnsRecord, Vals => FieldType[S, H] :: T)
+      type OutVals = FieldType[S, H] :: T
+      type Out = (ColumnsRecord, Vals => OutVals, OutVals => Vals)
 
-      def apply() = {
-        val (cr, f) = tailCols()
-        (labelled.field[S](atom) :: cr, tcr => tcr.head :: f(tcr.tail))
+      def apply() : Out = {
+        val (cr, from, to) = tailCols()
+        (labelled.field[S](atom) :: cr, (tcr:Vals) => tcr.head :: from(tcr.tail), (outv:OutVals) => outv.head :: to(outv.tail))
       }
     }
   }
@@ -207,4 +225,25 @@ abstract class RelationMapper[IO[_], ResultSetOps[_]](implicit RM: Monad[ResultS
                                                                                     (implicit gen: PhysicalTableBuilder.Aux[T, Keys, SortKeys, FKV, PKV]): PhysicalTable[T, FKV, PKV] = gen(tableBuilder)
   def genDDL(physicalTable: PhysicalTable[_, _, _]): DDL
 
+  def queries[T, FullKey <: HList, PartialKey <: HList](physicalTable: PhysicalTable[T, FullKey, PartialKey]): RelationQueries[IO, T, FullKey, PartialKey] = {
+
+    lazy val insQ = InsertQuery(physicalTable.name, physicalTable.allColumns)
+    lazy val selectAllQ = SelectQuery(physicalTable.name, physicalTable.allColumns, physicalTable.fullKey.columnNames, None)
+
+    def insert(t: T): IO[Unit] = {
+      connection.query(insQ, physicalTable.parameters(t)).map(_ => ())
+    }
+    def update(existing: T, updated: T): IO[Boolean] = ???
+    def queryByKey(key: FullKey): IO[Option[T]] = {
+      val rsOps : RSOps[Option[T]] = for {
+        y <- resultSet.nextResult
+        res <- if (y) physicalTable.fromResultSet.map(Option(_)) else RM.pure(None)
+      } yield res
+      connection.query(selectAllQ, physicalTable.fullKey.queryParameters(key)).flatMap(rs => connection.usingResults(rs, rsOps))
+    }
+    def deleteByPartKey(partialKey: PartialKey): IO[Unit] = ???
+    def delete(key: FullKey): IO[Unit] = ???
+    def deleteByValue(t: T): IO[Unit] = ???
+    RelationQueries[IO, T, FullKey, PartialKey](insert, update, queryByKey, deleteByPartKey, delete, deleteByValue)
+  }
 }

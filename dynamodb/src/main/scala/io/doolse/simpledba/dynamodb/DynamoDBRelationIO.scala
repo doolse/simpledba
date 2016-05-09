@@ -28,12 +28,15 @@ class DynamoDBRelationIO extends RelationIO[Effect, ResultOps] {
   type CT[A] = DynamoDBColumn[A]
   type RS = DynamoDBResultSet
 
-  def qpToAttr[A](cn: (ColumnName, QP[A])): (String, AttributeValue) =
-    cn._1.name -> cn._2.map(t => t._2.to(t._1)).getOrElse(new AttributeValue().withNULL(true))
+  def qpToAttr[A](cn: (ColumnName, QP)): (String, AttributeValue) =
+    cn._1.name -> cn._2.v.map(t => t._2.to(t._1)).getOrElse(new AttributeValue().withNULL(true))
 
-  def query(q: RelationQuery, params: Iterable[QP[Any]]): Effect[DynamoDBResultSet] = Reader {
+  def query(q: RelationQuery, params: Iterable[QP]): Effect[DynamoDBResultSet] = Reader {
     s => q match {
-      case _: RelationWriteQuery => ???
+      case InsertQuery(table, columns) =>
+        val valMap = columns.zip(params).map(qpToAttr).toMap
+        s.client.putItem(table, valMap.asJava)
+        DynamoDBResultSet(Iterator.empty, None)
       case SelectQuery(table, columns, keyColumns, sortedBy) =>
         val keys = keyColumns.zip(params).map(qpToAttr).toMap
         DynamoDBResultSet(Some(s.client.getItem(table, keys.asJava).getItem.asScala.toMap).iterator, None)
@@ -42,7 +45,7 @@ class DynamoDBRelationIO extends RelationIO[Effect, ResultOps] {
 
   def usingResults[A](rs: DynamoDBResultSet, op: ResultOps[A]): Effect[A] = Reader { _ => op.runA(rs).value }
 
-  val resultSetOperations: ResultSetOps[ResultOps, DynamoDBColumn] = new ResultSetOps[ResultOps, DynamoDBColumn] {
+  val rsOps: ResultSetOps[ResultOps, DynamoDBColumn] = new ResultSetOps[ResultOps, DynamoDBColumn] {
     val MS = MonadState[ResultOps, DynamoDBResultSet]
 
     import MS._

@@ -98,7 +98,7 @@ class CassandraRelationIO extends RelationIO[Effect, ResultSetT] {
 
   type RS = CassandraResultSet
 
-  val resultSetOperations = new ResultSetOps[ResultSetT, CassandraColumn] {
+  val rsOps = new ResultSetOps[ResultSetT, CassandraColumn] {
 
     val MS = MonadState[ResultSetT, CassandraResultSet]
 
@@ -132,12 +132,12 @@ class CassandraRelationIO extends RelationIO[Effect, ResultSetT] {
 
   def usingResults[A](rs: CassandraResultSet, op: ResultSetT[A]) = ReaderT(_ => Task.now(op.runA(rs).value))
 
-  def valueFromQP[A](qp: QP[A]): AnyRef = qp match {
+  def valueFromQP[A](qp: QP): AnyRef = qp.v match {
     case Some((v, colT)) => colT.binding(v)
     case None => null
   }
 
-  def query(q: RelationQuery, params: Iterable[QP[Any]]) = ReaderT { sc =>
+  def query(q: RelationQuery, params: Iterable[QP]) = ReaderT { sc =>
     for {
       ps <- sc.prepareQuery(q)
       binds = params.toSeq.map(valueFromQP)

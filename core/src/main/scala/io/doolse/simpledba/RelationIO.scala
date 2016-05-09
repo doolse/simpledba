@@ -37,14 +37,22 @@ object RelationIO {
     type CT[A] = CT0[A]
   }
 }
+
+
 abstract class RelationIO[F[_], RSOps[_]] {
   type CT[T]
-  type QP[T] = Option[(T, CT[T])]
+  trait QP {
+    type T
+    val v: Option[(T, CT[T])]
+  }
   type RS
-  val resultSetOperations : ResultSetOps[RSOps, CT]
-  def query(q: RelationQuery, params: Iterable[QP[Any]]) : F[RS]
+  val rsOps : ResultSetOps[RSOps, CT]
+  def query(q: RelationQuery, params: Iterable[QP]) : F[RS]
   def usingResults[A](rs: RS, op: RSOps[A]): F[A]
-  def parameter[T](c: CT[T], v: T) : QP[T] = Option((v, c))
+  def parameter[T0](c: CT[T0], v0: T0) : QP = new QP {
+    type T = T0
+    val v = Option((v0, c))
+  }
 }
 
 abstract class ResultSetOps[F[_], CT[_]] {

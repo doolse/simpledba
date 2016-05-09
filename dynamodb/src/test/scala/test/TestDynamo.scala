@@ -32,6 +32,7 @@ object TestDynamo extends App {
 
   val table = mapper.table[Inst]("institution").key('uniqueid)
   val pt = mapper.physicalTable(table)
+  val queries = mapper.queries(pt).key[Long]
 
   Try { client.deleteTable("institution") }
   client.createTable(mapper.genDDL(pt))
@@ -43,6 +44,6 @@ object TestDynamo extends App {
     "enabled" -> new AttributeValue().withBOOL(true)
   ).asJava)
 
-  val q = TestQuery.doQueryWithTable(mapper)(pt, HList(517573426L))
+  val q = TestQuery.insertAndQuery(queries, Inst(517573426L, "ok", true), 517573426L)
   println(q.run(DynamoDBSession(client)))
 }

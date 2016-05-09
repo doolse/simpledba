@@ -12,7 +12,8 @@ import scala.collection.JavaConverters._
   */
 
 class DynamoDBMapper extends RelationMapper[Effect, ResultOps] {
-  val relIO = new DynamoDBRelationIO
+  val connection = new DynamoDBRelationIO
+  val resultSet = connection.rsOps
 
   type DDL = CreateTableRequest
   type CT[A] = DynamoDBColumn[A]
@@ -32,10 +33,10 @@ class DynamoDBMapper extends RelationMapper[Effect, ResultOps] {
   (implicit fullKeyQ: KeyQueryBuilder.Aux[TR, K, FKV])
   : KeySelector.Aux[T, TR, V, (K, SK), TR, V, FKV, FKV]
   = new KeySelector[T, TR, V, (K, SK)] {
-    type Out = (TR, KeyQuery[FKV], KeyQuery[FKV], V => V)
+    type Out = (TR, KeyQuery[FKV], KeyQuery[FKV], V => V, V => V)
 
     def apply(columns: TR): Out = {
-      (columns, fullKeyQ(columns), fullKeyQ(columns), identity)
+      (columns, fullKeyQ(columns), fullKeyQ(columns), identity, identity)
     }
   }
 
