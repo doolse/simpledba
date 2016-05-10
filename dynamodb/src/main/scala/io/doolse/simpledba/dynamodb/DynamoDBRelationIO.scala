@@ -22,6 +22,7 @@ case class DynamoDBSession(client: AmazonDynamoDBClient)
 object DynamoDBRelationIO {
   type Effect[A] = Reader[DynamoDBSession, A]
   type ResultOps[A] = State[DynamoDBResultSet, A]
+  def apply() : RelationIO.Aux[Effect, ResultOps, DynamoDBColumn] = new DynamoDBRelationIO()
 }
 
 class DynamoDBRelationIO extends RelationIO[Effect, ResultOps] {
