@@ -15,6 +15,12 @@ import scala.collection.JavaConversions._
 
 case class DynamoDBColumn[T](from: AttributeValue => T, to: T => AttributeValue, attributeType: ScalarAttributeType)
 
+object DynamoDBColumn {
+  implicit val longColumn = DynamoDBColumn[Long](_.getN.toLong, l => new AttributeValue().withN(l.toString), ScalarAttributeType.N)
+  implicit val boolColumn = DynamoDBColumn[Boolean](_.getBOOL, b => new AttributeValue().withBOOL(b), ScalarAttributeType.S)
+  implicit val stringColumn = DynamoDBColumn[String](_.getS, new AttributeValue(_), ScalarAttributeType.S)
+}
+
 case class DynamoDBResultSet(rs: Iterator[Map[String, AttributeValue]], row: Option[Map[String, AttributeValue]])
 
 case class DynamoDBSession(client: AmazonDynamoDBClient)

@@ -1,18 +1,23 @@
 package io.doolse.simpledba
 
+import cats.{Applicative, Monad}
+import cats.sequence._
+import cats.syntax.functor._
+import cats.std.option._
 import shapeless.labelled._
 import shapeless._
-import shapeless.ops.adjoin.Adjoin
-import shapeless.ops.hlist.{Comapped, Mapper, Prepend, ZipConst}
+import shapeless.ops.hlist.{Comapped, Drop, Length, Mapped, Mapper, Prepend, Take, ZipConst}
 import shapeless.ops.record.{Keys, SelectAll, Selector, Values}
+import shapeless.UnaryTCConstraint._
 
 import scala.annotation.implicitNotFound
 import scala.reflect.ClassTag
+import scala.reflect.runtime.universe.TypeTag
 
 /**
   * Created by jolz on 10/05/16.
   */
-class Mapper2[F[_], RSOps[_], PhysCol[_]](val connection: RelationIO.Aux[F, RSOps, PhysCol]) {
+class Mapper2[F[_], RSOps[_] : Monad, PhysCol[_]](val connection: RelationIO.Aux[F, RSOps, PhysCol]) {
   type QueryParam = connection.QP
 
   trait ColumnAtom[A] {
@@ -31,104 +36,124 @@ class Mapper2[F[_], RSOps[_], PhysCol[_]](val connection: RelationIO.Aux[F, RSOp
     }
   }
 
-  trait ColumnMapping[A] {
-    type S
-
-    def columnName: ColumnName
-
-    def atom: ColumnAtom[A]
-
-    def get(t: S): A
-
-    override def toString = s"('${columnName.name}',${atom})"
-  }
-
-  object ColumnMapping {
-    type Aux[A, S0] = ColumnMapping[A] {
-      type S = S0
-    }
+  case class ColumnMapping[S, A](name: ColumnName, atom: ColumnAtom[A], get: S => A)(implicit tt: TypeTag[S]) {
+    override def toString = s"('${name.name}',$atom,$tt)"
   }
 
   @implicitNotFound("Failed to find mapper for ${A}")
-  trait ColumnMapper[A] extends DepFn0 {
-    type Out <: HList
+  trait ColumnMapper[A] {
+    type Columns <: HList
+    type ColumnsValues <: HList
+
+    def columns: Columns
+
+    def fromValues: ColumnsValues => A
+  }
+
+  object composeLens extends Poly1 {
+    implicit def convertLens[T, T2, K, A](implicit tt: TypeTag[T]) = at[(FieldType[K, ColumnMapping[T2, A]], T => T2)] {
+      case (colMapping, lens) => field[K](colMapping.copy[T, A](get = colMapping.get compose lens))
+    }
   }
 
   object ColumnMapper {
-    type Aux[A, Out0 <: HList] = ColumnMapper[A] {
-      type Out = Out0
+    type Aux[A, Columns0 <: HList, ColumnsValues0 <: HList] = ColumnMapper[A] {
+      type Columns = Columns0
+      type ColumnsValues = ColumnsValues0
     }
 
-    implicit def hnilMapper[TopLevel] = new ColumnMapper[(TopLevel, HNil)] {
-      type Out = HNil
+    implicit val hnilMapper: ColumnMapper.Aux[HNil, HNil, HNil] = new ColumnMapper[HNil] {
+      type Columns = HNil
+      type ColumnsValues = HNil
 
-      def apply(): Out = HNil
+      def columns = HNil
+
+      def fromValues = identity
     }
 
-    implicit def singleColumnMapper[K <: Symbol, H, T <: HList, S0 <: HList]
-    (implicit colName: Witness.Aux[K], headAtom: ColumnAtom[H], tailMapper: ColumnMapper[(S0, T)],
-     select: MkRecordSelectLens.Aux[S0, K, H]) =
-      new ColumnMapper[(S0, FieldType[K, H] :: T)] {
-        type Out = FieldType[K, ColumnMapping.Aux[H, S0]] :: tailMapper.Out
+    implicit def singleColumn[K <: Symbol, V](implicit atom: ColumnAtom[V], key: Witness.Aux[K], tt: TypeTag[FieldType[K, V]]):
+    ColumnMapper.Aux[FieldType[K, V], FieldType[K, ColumnMapping[FieldType[K, V], V]] :: HNil, V :: HNil] = new ColumnMapper[FieldType[K, V]] {
+      type Columns = FieldType[K, ColumnMapping[FieldType[K, V], V]] :: HNil
+      type ColumnsValues = V :: HNil
 
-        def apply(): Out = {
-          val headField = field[K](new ColumnMapping[H] {
-            type S = S0
+      def columns = field[K](ColumnMapping[FieldType[K, V], V](ColumnName(key.value.name), atom, fv => fv: V)) :: HNil
 
-            def columnName: ColumnName = ColumnName(colName.value.name)
+      def fromValues = v => field[K](v.head)
+    }
 
-            def atom: ColumnAtom[H] = headAtom
+    implicit def genericColumn[T, Repr <: HList, Columns0 <: HList, ColumnsValues0 <: HList, ColumnsZ <: HList]
+    (implicit lgen: LabelledGeneric.Aux[T, Repr], mapping: ColumnMapper.Aux[Repr, Columns0, ColumnsValues0],
+     zipWithLens: ZipConst.Aux[T => Repr, Columns0, ColumnsZ], mapper: Mapper[composeLens.type, ColumnsZ]
+    ): Aux[T, mapper.Out, ColumnsValues0]
+    = new ColumnMapper[T] {
+      type Columns = mapper.Out
+      type ColumnsValues = ColumnsValues0
 
-            def get(t: S): H = select().get(t)
-          })
-          headField :: tailMapper()
-        }
-      }
+      def columns = mapper(zipWithLens(lgen.to, mapping.columns))
 
-    implicit def genericMapper[K <: Symbol, H, T <: HList, HRepr, S <: HList,
-    SubColumns <: HList, SubColumnsZipped <: HList, SubColumnsLensed <: HList, TailOut <: HList]
-    (implicit headRecord: LabelledGeneric.Aux[H, HRepr],
-     tailMapper: ColumnMapper.Aux[(S, T), TailOut],
-     select: MkRecordSelectLens.Aux[S, K, H],
-     childMappings: ColumnMapper.Aux[(HRepr, HRepr), SubColumns],
-     zippedWithLens: ZipConst.Aux[S => HRepr, SubColumns, SubColumnsZipped],
-     lensed: Mapper.Aux[composeSubColumns.type, SubColumnsZipped, SubColumnsLensed],
-     prepend: Prepend[SubColumnsLensed, TailOut]
-    ): ColumnMapper.Aux[(S, FieldType[K, H] :: T), prepend.Out] =
-      new ColumnMapper[(S, FieldType[K, H] :: T)] {
-        type Out = prepend.Out
+      def fromValues = v => lgen.from(mapping.fromValues(v))
+    }
 
-        def apply() = prepend(lensed(zippedWithLens(select().get _ andThen headRecord.to, childMappings())), tailMapper())
-      }
+    implicit def multiColumn[K <: Symbol, V, Columns0 <: HList, ColumnsValues0 <: HList, CZ <: HList]
+    (implicit mapping: ColumnMapper.Aux[V, Columns0, ColumnsValues0],
+     zipWithLens: ZipConst.Aux[FieldType[K, V] => V, Columns0, CZ], mapper: Mapper[composeLens.type, CZ]) = new ColumnMapper[FieldType[K, V]] {
+      type Columns = mapper.Out
+      type ColumnsValues = ColumnsValues0
 
-    object composeSubColumns extends Poly1 {
-      implicit def mapToTopLevel[K, S2, A, S0] = at[(FieldType[K, ColumnMapping.Aux[A, S2]], S0 => S2)] {
-        case (mapping, lens) => field[K](new ColumnMapping[A] {
-          type S = S0
+      def columns = mapper(zipWithLens(v => v: V, mapping.columns))
 
-          def columnName: ColumnName = mapping.columnName
+      def fromValues = v => field[K](mapping.fromValues(v))
+    }
 
-          def atom: ColumnAtom[A] = mapping.atom
+    implicit def hconsMapper[H, T <: HList,
+    HC <: HList, HCZ <: HList, HCM <: HList,
+    TC <: HList, TCZ <: HList, TCM <: HList,
+    HV <: HList, TV <: HList,
+    OutV <: HList, LenHV <: Nat]
+    (implicit headMapper: ColumnMapper.Aux[H, HC, HV], tailMapper: ColumnMapper.Aux[T, TC, TV], tt: TypeTag[T],
+     zipHeadLens: ZipConst.Aux[H :: T => H, HC, HCZ], zipTailLens: ZipConst.Aux[H :: T => T, TC, TCZ],
+     mappedHead: Mapper.Aux[composeLens.type, HCZ, HCM], mappedTail: Mapper.Aux[composeLens.type, TCZ, TCM],
+     prependC: Prepend[HCM, TCM], prependV: Prepend.Aux[HV, TV, OutV],
+     lenH: Length.Aux[HV, LenHV], headVals: Take.Aux[OutV, LenHV, HV], tailVals: Drop.Aux[OutV, LenHV, TV])
+    : ColumnMapper.Aux[H :: T, prependC.Out, OutV] = {
+      new ColumnMapper[H :: T] {
+        type Columns = prependC.Out
+        type ColumnsValues = OutV
 
-          def get(t: S): A = mapping.get(lens(t))
-        })
+        def columns = prependC(mappedHead(zipHeadLens(_.head, headMapper.columns)), mappedTail(zipTailLens(_.tail, tailMapper.columns)))
+
+        def fromValues = v => headMapper.fromValues(headVals(v)) :: tailMapper.fromValues(tailVals(v))
       }
     }
 
   }
 
-  case class Relation[T, Repr <: HList, Columns <: HList, Keys <: HList](baseName: String, lgen: LabelledGeneric.Aux[T, Repr],
-                                                                         mapper: ColumnMapper.Aux[(Repr, Repr), Columns], keys: Keys) {
-    def key(k: Witness)(implicit ev: Selector[Columns, k.T]) = copy[T, Repr, Columns, k.T :: Keys](keys = k.value :: keys)
+  object columnMappingToRS extends Poly1 {
+    implicit def mappingToRS[S, A] = at[ColumnMapping[S, A]](cm => cm.atom.getColumn(cm.name))
+  }
 
-    def compositeKey(k1: Witness, k2: Witness)(implicit ev: SelectAll[Columns, k1.T :: k2.T :: HNil]) = copy[T, Repr, Columns, k1.T :: k2.T :: Keys](keys = k1.value :: k2.value :: keys)
+  case class Relation[T, Repr <: HList, Columns <: HList, Keys <: HList, AllValues <: HList](baseName: String,
+                                                                                             mapper: ColumnMapper.Aux[T, Columns, AllValues], keys: Keys) {
+    def key(k: Witness)(implicit ev: Selector[Columns, k.T]) = copy[T, Repr, Columns, k.T :: Keys, AllValues](keys = k.value :: keys)
 
-    def queryByPK[Sel <: HList](implicit allColumns: SelectAll.Aux[Columns, Keys, Sel]) = ???
+    def compositeKey(k1: Witness, k2: Witness)(implicit ev: SelectAll[Columns, k1.T :: k2.T :: HNil]) =
+      copy[T, Repr, Columns, k1.T :: k2.T :: Keys, AllValues](keys = k1.value :: k2.value :: keys)
+
+    private implicit val opApp = Applicative[Option]
+    def fromRS[ColumnsOnly <: HList, OutRS <: HList, Sequenced <: HList]
+    (implicit values: Values.Aux[Columns, ColumnsOnly],
+     traverser: Traverser.Aux[ColumnsOnly, columnMappingToRS.type, RSOps[OutRS]],
+     sequenceOps: Sequencer.Aux[OutRS, Option[AllValues]]
+    ): RSOps[Option[T]] =
+      traverser(values(mapper.columns)).map(rs => sequenceOps(rs).map(mapper.fromValues))
+
+    def queryByPK[Sel <: HList](implicit selectAll: Values[Columns]) = selectAll(mapper.columns)
   }
 
   class RelationPartial[T] {
-    def apply[Repr <: HList, Columns <: HList](name: String)(implicit lgen: LabelledGeneric.Aux[T, Repr],
-                                                             mapper: ColumnMapper.Aux[(Repr, Repr), Columns]): Relation[T, Repr, Columns, HNil] = Relation(name, lgen, mapper, HNil)
+    def apply[Repr <: HList, Columns <: HList, ColumnsValues <: HList]
+    (name: String)(implicit lgen: LabelledGeneric.Aux[T, Repr],
+                   mapper: ColumnMapper.Aux[T, Columns, ColumnsValues]): Relation[T, Repr, Columns, HNil, ColumnsValues] = Relation(name, mapper, HNil)
   }
 
   def relation[T] = new RelationPartial[T]

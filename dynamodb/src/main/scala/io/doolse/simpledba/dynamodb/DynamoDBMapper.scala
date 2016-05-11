@@ -18,10 +18,6 @@ class DynamoDBMapper extends RelationMapper[Effect, ResultOps] {
   type DDL = CreateTableRequest
   type CT[A] = DynamoDBColumn[A]
 
-  implicit val longColumn = DynamoDBColumn[Long](_.getN.toLong, l => new AttributeValue().withN(l.toString), ScalarAttributeType.N)
-  implicit val boolColumn = DynamoDBColumn[Boolean](_.getBOOL, b => new AttributeValue().withBOOL(b), ScalarAttributeType.S)
-  implicit val stringColumn = DynamoDBColumn[String](_.getS, new AttributeValue(_), ScalarAttributeType.S)
-
   def genDDL(physicalTable: PhysicalTable[_, _, _]): CreateTableRequest = {
     val keyList = physicalTable.columns.filter(_.meta.columnType == PartitionKey)
     val attrs = keyList.map(c => new AttributeDefinition(c.meta.name, c.column.column.attributeType))
