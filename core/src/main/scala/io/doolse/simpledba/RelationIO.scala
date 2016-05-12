@@ -32,13 +32,6 @@ case class InsertQuery(table: String, columns: List[ColumnName]) extends Relatio
 case class UpdateQuery(table: String, updatedFields: List[ColumnName], keyColumns: List[ColumnName]) extends RelationWriteQuery
 case class DeleteQuery(table: String, keyColumns: List[ColumnName]) extends RelationWriteQuery
 
-object RelationIO {
-  type Aux[F0[_], RSOps0[_], CT0[_]] = RelationIO[F0, RSOps0] {
-    type CT[A] = CT0[A]
-  }
-}
-
-
 abstract class RelationIO[F[_], RSOps[_]] {
   type CT[T]
   trait QP {
@@ -52,6 +45,12 @@ abstract class RelationIO[F[_], RSOps[_]] {
   def parameter[T0](c: CT[T0], v0: T0) : QP = new QP {
     type T = T0
     val v = Option((v0, c))
+  }
+}
+
+object RelationIO {
+  type Aux[F0[_], RSOps0[_], CT0[_]] = RelationIO[F0, RSOps0] {
+    type CT[A] = CT0[A]
   }
 }
 
