@@ -6,7 +6,7 @@ import cats.syntax.functor._
 import cats.std.option._
 import shapeless.labelled._
 import shapeless._
-import shapeless.ops.hlist.{Comapped, Drop, Length, Mapped, Mapper, Prepend, Take, ZipConst}
+import shapeless.ops.hlist.{Comapped, Drop, Length, Mapped, Mapper, Prepend, Take, ToList, ZipConst, ZipWithKeys}
 import shapeless.ops.record._
 import shapeless.UnaryTCConstraint._
 
@@ -17,8 +17,9 @@ import scala.reflect.runtime.universe.TypeTag
 /**
   * Created by jolz on 10/05/16.
   */
-class Mapper2[F[_], RSOps[_] : Monad, PhysCol[_], DDL[_]: Monad](val connection: RelationIO.Aux[F, RSOps, PhysCol]) {
+abstract class Mapper2[F[_], RSOps[_] : Monad, PhysCol[_]](val connection: RelationIO.Aux[F, RSOps, PhysCol]) {
   type QueryParam = connection.QP
+  type DDL[A]
 
   trait ColumnAtom[A] {
     def getColumn(cr: ColumnReference): RSOps[Option[A]]
@@ -40,6 +41,21 @@ class Mapper2[F[_], RSOps[_] : Monad, PhysCol[_], DDL[_]: Monad](val connection:
     override def toString = s"('${name.name}',$atom,$tt)"
   }
 
+  trait ColumnValuesType[L <: HList] {
+    type Out <: HList
+  }
+
+  object ColumnValuesType {
+    implicit val hnilColumnType = new ColumnValuesType[HNil] {
+      type Out = HNil
+    }
+
+    implicit def hconsColumnType[S, K, V, T <: HList](implicit tailTypes: ColumnValuesType[T])
+    = new ColumnValuesType[(FieldType[K, ColumnMapping[S, V]]) :: T] {
+      type Out = V :: tailTypes.Out
+    }
+  }
+
   @implicitNotFound("Failed to find mapper for ${A}")
   trait ColumnMapper[A] {
     type Columns <: HList
@@ -48,6 +64,54 @@ class Mapper2[F[_], RSOps[_] : Monad, PhysCol[_], DDL[_]: Monad](val connection:
     def columns: Columns
 
     def fromValues: ColumnsValues => A
+  }
+
+  trait GenericColumnMapper[T] {
+    type Columns <: HList
+    type ColumnsValues <: HList
+    def apply(): ColumnMapper.Aux[T, Columns, ColumnsValues]
+  }
+
+  object GenericColumnMapper {
+    def apply[T](implicit genMapper: GenericColumnMapper[T]): ColumnMapper.Aux[T, genMapper.Columns, genMapper.ColumnsValues] = genMapper.apply()
+
+    type Aux[T, Columns0 <: HList, ColumnsValues0 <: HList] = GenericColumnMapper[T] {
+    type Columns = Columns0
+    type ColumnsValues = ColumnsValues0
+    }
+
+    implicit def genericColumn[T, Repr <: HList, Columns0 <: HList, ColumnsValues0 <: HList, ColumnsZ <: HList]
+    (implicit lgen: LabelledGeneric.Aux[T, Repr], mapping: ColumnMapper.Aux[Repr, Columns0, ColumnsValues0],
+                                         zipWithLens: ZipConst.Aux[T => Repr, Columns0, ColumnsZ], mapper: Mapper[composeLens.type, ColumnsZ]
+    ): Aux[T, mapper.Out, ColumnsValues0]
+    = new GenericColumnMapper[T] {
+      type Columns = mapper.Out
+      type ColumnsValues = ColumnsValues0
+
+      def apply() = new ColumnMapper[T] {
+        type Columns = mapper.Out
+        type ColumnsValues = ColumnsValues0
+
+        def columns = mapper(zipWithLens(lgen.to, mapping.columns))
+
+        def fromValues = v => lgen.from(mapping.fromValues(v))
+      }
+    }
+  }
+
+  trait ColumnNames[Columns <: HList] extends (Columns => List[ColumnName])
+  object ColumnNames {
+    implicit def columnNames[L <: HList, LM <: HList](implicit mapper: Mapper.Aux[columnNamesFromColumnRecords.type, L, LM], toList: ToList[LM, ColumnName]) = new ColumnNames[L] {
+      def apply(columns: L): List[ColumnName] = toList(mapper(columns))
+    }
+  }
+
+  object columnNamesFromColumnRecords extends Poly1 {
+    implicit def mappingToName[K, S, A] = at[FieldType[K, ColumnMapping[S, A]]](_.name)
+  }
+
+  object columnMappingToRS extends Poly1 {
+    implicit def mappingToRS[S, A] = at[ColumnMapping[S, A]](cm => cm.atom.getColumn(cm.name))
   }
 
   object composeLens extends Poly1 {
@@ -81,18 +145,6 @@ class Mapper2[F[_], RSOps[_] : Monad, PhysCol[_], DDL[_]: Monad](val connection:
       def fromValues = v => field[K](v.head)
     }
 
-    implicit def genericColumn[T, Repr <: HList, Columns0 <: HList, ColumnsValues0 <: HList, ColumnsZ <: HList]
-    (implicit lgen: LabelledGeneric.Aux[T, Repr], mapping: ColumnMapper.Aux[Repr, Columns0, ColumnsValues0],
-     zipWithLens: ZipConst.Aux[T => Repr, Columns0, ColumnsZ], mapper: Mapper[composeLens.type, ColumnsZ]
-    ): Aux[T, mapper.Out, ColumnsValues0]
-    = new ColumnMapper[T] {
-      type Columns = mapper.Out
-      type ColumnsValues = ColumnsValues0
-
-      def columns = mapper(zipWithLens(lgen.to, mapping.columns))
-
-      def fromValues = v => lgen.from(mapping.fromValues(v))
-    }
 
     implicit def multiColumn[K <: Symbol, V, Columns0 <: HList, ColumnsValues0 <: HList, CZ <: HList]
     (implicit mapping: ColumnMapper.Aux[V, Columns0, ColumnsValues0],
@@ -128,56 +180,80 @@ class Mapper2[F[_], RSOps[_] : Monad, PhysCol[_], DDL[_]: Monad](val connection:
 
   }
 
-  object columnMappingToRS extends Poly1 {
-    implicit def mappingToRS[S, A] = at[ColumnMapping[S, A]](cm => cm.atom.getColumn(cm.name))
-  }
 
   case class SingleQuery[T, KeyValues](query: KeyValues => F[Option[T]]) {
-    def as[K](implicit vc: ValueConvert[KeyValues, K]) = copy[T, K]()
+    def as[K](implicit vc: ValueConvert[K, KeyValues]) = copy[T, K](query = query compose vc)
   }
 
   case class MultiQuery[T, KeyValues](query: KeyValues => F[Option[T]]) {
-    def as[K](implicit vc: ValueConvert[KeyValues, K]) = copy[T, K]()
+    def as[K](implicit vc: ValueConvert[K, KeyValues]) = copy[T, K](query = query compose vc)
   }
 
-  trait PhysicalMapping[T, Columns <: HList, ColumnsValues <: HList, Keys <: HList, SelectedKeys <: HList] extends DepFn1 {
-    type Out = DDL[]
+  case class WriteQueries[T](insert: T => F[Unit], update: (T, T) => F[Boolean], delete: T => F[Unit])
+
+  trait RelationOperations[T, Key] {
+    def tableName: String
+
+    def fromResultSet: RSOps[Option[T]]
+
+    def allColumns: List[ColumnName]
+
+    def keyColumns: List[ColumnName]
+
+    def parameters(key: Key): Iterable[QueryParam]
   }
 
-  trait RelationBuilder[T, Columns <: HList, ColumnsValues <: HList, Keys <: HList] {
-    type KeyValues <: HList
-    def mapper: ColumnMapper.Aux[T, Columns, ColumnsValues]
-    def queryByKey : SingleQuery[T, KeyValues]
-    def queryByKeyColumns[K <: HList](k: K)
+  trait PhysicalMapping[T, Columns <: HList, ColumnsValues <: HList, Keys <: HList, SelectedKeys]
+    extends DepFn1[RelationBuilder[T, Columns, ColumnsValues, Keys]] {
+    type KeyValues
+    type Out = DDL[RelationOperations[T, KeyValues]]
   }
 
+  object PhysicalMapping {
+    type Aux[T, Columns <: HList, ColumnsValues <: HList, Keys <: HList, SelectedKeys, KeyValues0] =
+    PhysicalMapping[T, Columns, ColumnsValues, Keys, SelectedKeys] {type KeyValues = KeyValues0}
+  }
 
-//
-//    private implicit val opApp = Applicative[Option]
-//    def fromRS[ColumnsOnly <: HList, OutRS <: HList, Sequenced <: HList]
-//    (implicit values: Values.Aux[Columns, ColumnsOnly],
-//     traverser: Traverser.Aux[ColumnsOnly, columnMappingToRS.type, RSOps[OutRS]],
-//     sequenceOps: Sequencer.Aux[OutRS, Option[AllValues]]
-//    ): RSOps[Option[T]] =
-//      traverser(values(mapper.columns)).map(rs => sequenceOps(rs).map(mapper.fromValues))
-//
-//    def queryByPK[Sel <: HList](implicit selectAll: Values[Columns]) = selectAll(mapper.columns)
-//  }
+  case class RelationBuilder[T, Columns <: HList, ColumnsValues <: HList, Keys <: HList]
+  (baseName: String, mapper: ColumnMapper.Aux[T, Columns, ColumnsValues]) {
+
+    def queryByKey[KeyValues <: HList]
+    (implicit
+     physicalMapping: PhysicalMapping.Aux[T, Columns, ColumnsValues, Keys, Keys, KeyValues]): DDL[SingleQuery[T, KeyValues]] = ???
+
+    def queryAllByKeyColumns[K <: HList](k: K) = ???
+
+    def writeQueries: DDL[WriteQueries[T]] = ???
+  }
+
+  //
+  //    private implicit val opApp = Applicative[Option]
+  //    def fromRS[ColumnsOnly <: HList, OutRS <: HList, Sequenced <: HList]
+  //    (implicit values: Values.Aux[Columns, ColumnsOnly],
+  //     traverser: Traverser.Aux[ColumnsOnly, columnMappingToRS.type, RSOps[OutRS]],
+  //     sequenceOps: Sequencer.Aux[OutRS, Option[AllValues]]
+  //    ): RSOps[Option[T]] =
+  //      traverser(values(mapper.columns)).map(rs => sequenceOps(rs).map(mapper.fromValues))
+  //
+  //    def queryByPK[Sel <: HList](implicit selectAll: Values[Columns]) = selectAll(mapper.columns)
+  //  }
 
   class RelationPartial[T] {
-    case class RelationPartial2[T, Columns <: HList, AllValues <: HList](baseName: String, mapper: ColumnMapper.Aux[T, Columns, AllValues]) extends SingletonProductArgs {
-      //  {
-      def key(k: Witness)(implicit rel: Selector[Columns, k.T]) = copy[T, Repr, Columns, k.T :: Keys, AllValues](keys = k.value :: keys)
 
-      def keys(k1: Witness, k2: Witness)(implicit ev: SelectAll[Columns, k1.T :: k2.T :: HNil]) =
-        copy[T, Repr, Columns, k1.T :: k2.T :: Keys, AllValues](keys = k1.value :: k2.value :: keys)
+    case class RelationBuilderPartial[T, Columns <: HList, ColumnsValues <: HList]
+    (baseName: String, mapper: ColumnMapper.Aux[T, Columns, ColumnsValues]) extends SingletonProductArgs {
+      def key[K](k: Witness)(implicit ev: Selector[Columns, k.T]): RelationBuilder[T, Columns, ColumnsValues, k.T :: HNil] =
+        RelationBuilder[T, Columns, ColumnsValues, k.T :: HNil](baseName, mapper)
 
+      def keys(k1: Witness, k2: Witness)
+              (implicit
+               ev: SelectAllRecord[Columns, k1.T :: k2.T :: HNil]): RelationBuilder[T, Columns, ColumnsValues, k1.T :: k2.T :: HNil]
+      = RelationBuilder[T, Columns, ColumnsValues, k1.T :: k2.T :: HNil](baseName, mapper)
     }
 
 
-    def apply[Repr <: HList, Columns <: HList, ColumnsValues <: HList]
-    (name: String)(implicit lgen: LabelledGeneric.Aux[T, Repr],
-                   mapper: ColumnMapper.Aux[T, Columns, ColumnsValues]): Relation[T, Repr, Columns, HNil, ColumnsValues] = Relation(name, mapper, HNil)
+    def apply[Columns <: HList, ColumnsValues <: HList](name: String)(implicit gen: GenericColumnMapper.Aux[T, Columns, ColumnsValues])
+    : RelationBuilderPartial[T, Columns, ColumnsValues] = RelationBuilderPartial(name, gen())
   }
 
   def relation[T] = new RelationPartial[T]
