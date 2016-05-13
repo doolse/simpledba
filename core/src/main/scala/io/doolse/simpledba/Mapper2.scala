@@ -3,8 +3,7 @@ package io.doolse.simpledba
 import cats.data.Xor
 import cats.{Applicative, Monad}
 import cats.sequence.{Traverser, _}
-import cats.syntax.functor._
-import cats.syntax.flatMap._
+import cats.syntax.all._
 import cats.std.option._
 import shapeless.labelled._
 import shapeless._
@@ -271,7 +270,7 @@ abstract class Mapper2[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val connectio
 
     def keyFromValue(value: T): Key
 
-    def diff(value1: T, value2: T): Xor[Iterable[QueryParam], List[ColumnDifference]]
+    def diff(value1: T, value2: T): Xor[Iterable[QueryParam], (List[ColumnDifference], Iterable[QueryParam])]
 
     def allParameters(value: T): Iterable[QueryParam]
   }
@@ -320,8 +319,9 @@ abstract class Mapper2[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val connectio
         def insert(t: T) = connection.query(insertQuery, relation.allParameters(t)).map(_ => ())
         def delete(t: T) = connection.query(deleteQuery, relation.keyParametersFromValue(t)).map(_ => ())
         def update(orig: T, value: T): F[Boolean] = if (orig == value) Monad[F].pure(false) else {
-          relation.diff(orig, value).map { diffs =>
-            connection.query(UpdateQuery(relation.tableName, diffs.map(_.name), relation.keyColumns), diffs.map(_.qp)).map(_ => true)
+          relation.diff(orig, value).map {
+            case (diffs, keyParams) =>
+              connection.query(UpdateQuery(relation.tableName, diffs.map(_.name), relation.keyColumns), diffs.map(_.qp) ++ keyParams) map(_ => true)
           } valueOr { deleteParams =>
             connection.query(deleteQuery, deleteParams).flatMap(_ => insert(value)).map(_ => true)
           }
@@ -329,7 +329,7 @@ abstract class Mapper2[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val connectio
         WriteQueries[T](insert, update, delete)
       }
       queries.reduce {
-        (a, b) => WriteQueries(t => a.insert(t).flatMap(_ => b.insert(t)), 
+        (a, b) => WriteQueries(t => a.insert(t).flatMap(_ => b.insert(t)),
           (t1, t2) => a.update(t1, t2).flatMap(changed => b.update(t1, t2).map(_||changed)),
           t => a.delete(t).flatMap(_ => b.delete(t)))
       }

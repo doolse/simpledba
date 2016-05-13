@@ -3,9 +3,10 @@ package io.doolse.simpledba.dynamodb
 import cats.{Id, MonadState}
 import cats.data.{Reader, State}
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient
-import com.amazonaws.services.dynamodbv2.model.{AttributeValue, ScalarAttributeType}
+import com.amazonaws.services.dynamodbv2.model.{AttributeAction, AttributeValue, AttributeValueUpdate, ScalarAttributeType}
 import io.doolse.simpledba.dynamodb.DynamoDBRelationIO.{Effect, ResultOps}
 import io.doolse.simpledba._
+
 import scala.collection.JavaConverters._
 import scala.collection.JavaConversions._
 
@@ -28,25 +29,37 @@ case class DynamoDBSession(client: AmazonDynamoDBClient)
 object DynamoDBRelationIO {
   type Effect[A] = Reader[DynamoDBSession, A]
   type ResultOps[A] = State[DynamoDBResultSet, A]
-  def apply() : RelationIO.Aux[Effect, ResultOps, DynamoDBColumn] = new DynamoDBRelationIO()
+
+  def apply(): RelationIO.Aux[Effect, ResultOps, DynamoDBColumn] = new DynamoDBRelationIO()
 }
 
 class DynamoDBRelationIO extends RelationIO[Effect, ResultOps] {
   type CT[A] = DynamoDBColumn[A]
   type RS = DynamoDBResultSet
 
+  def toAttributeMap(names: List[ColumnName], params: Iterable[QP]) =
+    names.zip(params).map(qpToAttr).toMap
+
   def qpToAttr[A](cn: (ColumnName, QP)): (String, AttributeValue) =
     cn._1.name -> cn._2.v.map(t => t._2.to(t._1)).getOrElse(new AttributeValue().withNULL(true))
 
-  def query(q: RelationQuery, params: Iterable[QP]): Effect[DynamoDBResultSet] = Reader {
-    s => q match {
+  def query(q: RelationQuery, params: Iterable[QP]): Effect[DynamoDBResultSet] = Reader { s =>
+    println(s"$q $params")
+    q match {
       case InsertQuery(table, columns) =>
-        val valMap = columns.zip(params).map(qpToAttr).toMap
-        s.client.putItem(table, valMap.asJava)
+        s.client.putItem(table, toAttributeMap(columns, params).asJava)
+        DynamoDBResultSet(Iterator.empty, None)
+      case DeleteQuery(table, keyColumns) =>
+        s.client.deleteItem(table, toAttributeMap(keyColumns, params).asJava)
         DynamoDBResultSet(Iterator.empty, None)
       case SelectQuery(table, columns, keyColumns, sortedBy) =>
         val keys = keyColumns.zip(params).map(qpToAttr).toMap
         DynamoDBResultSet(Some(s.client.getItem(table, keys.asJava).getItem.asScala.toMap).iterator, None)
+      case UpdateQuery(table, columns, keyColumns) =>
+        val (updateParams, keyParams) = params.splitAt(columns.size)
+        val updates = toAttributeMap(columns, updateParams).map(nv => (nv._1, new AttributeValueUpdate(nv._2, AttributeAction.PUT)))
+        s.client.updateItem(table, toAttributeMap(keyColumns, keyParams).asJava, updates.asJava)
+        DynamoDBResultSet(Iterator.empty, None)
     }
   }
 

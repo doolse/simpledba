@@ -61,7 +61,7 @@ class DynamoDBMapper2 extends Mapper2[DynamoDBRelationIO.Effect, DynamoDBRelatio
 
         def allParameters(value: T): Iterable[QueryParam] = allParamsFunc(mapper.toColumns(value))
 
-        def diff(value1: T, value2: T): Xor[Iterable[QueryParam], List[ColumnDifference]] = {
+        def diff(value1: T, value2: T): Xor[Iterable[QueryParam], (List[ColumnDifference], Iterable[QueryParam])] = {
           val value1Cols = mapper.toColumns(value1)
           val value2Cols = mapper.toColumns(value2)
           val val1PK = keysFromVals(colValsRecord(value1Cols))
@@ -69,9 +69,9 @@ class DynamoDBMapper2 extends Mapper2[DynamoDBRelationIO.Effect, DynamoDBRelatio
           if (val1PK == val2PK) Xor.right {
             val all1Params = allParamsFunc(value1Cols)
             val all2Params = allParamsFunc(value2Cols)
-            allColumns.zip(all1Params).zip(all2Params).collect {
+            (allColumns.zip(all1Params).zip(all2Params).collect {
               case ((name, orig), newValue) if orig.v != newValue.v => ColumnDifference(name, newValue, orig)
-            }
+            }, keyParameters(val2PK))
           } else {
             Xor.Left(keyParameters(val1PK))
           }

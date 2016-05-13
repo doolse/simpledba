@@ -37,6 +37,7 @@ abstract class RelationIO[F[_], RSOps[_]] {
   trait QP {
     type T
     val v: Option[(T, CT[T])]
+    override def toString = v.toString
   }
   type RS
   val rsOps : ResultSetOps[RSOps, CT]
