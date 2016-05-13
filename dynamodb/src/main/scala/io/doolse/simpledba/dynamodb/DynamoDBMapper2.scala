@@ -1,7 +1,7 @@
 package io.doolse.simpledba.dynamodb
 
 import cats.{Id, Monad}
-import cats.data.State
+import cats.data.{State, Xor}
 import io.doolse.simpledba.dynamodb.DynamoDBRelationIO.ResultOps
 import io.doolse.simpledba.{ColumnName, Mapper2}
 import shapeless._
@@ -17,7 +17,7 @@ class DynamoDBMapper2 extends Mapper2[DynamoDBRelationIO.Effect, DynamoDBRelatio
 
   type DDL[A] = State[PhysicalTables, A]
 
-  def DDLMonad = Monad[State[PhysicalTables, ?]]
+  def DDLMonad = Monad[DDL]
 
   case class PhysicalTables(map: Map[String, List[RelationOperations[_, _]]])
 
@@ -40,7 +40,8 @@ class DynamoDBMapper2 extends Mapper2[DynamoDBRelationIO.Effect, DynamoDBRelatio
     def apply(t: RelationBuilder[T, Columns, ColumnsValues, Keys]): DDL[RelationOperations[T, SelectedTypes]]
     = State { (s: PhysicalTables) =>
       val newTable = new RelationOperations[T, SelectedTypes] {
-        val columns = t.mapper.columns
+        val mapper = t.mapper
+        val columns = mapper.columns
         val allColumnsValues = columnsOnly(columns)
         val selectedColumns = allKeyColumns(columns)
         val paramFunc = keyParams.parameters(selectedColumns)
@@ -54,11 +55,28 @@ class DynamoDBMapper2 extends Mapper2[DynamoDBRelationIO.Effect, DynamoDBRelatio
 
         def allColumns: List[ColumnName] = allColumnNames(allColumnsValues)
 
-        def fromResultSet: ResultOps[Option[T]] = asRSOps.toRS(allColumnsValues).map(_.map(t.mapper.fromColumns))
+        def fromResultSet: ResultOps[Option[T]] = asRSOps.toRS(allColumnsValues).map(_.map(mapper.fromColumns))
 
-        def keyFromValue(value: T): SelectedTypes = keysFromVals(colValsRecord(t.mapper.toColumns(value)))
+        def keyFromValue(value: T): SelectedTypes = keysFromVals(colValsRecord(mapper.toColumns(value)))
 
-        def allParameters(value: T): Iterable[QueryParam] = allParamsFunc(t.mapper.toColumns(value))
+        def allParameters(value: T): Iterable[QueryParam] = allParamsFunc(mapper.toColumns(value))
+
+        def diff(value1: T, value2: T): Xor[Iterable[QueryParam], List[ColumnDifference]] = {
+          val value1Cols = mapper.toColumns(value1)
+          val value2Cols = mapper.toColumns(value2)
+          val val1PK = keysFromVals(colValsRecord(value1Cols))
+          val val2PK = keysFromVals(colValsRecord(value2Cols))
+          if (val1PK == val2PK) Xor.right {
+            val all1Params = allParamsFunc(value1Cols)
+            val all2Params = allParamsFunc(value2Cols)
+            allColumns.zip(all1Params).zip(all2Params).collect {
+              case ((name, orig), newValue) if orig.v != newValue.v => ColumnDifference(name, newValue, orig)
+            }
+          } else {
+            Xor.Left(keyParameters(val1PK))
+          }
+
+        }
       }
       (s.copy(map = s.map.updated(t.baseName, s.map.getOrElse(t.baseName, List.empty) :+ newTable)), newTable)
     }

@@ -1,5 +1,6 @@
 package io.doolse.simpledba
 
+import cats.data.Xor
 import cats.{Applicative, Monad}
 import cats.sequence.{Traverser, _}
 import cats.syntax.functor._
@@ -24,7 +25,7 @@ abstract class Mapper2[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val connectio
 
   val resultset = connection.rsOps
 
-  implicit def DDLMonad: Monad[DDL]
+  def DDLMonad: Monad[DDL]
 
   def build[A](ddl: DDL[A]): A
 
@@ -253,6 +254,8 @@ abstract class Mapper2[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val connectio
 
   case class WriteQueries[T](insert: T => F[Unit], update: (T, T) => F[Boolean], delete: T => F[Unit])
 
+  case class ColumnDifference(name: ColumnName, qp: QueryParam, oldValue: QueryParam)
+
   trait RelationOperations[T, Key] {
     def tableName: String
 
@@ -267,6 +270,8 @@ abstract class Mapper2[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val connectio
     def keyParametersFromValue(value: T) = keyParameters(keyFromValue(value))
 
     def keyFromValue(value: T): Key
+
+    def diff(value1: T, value2: T): Xor[Iterable[QueryParam], List[ColumnDifference]]
 
     def allParameters(value: T): Iterable[QueryParam]
   }
@@ -291,7 +296,7 @@ abstract class Mapper2[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val connectio
     (implicit
      physicalMapping: PhysicalMapping.Aux[T, Columns, ColumnsValues, Keys, Keys, KeyValues])
     : DDL[SingleQuery[T, KeyValues]]
-    = physicalMapping(this).map { op =>
+    = DDLMonad.map(physicalMapping(this)) { op =>
       val selectOne = new SelectQuery(op.tableName, op.allColumns, op.keyColumns)
       SingleQuery { vals =>
         connection.query(selectOne, op.keyParameters(vals)).flatMap {
@@ -308,14 +313,25 @@ abstract class Mapper2[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val connectio
 
     def queryAllByKeyColumns[K <: HList](k: K) = ???
 
-    def writeQueries: DDL[WriteQueries[T]] = getRelationsForBuilder(this).map { relations =>
+    def writeQueries: DDL[WriteQueries[T]] = DDLMonad.map(getRelationsForBuilder(this)) { relations =>
       val queries = relations.map { relation =>
         val insertQuery = InsertQuery(relation.tableName, relation.allColumns)
         val deleteQuery = DeleteQuery(relation.tableName, relation.keyColumns)
-        WriteQueries[T](t => connection.query(insertQuery, relation.allParameters(t)).map(_ => ()), (_, _) => ???, _ => ???)
+        def insert(t: T) = connection.query(insertQuery, relation.allParameters(t)).map(_ => ())
+        def delete(t: T) = connection.query(deleteQuery, relation.keyParametersFromValue(t)).map(_ => ())
+        def update(orig: T, value: T): F[Boolean] = if (orig == value) Monad[F].pure(false) else {
+          relation.diff(orig, value).map { diffs =>
+            connection.query(UpdateQuery(relation.tableName, diffs.map(_.name), relation.keyColumns), diffs.map(_.qp)).map(_ => true)
+          } valueOr { deleteParams =>
+            connection.query(deleteQuery, deleteParams).flatMap(_ => insert(value)).map(_ => true)
+          }
+        }
+        WriteQueries[T](insert, update, delete)
       }
       queries.reduce {
-        (a, b) => WriteQueries(t => a.insert(t).flatMap(_ => b.insert(t)), (_, _) => ???, _ => ???)
+        (a, b) => WriteQueries(t => a.insert(t).flatMap(_ => b.insert(t)), 
+          (t1, t2) => a.update(t1, t2).flatMap(changed => b.update(t1, t2).map(_||changed)),
+          t => a.delete(t).flatMap(_ => b.delete(t)))
       }
     }
   }
