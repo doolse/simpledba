@@ -1,49 +1,60 @@
 package test
 
+import cats.Monad
+import cats.data.OptionT
+import io.doolse.simpledba.dynamodb.{DynamoDBMapper, DynamoDBSession}
+import shapeless._
+import shapeless.syntax.singleton._
+import cats.std.option._
+import cats.syntax.all._
+import com.amazonaws.ClientConfiguration
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient
-import com.amazonaws.services.dynamodbv2.model._
-import io.doolse.simpledba.SelectQuery
-import io.doolse.simpledba.dynamodb.{DynamoDBColumn, DynamoDBMapper, DynamoDBRelationIO, DynamoDBSession}
-import shapeless.{HList, HNil}
-import shapeless.labelled.FieldType
-
-import scala.collection.JavaConverters._
-import scala.util.Try
 
 /**
-  * Created by jolz on 5/05/16.
+  * Created by jolz on 10/05/16.
   */
 object TestDynamo extends App {
 
-
-  val client: AmazonDynamoDBClient = new AmazonDynamoDBClient().withEndpoint("http://localhost:8000")
-
-  //  val res = client.createTable(List(
-  //    new AttributeDefinition("uniqueid", ScalarAttributeType.N)
-  //  ).asJava, "institution",
-  //    List(new KeySchemaElement("uniqueid", KeyType.HASH)).asJava,
-  //    new ProvisionedThroughput(1L, 1L))
-
-  case class Inst(uniqueid: Long, adminpassword: String, enabled: Boolean)
-
+  val config = new ClientConfiguration().withProxyHost("localhost").withProxyPort(8888)
+  val client : AmazonDynamoDBClient = new AmazonDynamoDBClient(config).withEndpoint("http://localhost:8000")
   val mapper = new DynamoDBMapper()
 
   import mapper._
 
-  val table = mapper.table[Inst]("institution").key('uniqueid)
-  val pt = mapper.physicalTable(table)
-  val queries = mapper.queries(pt).key[Long]
+  case class EmbeddedFields(adminpassword: String, enabled: Boolean)
 
-  Try { client.deleteTable("institution") }
-  client.createTable(mapper.genDDL(pt))
+  implicit val embeddedColumnMapper = mapper.GenericColumnMapper[EmbeddedFields]
 
-  val res = client.putItem("institution", Map(
-    "uniqueid" -> new AttributeValue().withN(517573426L.toString),
-    "unknown" -> new AttributeValue().withNULL(true),
-    "adminpassword" -> new AttributeValue("SHA256:59aa63c9bbdc51a05db11fa61c465f35a1b88c1c6a94bbd7d3872e18a217ae9c"),
-    "enabled" -> new AttributeValue().withBOOL(true)
-  ).asJava)
+  case class Inst(uniqueid: Long, embedded: EmbeddedFields)
 
-  val q = TestQuery.insertAndQuery(queries, Inst(517573426L, "ok", true), 517573426L)
-  println(q.run(DynamoDBSession(client)))
+  case class User(firstName: String, lastName: String)
+
+  //case class Inst(uniqueid: Long, adminpassword: String, enabled: Boolean)
+
+  val instRecord = ('uniqueid ->> 0L) :: ('adminpassword ->> "hi") :: ('enabled ->> true) :: HNil
+  val mappedTable = mapper.relation[Inst]("institution").key('uniqueid)
+  val anotherTable = mapper.relation[User]("users").keys('firstName, 'lastName)
+
+  val (qpk, writer, users) = mapper.build(for {
+    qpk <- mappedTable.queryByKey
+    yo <- anotherTable.queryByKey
+    writer <- mappedTable.writeQueries
+  } yield (qpk.as[Long], writer, yo.as[(String, String)])
+  )
+  val orig = Inst(1L, EmbeddedFields("pass", enabled = true))
+  val updated = Inst(2L, EmbeddedFields("pass", enabled = false))
+  val updatedAgain = Inst(2L, EmbeddedFields("changed", enabled = true))
+  val q = for {
+    _ <- writer.insert(orig)
+    res2 <- qpk.query(1L)
+    res <- qpk.query(517573426L)
+    upd1 <- writer.update(orig, updated)
+    res3 <- qpk.query(2L)
+    upd2 <- writer.update(updated, updatedAgain)
+    res4 <- qpk.query(2L)
+    _ <-  res4.map(writer.delete).sequence
+  } yield (res, res2, res3, upd1, upd2)
+  val res = q.run(DynamoDBSession(client))
+  println(res)
+
 }

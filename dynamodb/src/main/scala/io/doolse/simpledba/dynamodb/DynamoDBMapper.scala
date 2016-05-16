@@ -1,40 +1,145 @@
 package io.doolse.simpledba.dynamodb
 
+import cats.{Id, Monad}
+import cats.data.{State, Xor}
 import com.amazonaws.services.dynamodbv2.model._
-import io.doolse.simpledba._
-import io.doolse.simpledba.dynamodb.DynamoDBRelationIO.{Effect, ResultOps}
+import io.doolse.simpledba.dynamodb.DynamoDBRelationIO.ResultOps
+import io.doolse.simpledba.{ColumnName, RelationMapper}
 import shapeless._
-
-import scala.collection.JavaConverters._
+import shapeless.ops.hlist.ZipWithKeys
+import shapeless.ops.record.{Keys, SelectAll, Values}
 
 /**
-  * Created by jolz on 5/05/16.
+  * Created by jolz on 12/05/16.
   */
 
-class DynamoDBMapper extends RelationMapper[Effect, ResultOps] {
-  val connection = new DynamoDBRelationIO
-  val resultSet = connection.rsOps
 
-  type DDL = CreateTableRequest
-  type CT[A] = DynamoDBColumn[A]
+class DynamoDBMapper extends RelationMapper[DynamoDBRelationIO.Effect, DynamoDBRelationIO.ResultOps, DynamoDBColumn](DynamoDBRelationIO()) {
 
-  def genDDL(physicalTable: PhysicalTable[_, _, _]): CreateTableRequest = {
-    val keyList = physicalTable.columns.filter(_.meta.columnType == PartitionKey)
-    val attrs = keyList.map(c => new AttributeDefinition(c.meta.name, c.column.column.attributeType))
-    val keySchema = keyList.map(column => new KeySchemaElement(column.meta.name, KeyType.HASH))
-    new CreateTableRequest(attrs.asJava, physicalTable.name, keySchema.asJava, new ProvisionedThroughput(1L, 1L))
-  }
+  type DDL[A] = State[PhysicalTables, A]
 
-  implicit def keyMapper[T, TR <: HList, V <: HList, K <: HList, SK <: HList, FKV <: HList]
-  (implicit fullKeyQ: KeyQueryBuilder.Aux[TR, K, FKV])
-  : KeySelector.Aux[T, TR, V, (K, SK), TR, V, FKV, FKV]
-  = new KeySelector[T, TR, V, (K, SK)] {
-    type Out = (TR, KeyQuery[FKV], KeyQuery[FKV], V => V, V => V)
+  def DDLMonad = Monad[DDL]
 
-    def apply(columns: TR): Out = {
-      (columns, fullKeyQ(columns), fullKeyQ(columns), identity, identity)
+  class BuilderToRelations[K, V]
+
+  implicit def btor[T] = new BuilderToRelations[RelationBuilder[T], List[WriteableRelation[T]]]
+
+  case class PhysicalTables(map: HMap[BuilderToRelations])
+
+  implicit def allPKKeyRelation[T, Columns <: HList, ColumnsValues <: HList,
+  Keys <: HList, Selected <: HList, SelectedTypes <: HList, AllColumns <: HList, AllKeys <: HList, CVRecord <: HList]
+  (implicit
+   columnsOnly: Values.Aux[Columns, AllColumns],
+   allSymbols: Keys.Aux[Columns, AllKeys],
+   colValsRecord: ZipWithKeys.Aux[AllKeys, ColumnsValues, CVRecord],
+   allKeyColumns: SelectAll.Aux[Columns, Keys, Selected],
+   keyParams: ToQueryParameters.Aux[Selected, SelectedTypes],
+   allParams: ToQueryParameters.Aux[AllColumns, ColumnsValues],
+   keysFromVals: SelectAll.Aux[CVRecord, Keys, SelectedTypes],
+   allColumnNames: ColumnNames[AllColumns],
+   keyNames: ColumnNames[Selected],
+   asRSOps: ColumnsAsRS.Aux[AllColumns, ColumnsValues]
+  ) = new PhysicalMapping[T, Columns, ColumnsValues, Keys, Keys] {
+    type KeyValues = SelectedTypes
+
+    def apply(t: RelationBuilder.Aux[T, Columns, ColumnsValues, Keys]): DDL[RelationOperations.Aux[T, SelectedTypes]]
+    = State { (s: PhysicalTables) =>
+      val newTable = new RelationOperations[T] with WriteableRelation[T] {
+        type Key = SelectedTypes
+        val mapper = t.mapper
+        val columns = mapper.columns
+        val allColumnsValues = columnsOnly(columns)
+        val selectedColumns = allKeyColumns(columns)
+        val paramFunc = keyParams.parameters(selectedColumns)
+        val allParamsFunc = allParams.parameters(allColumnsValues)
+
+        def tableName: String = t.baseName
+
+        def keyColumns: List[ColumnName] = keyNames(selectedColumns)
+
+        def keyParameters(key: SelectedTypes): Iterable[QueryParam] = paramFunc(key)
+
+        def allColumns: List[ColumnName] = allColumnNames(allColumnsValues)
+
+        def fromResultSet: ResultOps[Option[T]] = asRSOps.toRS(allColumnsValues).map(_.map(mapper.fromColumns))
+
+        private def keyFromValue(value: T): SelectedTypes = keysFromVals(colValsRecord(mapper.toColumns(value)))
+
+        def allParameters(value: T): Iterable[QueryParam] = allParamsFunc(mapper.toColumns(value))
+
+        def diff(value1: T, value2: T): Xor[Iterable[QueryParam], (List[ColumnDifference], Iterable[QueryParam])] = {
+          val value1Cols = mapper.toColumns(value1)
+          val value2Cols = mapper.toColumns(value2)
+          val val1PK = keysFromVals(colValsRecord(value1Cols))
+          val val2PK = keysFromVals(colValsRecord(value2Cols))
+          if (val1PK == val2PK) Xor.right {
+            val all1Params = allParamsFunc(value1Cols)
+            val all2Params = allParamsFunc(value2Cols)
+            (allColumns.zip(all1Params).zip(all2Params).collect {
+              case ((name, orig), newValue) if orig.v != newValue.v => ColumnDifference(name, newValue, orig)
+            }, keyParameters(val2PK))
+          } else {
+            Xor.Left(keyParameters(val1PK))
+          }
+        }
+
+        def keyParametersFromValue(value: T): Iterable[QueryParam] = keyParameters(keyFromValue(value))
+      }
+      val jb = t: RelationBuilder[T]
+      val newList = newTable :: s.map.get(jb).getOrElse(List.empty)
+      (s.copy(map = s.map +(jb, newList)), newTable)
     }
   }
 
+  def getRelationsForBuilder[T](forBuilder: RelationBuilder[T]): State[PhysicalTables, List[WriteableRelation[T]]] = State.inspect {
+    s => s.map.get(forBuilder).getOrElse(List.empty)
+  }
+
+  def build[A](ddl: State[PhysicalTables, A]): A = ddl.runA(PhysicalTables(HMap.empty)).value
+
+  //  def genDDL(physicalTable: PhysicalTable[_, _, _]): CreateTableRequest = {
+  //    val keyList = physicalTable.columns.filter(_.meta.columnType == PartitionKey)
+  //    val attrs = keyList.map(c => new AttributeDefinition(c.meta.name, c.column.column.attributeType))
+  //    val keySchema = keyList.map(column => new KeySchemaElement(column.meta.name, KeyType.HASH))
+  //    new CreateTableRequest(attrs.asJava, physicalTable.name, keySchema.asJava, new ProvisionedThroughput(1L, 1L))
+  //  }
+  type DDLStatements = List[CreateTableRequest]
+
+  def buildSchema[A](ddl: DDL[A]) = ???
+
+  case class DynamoDBTable[T, Key, SortKey]
+  (tableName: String, keyColumn: (String, DynamoDBColumn[Key]),
+   sortKey: Option[(String, DynamoDBColumn[SortKey])],
+   toKey: T => (Key, Option[SortKey]),
+   allParamValues: T => Iterable[QueryParam],
+   allColumns: List[ColumnName]) extends WriteableRelation[T] {
+
+    val keyColumns = List(ColumnName(keyColumn._1)) ++ sortKey.map(sk => ColumnName(sk._1))
+
+    def allParameters(value: T) = allParamValues(value)
+
+    def keyParameters(key: (Key, Option[SortKey])) : Iterable[QueryParam] = {
+      Iterable(connection.parameter(keyColumn._2, key._1)) ++
+        key._2.flatMap(skv => sortKey.map(sk => connection.parameter(sk._2, skv)))
+    }
+
+    def keyParametersFromValue(value: T): Iterable[QueryParam] = keyParameters(toKey(value))
+
+    def diff(value1: T, value2: T): Xor[Iterable[QueryParam], (List[ColumnDifference], Iterable[QueryParam])] = {
+      val val1PK = toKey(value1)
+      val val2PK = toKey(value2)
+      if (val1PK == val2PK) Xor.right {
+        val all1Params = allParameters(value1)
+        val all2Params = allParameters(value2)
+        (allColumns.zip(all1Params).zip(all2Params).collect {
+          case ((name, orig), newValue) if orig.v != newValue.v => ColumnDifference(name, newValue, orig)
+        }, keyParameters(val2PK))
+      } else {
+        Xor.Left(keyParameters(val1PK))
+      }
+    }
+
+    def createTable: CreateTableRequest = new CreateTableRequest(  tableName, )
+  }
 
 }
