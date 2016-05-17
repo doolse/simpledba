@@ -67,9 +67,9 @@ object CassandraRelationIO {
 
     override def prepareQuery(query: RelationQuery): Task[PreparedStatement] = queryCache.getOrElseUpdate(query, {
       val stmt = query match {
-        case SelectQuery(table, cols, pks, orderBy) ⇒
+        case SelectQuery(table, cols, pks, sks, sr, range) ⇒
           val selectQ = QueryBuilder.select(cols.map(escapeColumn): _*).from(escapeReserved(table))
-          orderBy.foreach(o ⇒ selectQ.orderBy((if (o.ascending) QueryBuilder.asc _ else QueryBuilder.desc _).apply(o.name.name)))
+//          orderBy.foreach(o ⇒ selectQ.orderBy((if (o.ascending) QueryBuilder.asc _ else QueryBuilder.desc _).apply(o.name.name)))
           pks.foreach(addWhere(selectQ.where))
           selectQ
         case DeleteQuery(table, pks) ⇒

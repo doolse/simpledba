@@ -23,6 +23,8 @@ abstract class RelationMapper[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val co
   type DDLStatements
   type QueryParam = connection.QP
 
+  case class NamedColumn[T](name: String, column: ColumnAtom[T])
+
   val resultset = connection.rsOps
 
   trait ValueConvert[V, L] extends (V => L)
@@ -40,9 +42,12 @@ abstract class RelationMapper[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val co
   def DDLMonad: Monad[DDL]
 
   def build[A](ddl: DDL[A]): A
+
   def buildSchema[A](ddl: DDL[A]): (DDLStatements, A)
 
   trait ColumnAtom[A] {
+    val physicalColumn: PhysCol[_]
+
     def getColumn(cr: ColumnReference): RSOps[Option[A]]
 
     def queryParameter(a: A): QueryParam
@@ -50,6 +55,7 @@ abstract class RelationMapper[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val co
 
   object ColumnAtom {
     implicit def stdColumn[A](implicit col: PhysCol[A], tag: ClassTag[A]) = new ColumnAtom[A] {
+      val physicalColumn = col
       def getColumn(cr: ColumnReference): RSOps[Option[A]] = connection.rsOps.getColumn(cr, col)
 
       def queryParameter(a: A): QueryParam = connection.parameter(col, a)
@@ -62,21 +68,26 @@ abstract class RelationMapper[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val co
     override def toString = s"('${name.name}',$atom,$tt)"
   }
 
-  //  trait ColumnValuesType[L <: HList] {
-  //    type Out <: HList
-  //  }
-  //
-  //  object ColumnValuesType {
-  //    type Aux[L <: HList, Out0 <: HList] = ColumnValuesType[L] { type Out = Out0 }
-  //    implicit val hnilColumnType = new ColumnValuesType[HNil] {
-  //      type Out = HNil
-  //    }
-  //
-  //    implicit def hconsColumnType[S, K, V, T <: HList](implicit tailTypes: ColumnValuesType[T])
-  //    = new ColumnValuesType[(FieldType[K, ColumnMapping[S, V]]) :: T] {
-  //      type Out = V :: tailTypes.Out
-  //    }
-  //  }
+  trait ColumnValuesType[L <: HList] {
+    type Out <: HList
+  }
+
+  object ColumnValuesType {
+    type Aux[L <: HList, Out0 <: HList] = ColumnValuesType[L] {type Out = Out0}
+    implicit val hnilColumnType = new ColumnValuesType[HNil] {
+      type Out = HNil
+    }
+
+    implicit def hconsFieldColumnType[S, K, V, T <: HList](implicit tailTypes: ColumnValuesType[T])
+    = new ColumnValuesType[(FieldType[K, ColumnMapping[S, V]]) :: T] {
+      type Out = V :: tailTypes.Out
+    }
+
+    implicit def hconsColumnType[S, V, T <: HList](implicit tailTypes: ColumnValuesType[T])
+    = new ColumnValuesType[ColumnMapping[S, V] :: T] {
+      type Out = V :: tailTypes.Out
+    }
+  }
 
   trait ToQueryParameters[Columns <: HList] {
     type QueryValues <: HList
@@ -90,6 +101,17 @@ abstract class RelationMapper[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val co
       type QueryValues = HNil
 
       def parameters(col: HNil) = _ => Iterable.empty
+    }
+
+    implicit def hconsFieldParams[K, V, S, T <: HList]
+    (implicit
+     tail: ToQueryParameters[T]): Aux[FieldType[K, ColumnMapping[S, V]] :: T, V :: tail.QueryValues]
+    = new ToQueryParameters[FieldType[K, ColumnMapping[S, V]] :: T] {
+      type QueryValues = V :: tail.QueryValues
+
+      def parameters(cols: FieldType[K, ColumnMapping[S, V]] :: T) = {
+        qv => Iterable(cols.head.atom.queryParameter(qv.head)) ++ tail.parameters(cols.tail).apply(qv.tail)
+      }
     }
 
     implicit def hconsParams[V, S, T <: HList]
@@ -134,10 +156,12 @@ abstract class RelationMapper[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val co
 
   object columnNamesFromMappings extends Poly1 {
     implicit def mappingToName[S, A] = at[ColumnMapping[S, A]](_.name)
+    implicit def fieldMappingToName[K, S, A] = at[FieldType[K, ColumnMapping[S, A]]](_.name)
   }
 
   object columnMappingToRS extends Poly1 {
     implicit def mappingToRS[S, A] = at[ColumnMapping[S, A]](cm => cm.atom.getColumn(cm.name))
+    implicit def fieldMappingToRS[K, S, A] = at[FieldType[K, ColumnMapping[S, A]]](cm => cm.atom.getColumn(cm.name))
   }
 
   object composeLens extends Poly1 {
@@ -154,6 +178,7 @@ abstract class RelationMapper[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val co
     def columns: Columns
 
     def fromColumns: ColumnsValues => A
+
     def toColumns: A => ColumnsValues
   }
 
@@ -170,6 +195,7 @@ abstract class RelationMapper[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val co
       def columns = HNil
 
       def fromColumns = identity
+
       def toColumns = identity
     }
 
@@ -181,6 +207,7 @@ abstract class RelationMapper[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val co
       def columns = field[K](ColumnMapping[FieldType[K, V], V](ColumnName(key.value.name), atom, fv => fv: V)) :: HNil
 
       def fromColumns = v => field[K](v.head)
+
       def toColumns = _ :: HNil
     }
 
@@ -194,6 +221,7 @@ abstract class RelationMapper[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val co
       def columns = mapper(zipWithLens(v => v: V, mapping.columns))
 
       def fromColumns = v => field[K](mapping.fromColumns(v))
+
       def toColumns = mapping.toColumns
     }
 
@@ -215,6 +243,7 @@ abstract class RelationMapper[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val co
         def columns = prependC(mappedHead(zipHeadLens(_.head, headMapper.columns)), mappedTail(zipTailLens(_.tail, tailMapper.columns)))
 
         def fromColumns = v => headMapper.fromColumns(headVals(v)) :: tailMapper.fromColumns(tailVals(v))
+
         def toColumns = v => prependV(headMapper.toColumns(v.head), tailMapper.toColumns(v.tail))
       }
     }
@@ -252,6 +281,7 @@ abstract class RelationMapper[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val co
         def columns = mapper(zipWithLens(lgen.to, mapping.columns))
 
         def fromColumns = v => lgen.from(mapping.fromColumns(v))
+
         def toColumns = v => mapping.toColumns(lgen.to(v))
       }
     }
@@ -261,7 +291,7 @@ abstract class RelationMapper[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val co
     def as[K](implicit vc: ValueConvert[K, KeyValues]) = copy[T, K](query = query compose vc)
   }
 
-  case class MultiQuery[T, KeyValues](query: KeyValues => F[Option[T]]) {
+  case class MultiQuery[T, KeyValues](query: KeyValues => F[List[T]]) {
     def as[K](implicit vc: ValueConvert[K, KeyValues]) = copy[T, K](query = query compose vc)
   }
 
@@ -276,11 +306,15 @@ abstract class RelationMapper[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val co
 
     def keyColumns: List[ColumnName]
 
+    def sortColumns: List[ColumnName]
+
     def allParameters(value: T): Iterable[QueryParam]
 
     def diff(value1: T, value2: T): Xor[Iterable[QueryParam], (List[ColumnDifference], Iterable[QueryParam])]
 
-    def keyParametersFromValue(value: T) : Iterable[QueryParam]
+    def keyParametersFromValue(value: T): Iterable[QueryParam]
+
+    def fromResultSet: RSOps[Option[T]]
   }
 
   trait RelationOperations[T] {
@@ -292,36 +326,47 @@ abstract class RelationMapper[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val co
 
     def keyColumns: List[ColumnName]
 
+    def sortColumns: List[ColumnName]
+
     def fromResultSet: RSOps[Option[T]]
 
     def keyParameters(key: Key): Iterable[QueryParam]
   }
 
-  object RelationOperations {
-    type Aux[T, K0] = RelationOperations[T] { type Key = K0 }
+  abstract class AbstractRelationOperations[T](physicalTable: WriteableRelation[T]) extends RelationOperations[T] {
+    def tableName = physicalTable.tableName
+    def allColumns = physicalTable.allColumns
+    def fromResultSet = physicalTable.fromResultSet
   }
 
-  trait PhysicalMapping[T, Columns <: HList, ColumnsValues <: HList, Keys <: HList, SelectedKeys]
-    extends DepFn1[RelationBuilder.Aux[T, Columns, ColumnsValues, Keys]] {
+  object RelationOperations {
+    type Aux[T, K0] = RelationOperations[T] {type Key = K0}
+  }
+
+  trait PhysicalMapping[T, Columns <: HList, Keys <: HList, ColumnsValues <: HList, SelectedKeys]
+    extends DepFn1[RelationBuilder.Aux[T, Columns, Keys, ColumnsValues]] {
     type KeyValues
     type Out = DDL[RelationOperations.Aux[T, KeyValues]]
   }
 
   object PhysicalMapping {
-    type Aux[T, Columns <: HList, ColumnsValues <: HList, Keys <: HList, SelectedKeys, KeyValues0] =
-    PhysicalMapping[T, Columns, ColumnsValues, Keys, SelectedKeys] {type KeyValues = KeyValues0}
+    type Aux[T, Columns <: HList, Keys <: HList, ColumnsValues <: HList, SelectedKeys, KeyValues0] =
+    PhysicalMapping[T, Columns, Keys, ColumnsValues, SelectedKeys] {type KeyValues = KeyValues0}
   }
 
   object RelationBuilder {
-    type Aux[T, C0 <: HList, CV0 <: HList, K0 <: HList] = RelationBuilder[T] {
+    type Aux[T, C0 <: HList, K0 <: HList, CV0 <: HList] = RelationBuilder[T] {
       type Columns = C0
-      type ColumnsValues = CV0
       type Keys = K0
+      type ColumnsValues = CV0
     }
-    def apply[T, C0 <: HList, CV0 <: HList, K0 <: HList](_baseName: String, _mapper: ColumnMapper.Aux[T, C0, CV0]) = new RelationBuilder[T] {
+
+    def apply[T, C0 <: HList, CV0 <: HList, K0 <: HList](_baseName: String, _mapper: ColumnMapper.Aux[T, C0, CV0], ev: SelectAll[C0, K0])
+    = new RelationBuilder[T] {
       type Columns = C0
-      type ColumnsValues = CV0
       type Keys = K0
+      type ColumnsValues = CV0
+
       def baseName = _baseName
       def mapper = _mapper
     }
@@ -331,18 +376,19 @@ abstract class RelationMapper[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val co
 
   trait RelationBuilder[T] {
     type Columns <: HList
-    type ColumnsValues <: HList
     type Keys <: HList
+    type ColumnsValues <: HList
 
     def baseName: String
+
     def mapper: ColumnMapper.Aux[T, Columns, ColumnsValues]
 
     def queryByKey[KeyValues <: HList]
     (implicit
-     physicalMapping: PhysicalMapping.Aux[T, Columns, ColumnsValues, Keys, Keys, KeyValues])
+     physicalMapping: PhysicalMapping.Aux[T, Columns, Keys, ColumnsValues, Keys, KeyValues])
     : DDL[SingleQuery[T, KeyValues]]
-    = DDLMonad.map(physicalMapping(this: RelationBuilder.Aux[T, Columns, ColumnsValues, Keys])) { op =>
-      val selectOne = new SelectQuery(op.tableName, op.allColumns, op.keyColumns)
+    = DDLMonad.map(physicalMapping(this)) { op =>
+      val selectOne = new SelectQuery(op.tableName, op.allColumns, op.keyColumns, op.sortColumns)
       SingleQuery { vals =>
         connection.query(selectOne, op.keyParameters(vals)).flatMap {
           rs =>
@@ -356,7 +402,22 @@ abstract class RelationMapper[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val co
     }
 
 
-    def queryAllByKeyColumns[K <: HList](k: K) = ???
+    def queryAllByKeyColumn[KeyValues <: HList](k: Witness)
+    (implicit pm: PhysicalMapping.Aux[T, Columns, Keys, ColumnsValues, k.T :: HNil, KeyValues])
+    : DDL[MultiQuery[T, KeyValues]]     = DDLMonad.map(pm(this)) { op =>
+      val selectOne = new SelectQuery(op.tableName, op.allColumns, op.keyColumns, op.sortColumns, singleResult = false, range = false)
+      MultiQuery { vals =>
+        connection.query(selectOne, op.keyParameters(vals)).flatMap {
+          rs =>
+            def getResult(all: RSOps[List[T]]): RSOps[List[T]] = for {
+              l <- all
+              y <- resultset.nextResult
+              res <- if (y) getResult(op.fromResultSet.map(or => l ++ or)) else Monad[RSOps].pure(l)
+            } yield res
+            connection.usingResults(rs, getResult(Monad[RSOps].pure(List.empty[T])))
+        }
+      }
+    }
 
     def writeQueries: DDL[WriteQueries[T]] = DDLMonad.map(getRelationsForBuilder(this)) { relations =>
       val queries = relations.map { relation =>
@@ -364,10 +425,11 @@ abstract class RelationMapper[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val co
         val deleteQuery = DeleteQuery(relation.tableName, relation.keyColumns)
         def insert(t: T) = connection.query(insertQuery, relation.allParameters(t)).map(_ => ())
         def delete(t: T) = connection.query(deleteQuery, relation.keyParametersFromValue(t)).map(_ => ())
-        def update(orig: T, value: T): F[Boolean] = if (orig == value) Monad[F].pure(false) else {
+        def update(orig: T, value: T): F[Boolean] = if (orig == value) Monad[F].pure(false)
+        else {
           relation.diff(orig, value).map {
             case (diffs, keyParams) =>
-              connection.query(UpdateQuery(relation.tableName, diffs.map(_.name), relation.keyColumns), diffs.map(_.qp) ++ keyParams) map(_ => true)
+              connection.query(UpdateQuery(relation.tableName, diffs.map(_.name), relation.keyColumns), diffs.map(_.qp) ++ keyParams) map (_ => true)
           } valueOr { deleteParams =>
             connection.query(deleteQuery, deleteParams).flatMap(_ => insert(value)).map(_ => true)
           }
@@ -376,7 +438,7 @@ abstract class RelationMapper[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val co
       }
       queries.reduce {
         (a, b) => WriteQueries(t => a.insert(t).flatMap(_ => b.insert(t)),
-          (t1, t2) => a.update(t1, t2).flatMap(changed => b.update(t1, t2).map(_||changed)),
+          (t1, t2) => a.update(t1, t2).flatMap(changed => b.update(t1, t2).map(_ || changed)),
           t => a.delete(t).flatMap(_ => b.delete(t)))
       }
     }
@@ -386,13 +448,10 @@ abstract class RelationMapper[F[_] : Monad, RSOps[_] : Monad, PhysCol[_]](val co
 
     case class RelationBuilderPartial[T, Columns <: HList, ColumnsValues <: HList]
     (baseName: String, mapper: ColumnMapper.Aux[T, Columns, ColumnsValues]) extends SingletonProductArgs {
-      def key[K](k: Witness)(implicit ev: Selector[Columns, k.T]): RelationBuilder.Aux[T, Columns, ColumnsValues, k.T :: HNil] =
-        RelationBuilder[T, Columns, ColumnsValues, k.T :: HNil](baseName, mapper)
-
-      def keys(k1: Witness, k2: Witness)
-              (implicit
-               ev: SelectAllRecord[Columns, k1.T :: k2.T :: HNil]): RelationBuilder.Aux[T, Columns, ColumnsValues, k1.T :: k2.T :: HNil]
-      = RelationBuilder[T, Columns, ColumnsValues, k1.T :: k2.T :: HNil](baseName, mapper)
+      def key(k: Witness)(implicit ev: SelectAll[Columns, k.T :: HNil]) : RelationBuilder.Aux[T, Columns, k.T :: HNil, ColumnsValues]
+      = RelationBuilder(baseName, mapper, ev)
+      def keys(k1: Witness, k2: Witness)(implicit ev: SelectAll[Columns, k1.T :: k2.T :: HNil]) : RelationBuilder.Aux[T, Columns, k1.T :: k2.T :: HNil, ColumnsValues]
+      = RelationBuilder(baseName, mapper, ev)
     }
 
 

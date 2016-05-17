@@ -10,6 +10,8 @@ import cats.syntax.all._
 import com.amazonaws.ClientConfiguration
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient
 
+import scala.util.{Failure, Try}
+
 /**
   * Created by jolz on 10/05/16.
   */
@@ -35,16 +37,26 @@ object TestDynamo extends App {
   val mappedTable = mapper.relation[Inst]("institution").key('uniqueid)
   val anotherTable = mapper.relation[User]("users").keys('firstName, 'lastName)
 
-  val (qpk, writer, users) = mapper.build(for {
+  val (creation, (qpk, writer, users, writeUsers)) = mapper.buildSchema(for {
     qpk <- mappedTable.queryByKey
-    yo <- anotherTable.queryByKey
+    yo <- anotherTable.queryAllByKeyColumn('lastName)
     writer <- mappedTable.writeQueries
-  } yield (qpk.as[Long], writer, yo.as[(String, String)])
+    writeUsers <- anotherTable.writeQueries
+  } yield (qpk.as[Long], writer, yo.as[String], writeUsers)
   )
+  creation.foreach(ct => Try {
+    client.deleteTable(ct.getTableName)
+    client.createTable(ct)
+  } match {
+    case Failure(f) => f.printStackTrace()
+    case _ =>
+  })
   val orig = Inst(1L, EmbeddedFields("pass", enabled = true))
   val updated = Inst(2L, EmbeddedFields("pass", enabled = false))
   val updatedAgain = Inst(2L, EmbeddedFields("changed", enabled = true))
   val q = for {
+    _ <- writeUsers.insert(User("Jolse", "Maginnis"))
+    _ <- writeUsers.insert(User("Emma", "Maginnis"))
     _ <- writer.insert(orig)
     res2 <- qpk.query(1L)
     res <- qpk.query(517573426L)
@@ -52,8 +64,9 @@ object TestDynamo extends App {
     res3 <- qpk.query(2L)
     upd2 <- writer.update(updated, updatedAgain)
     res4 <- qpk.query(2L)
+    all <- users.query("Maginnis")
     _ <-  res4.map(writer.delete).sequence
-  } yield (res, res2, res3, upd1, upd2)
+  } yield (all)
   val res = q.run(DynamoDBSession(client))
   println(res)
 

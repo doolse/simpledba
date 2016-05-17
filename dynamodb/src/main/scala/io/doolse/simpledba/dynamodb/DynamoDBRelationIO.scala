@@ -3,7 +3,7 @@ package io.doolse.simpledba.dynamodb
 import cats.{Id, MonadState}
 import cats.data.{Reader, State}
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient
-import com.amazonaws.services.dynamodbv2.model.{AttributeAction, AttributeValue, AttributeValueUpdate, ScalarAttributeType}
+import com.amazonaws.services.dynamodbv2.model._
 import io.doolse.simpledba.dynamodb.DynamoDBRelationIO.{Effect, ResultOps}
 import io.doolse.simpledba._
 
@@ -40,7 +40,7 @@ class DynamoDBRelationIO extends RelationIO[Effect, ResultOps] {
   def toAttributeMap(names: List[ColumnName], params: Iterable[QP]) =
     names.zip(params).map(qpToAttr).toMap
 
-  def qpToAttr[A](cn: (ColumnName, QP)): (String, AttributeValue) =
+  def qpToAttr(cn: (ColumnName, QP)): (String, AttributeValue) =
     cn._1.name -> cn._2.v.map(t => t._2.to(t._1)).getOrElse(new AttributeValue().withNULL(true))
 
   def query(q: RelationQuery, params: Iterable[QP]): Effect[DynamoDBResultSet] = Reader { s =>
@@ -52,9 +52,28 @@ class DynamoDBRelationIO extends RelationIO[Effect, ResultOps] {
       case DeleteQuery(table, keyColumns) =>
         s.client.deleteItem(table, toAttributeMap(keyColumns, params).asJava)
         DynamoDBResultSet(Iterator.empty, None)
-      case SelectQuery(table, columns, keyColumns, sortedBy) =>
-        val keys = keyColumns.zip(params).map(qpToAttr).toMap
-        DynamoDBResultSet(Some(s.client.getItem(table, keys.asJava).getItem.asScala.toMap).iterator, None)
+      case SelectQuery(table, columns, keyColumns, sortColumns, true, _) =>
+        val keys = (keyColumns ++ sortColumns).zip(params).map(qpToAttr).toMap
+        DynamoDBResultSet(Option(s.client.getItem(table, keys.asJava).getItem).map(_.asScala.toMap).iterator, None)
+      case SelectQuery(table, columns, keyColumns, sortColumns, false, range) =>
+        def justPK = Map("#PK" -> keyColumns.head.name)
+        def stdNameMap = justPK + ("#SK" -> sortColumns.head.name)
+        val (nameMap, keyExpression, vals) = if (range) {
+          (stdNameMap,
+            "#PK = :PK AND #SK BETWEEN :SK1 AND :SK2",
+            Map(qpToAttr(ColumnName(":PK") -> params.head), qpToAttr(ColumnName(":SK1") -> params.tail.head), qpToAttr(ColumnName("SK2") -> params.tail.tail.head))
+            )
+        } else if (sortColumns.nonEmpty) {
+          (stdNameMap,
+            "#PK = :PK AND #SK = :SK",
+            Map(qpToAttr(ColumnName(":PK") -> params.head), qpToAttr(ColumnName(":SK") -> params.tail.head)))
+        } else {
+          (justPK, "#PK = :PK", Map(qpToAttr(ColumnName(":PK") -> params.head)))
+        }
+        val qr = new QueryRequest(table).withProjectionExpression(columns.map(_.name).mkString(",")).withKeyConditionExpression(keyExpression)
+          .withExpressionAttributeNames(nameMap.asJava)
+          .withExpressionAttributeValues(vals.asJava)
+        DynamoDBResultSet(s.client.query(qr).getItems.asScala.map(_.asScala.toMap).iterator, None)
       case UpdateQuery(table, columns, keyColumns) =>
         val (updateParams, keyParams) = params.splitAt(columns.size)
         val updates = toAttributeMap(columns, updateParams).map(nv => (nv._1, new AttributeValueUpdate(nv._2, AttributeAction.PUT)))

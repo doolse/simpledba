@@ -14,12 +14,6 @@ case class ColumnIndex(idx: Int) extends ColumnReference
 
 case class SortColumn(name: ColumnName, ascending: Boolean)
 
-sealed trait ColumnMetaType
-case object PartitionKey extends ColumnMetaType
-case object SortKey extends ColumnMetaType
-case object StandardColumn extends ColumnMetaType
-
-case class ColumnMetadata(name: String, columnType: ColumnMetaType)
 
 sealed trait RelationQuery {
   def isWrite = false
@@ -27,7 +21,7 @@ sealed trait RelationQuery {
 sealed trait RelationWriteQuery extends RelationQuery {
   override def isWrite = true
 }
-case class SelectQuery(table: String, columns: List[ColumnName], keyColumns: List[ColumnName], sortedBy: Option[SortColumn] = None) extends RelationQuery
+case class SelectQuery(table: String, columns: List[ColumnName], keyColumns: List[ColumnName], sortColumns: List[ColumnName], singleResult: Boolean = true, range: Boolean = false) extends RelationQuery
 case class InsertQuery(table: String, columns: List[ColumnName]) extends RelationWriteQuery
 case class UpdateQuery(table: String, updatedFields: List[ColumnName], keyColumns: List[ColumnName]) extends RelationWriteQuery
 case class DeleteQuery(table: String, keyColumns: List[ColumnName]) extends RelationWriteQuery
