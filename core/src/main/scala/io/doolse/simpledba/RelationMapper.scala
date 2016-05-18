@@ -58,9 +58,21 @@ abstract class RelationMapper[F[_] : Monad] {
     }
   }
 
-  trait KeyMapper[T, C <: HList, K <: HList, CV <: HList] extends DepFn1[RelationBuilder.Aux[T, C, K, CV]] {
+  @implicitNotFound("Failed to map keys ('${PKL}') for ${T}")
+  trait KeyMapper[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList] extends DepFn1[RelationBuilder.Aux[T, CR, KL, CVL]] {
     type Meta
-    type Out = PhysRelation[T, Meta]
+    type PartitionKey
+    type SortKey
+    type FullKey = PartitionKey :: SortKey :: HNil
+    type Out = PhysRelation.Aux[T, Meta, PartitionKey, SortKey]
+  }
+
+  object KeyMapper {
+    type Aux[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList, Meta0, PartitionKey0, SortKey0] = KeyMapper[T, CR, KL, CVL, PKL] {
+      type Meta = Meta0
+      type PartitionKey = PartitionKey0
+      type SortKey = SortKey0
+    }
   }
 
   trait PhysRelation[T, Meta] {
@@ -128,24 +140,27 @@ abstract class RelationMapper[F[_] : Monad] {
     override def toString = s"('$name',$atom,$tt)"
   }
 
-  trait ColumnValuesType[L <: HList] {
-    type Out <: HList
+  trait ColumnValuesType[Column] {
+    type Out
   }
 
   object ColumnValuesType {
-    type Aux[L <: HList, Out0 <: HList] = ColumnValuesType[L] {type Out = Out0}
+    type Aux[Column, Out0] = ColumnValuesType[Column] {type Out = Out0}
     implicit val hnilColumnType = new ColumnValuesType[HNil] {
       type Out = HNil
     }
 
-    implicit def hconsFieldColumnType[S, K, V, T <: HList](implicit tailTypes: ColumnValuesType[T])
-    = new ColumnValuesType[(FieldType[K, ColumnMapping[S, V]]) :: T] {
-      type Out = V :: tailTypes.Out
+    implicit def fieldColumnType[S, K, V] = new ColumnValuesType[FieldType[K, ColumnMapping[S, V]]] {
+      type Out = V
     }
 
-    implicit def hconsColumnType[S, V, T <: HList](implicit tailTypes: ColumnValuesType[T])
-    = new ColumnValuesType[ColumnMapping[S, V] :: T] {
-      type Out = V :: tailTypes.Out
+    implicit def mappingColumnType[S, V] = new ColumnValuesType[ColumnMapping[S, V]] {
+      type Out = V
+    }
+
+    implicit def hconsColumnType[S, H, T <: HList, TL <: HList](implicit headType: ColumnValuesType[H], tailTypes: ColumnValuesType.Aux[T, TL])
+    = new ColumnValuesType[H :: T] {
+      type Out = headType.Out :: TL
     }
   }
 
@@ -324,9 +339,9 @@ abstract class RelationMapper[F[_] : Monad] {
 
     def mapper: ColumnMapper.Aux[T, Columns, ColumnsValues]
 
-    def queryByKey(implicit keyMapper: KeyMapper[T, Columns, Keys, ColumnsValues]) : DDL[SingleQuery[T, ValueConvert.QuestionMarks]] = ???
+    def queryByKey(implicit keyMapper: KeyMapper[T, Columns, Keys, ColumnsValues, Keys]) : DDL[SingleQuery[T, keyMapper.FullKey]] = ???
 
-    def queryAllByKeyColumn(k: Witness) : DDL[MultiQuery[T, ValueConvert.QuestionMarks]] = ???
+    def queryAllByKeyColumn(k: Witness)(implicit keyMapper: KeyMapper[T, Columns, Keys, ColumnsValues, k.T :: HNil]) : DDL[MultiQuery[T, keyMapper.PartitionKey]] = ???
 
     def writeQueries: DDL[WriteQueries[T]] = getRelationsForBuilder(this).map { relations =>
       relations.reduce((l:WriteQueries[T],r:WriteQueries[T]) => l.combine(r))
@@ -360,8 +375,16 @@ object ValueConvert {
     override def apply(v1: V): QuestionMarks = ???
   }
 
+  implicit def reflValue[V] = new ValueConvert[V, V] {
+    def apply(v1: V): V = v1
+  }
+
   implicit def singleValue[V, L <: HList](implicit ev: (V :: HNil) =:= L) = new ValueConvert[V, L] {
     override def apply(v1: V): L = ev(v1 :: HNil)
+  }
+
+  implicit def singleValueHead[V, L <: HList](implicit ev: (V :: HNil :: HNil) =:= L) = new ValueConvert[V, L] {
+    override def apply(v1: V): L = ev(v1 :: HNil :: HNil)
   }
 
   implicit def tupleValue[V, L <: HList](implicit toList: ToHList.Aux[V, L]) = new ValueConvert[V, L] {
