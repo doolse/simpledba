@@ -2,10 +2,11 @@ package io.doolse.simpledba
 
 import cats.Monad
 import cats.data.State
+import cats.syntax.all._
 import shapeless._
 import shapeless.labelled._
 import shapeless.poly._
-import shapeless.ops.hlist.{Drop, Length, Mapper, Prepend, Split, Take, ToList, ZipConst}
+import shapeless.ops.hlist.{At, Drop, Length, Mapper, Prepend, Split, Take, ToList, ZipConst, ZipWith}
 import shapeless.ops.product.ToHList
 import shapeless.ops.record._
 
@@ -21,8 +22,10 @@ import scala.reflect.runtime.universe.TypeTag
 abstract class RelationMapper[F[_] : Monad] {
 
   class BuilderToRelations[K, V]
-  implicit def btor[T] = new BuilderToRelations[RelationBuilder[T], List[(PhysRelationT[T, _], WriteQueries[T])]]
-  case class PhysicalTables(map: HMap[BuilderToRelations] = HMap.empty, allNeeded: List[(String, PhysRelation[_, _])] = List.empty)
+
+  implicit def btor[T] = new BuilderToRelations[RelationBuilder[T], List[(PhysRelation[T], WriteQueries[T])]]
+
+  case class PhysicalTables(map: HMap[BuilderToRelations] = HMap.empty, allNeeded: List[(String, PhysRelation[_])] = List.empty)
 
   type DDL[A] = State[PhysicalTables, A]
   type PhysCol[A]
@@ -30,26 +33,31 @@ abstract class RelationMapper[F[_] : Monad] {
 
   object selectStar
 
-  trait Projection {
-    type A
-  }
-  type ProjectionT <: Projection
+  trait Projection[A]
+
+  type ProjectionT[A] <: Projection[A]
   type Where
 
-  type PhysRelationT[T, Meta] <: PhysRelation[T, Meta]
+  type PhysRelationT[T] <: PhysRelation[T]
 
   trait WriteQueries[T] {
+    self =>
     def delete(t: T): F[Unit]
+
     def insert(t: T): F[Unit]
+
     def update(existing: T, newValue: T): F[Boolean]
-    def combine(other: WriteQueries[T]): WriteQueries[T] = ???
+
+    def combine(other: WriteQueries[T]): WriteQueries[T] = new WriteQueries[T] {
+      def delete(t: T): F[Unit] = self.delete(t) *> other.delete(t)
+      def insert(t: T): F[Unit] = self.insert(t) *> other.insert(t)
+      def update(existing: T, newValue: T): F[Boolean] = (self.update(existing, newValue) |@| other.update(existing, newValue)).map((a, b) => a || b)
+    }
   }
 
-  trait Projector[T, Meta, Select] extends DepFn2[PhysRelationT[T, Meta], Select] {
+  trait Projector[T, Meta, Select] extends DepFn2[PhysRelation.Aux[T, Meta, _, _], Select] {
     type A0
-    type Out = ProjectionT {
-      type A = A0
-    }
+    type Out = ProjectionT[A0]
   }
 
   object Projector {
@@ -75,15 +83,19 @@ abstract class RelationMapper[F[_] : Monad] {
     }
   }
 
-  trait PhysRelation[T, Meta] {
-    self: PhysRelationT[T, Meta] =>
+  trait PhysRelation[T] {
+    self: PhysRelationT[T] =>
+    type Meta
     type PartitionKey
     type SortKey
     type FullKey = PartitionKey :: SortKey :: HNil
 
-    def convertKey[OMeta](other: PhysRelationT[T, OMeta]): other.FullKey => FullKey
+    def convertKey(other: PhysRelation[T]): other.FullKey => FullKey
+
     def createWriteQueries(tableName: String): WriteQueries[T]
+
     def createReadQueries(tableName: String): ReadQueries
+
     def createDDL(tableName: String): DDLStatement
 
     trait ReadQueries {
@@ -95,14 +107,16 @@ abstract class RelationMapper[F[_] : Monad] {
 
       def projection[A](a: A)(implicit prj: Projector[T, Meta, A]) = prj(self, a)
 
-      def selectOne(projection: ProjectionT, where: Where, asc: Boolean): F[Option[projection.A]]
+      def selectOne[A](projection: ProjectionT[A], where: Where, asc: Boolean): F[Option[A]]
 
-      def selectMany(projection: ProjectionT, where: Where, asc: Boolean): F[List[projection.A]]
+      def selectMany[A](projection: ProjectionT[A], where: Where, asc: Boolean): F[List[A]]
     }
+
   }
 
   object PhysRelation {
-    type Aux[T, Meta, PartKey0, SortKey0] = PhysRelationT[T, Meta] {
+    type Aux[T, Meta0, PartKey0, SortKey0] = PhysRelationT[T] {
+      type Meta = Meta0
       type PartitionKey = PartKey0
       type SortKey = SortKey0
     }
@@ -112,7 +126,7 @@ abstract class RelationMapper[F[_] : Monad] {
 
   def buildSchema[A](ddl: DDL[A]) = {
     val (pt, res) = ddl.run(PhysicalTables()).value
-    val tables = pt.allNeeded.map { case (n,pt) => pt.createDDL(n) }
+    val tables = pt.allNeeded.map { case (n, pt) => pt.createDDL(n) }
     (tables, res)
   }
 
@@ -121,23 +135,24 @@ abstract class RelationMapper[F[_] : Monad] {
     def from: T => A
     def to: A => T
     val physicalColumn: PhysCol[T]
-    def withColumn[B](v: A, f: (T, PhysCol[T]) => B): B = f(to(v), physicalColumn)
   }
 
   object ColumnAtom {
     implicit def stdColumn[A](implicit col: PhysCol[A], tag: ClassTag[A]) = new ColumnAtom[A] {
       type T = A
+
       def from = identity
+
       def to = identity
+
       val physicalColumn = col
+
       override def toString = tag.runtimeClass.getName
     }
   }
 
-  case class NamedColumn[A](name: String, column: ColumnAtom[A])
-
   case class ColumnMapping[S, A](name: String, atom: ColumnAtom[A], get: S => A)(implicit tt: TypeTag[S]) {
-    override def toString = s"('$name',$atom,$tt)"
+    override def toString = s"'$name' -> $atom,$tt"
   }
 
   trait ColumnValuesType[Column] {
@@ -172,8 +187,121 @@ abstract class RelationMapper[F[_] : Monad] {
     }
   }
 
+  trait ValueExtractor[CR <: HList, CVL <: HList, Selections] extends DepFn0 {
+    type SelectionValues
+    type Out = CVL => SelectionValues
+  }
+
+  object ValueExtractor {
+    type Aux[CR <: HList, CVL <: HList, Selections, SV0] = ValueExtractor[CR, CVL, Selections] {
+      type SelectionValues = SV0
+    }
+    implicit def hnilCase[CR <: HList, CVL <: HList]: Aux[CR, CVL, HNil, HNil] = new ValueExtractor[CR, CVL, HNil] {
+      type SelectionValues = HNil
+      def apply = _ => HNil
+    }
+    implicit def hconsCase[CR <: HList, CVL <: HList, H, T <: HList, TOut <: HList]
+    (implicit hValues: ValueExtractor[CR, CVL, H], tValues: ValueExtractor.Aux[CR, CVL, T, TOut])
+    : Aux[CR, CVL, H :: T, hValues.SelectionValues :: TOut] = new ValueExtractor[CR, CVL, H :: T] {
+      type SelectionValues = hValues.SelectionValues :: TOut
+
+      def apply = {
+        val sv = hValues()
+        val tv = tValues()
+        cvl => sv(cvl) :: tv(cvl)
+      }
+    }
+    implicit def fieldName[K, CM, CR <: HList, CVL <: HList, CKL <: HList, CRI <: HList, N <: Nat, V, Out]
+    (implicit
+     zipWithIndex: ZipValuesWithIndex.Aux[CR, CRI],
+     selectCol: Selector.Aux[CRI, K, Out],
+     ev: (_, N) =:= Out,
+     selectIndex: At.Aux[CVL, N, V]
+    ): Aux[CR, CVL, K, V]
+    = {
+      new ValueExtractor[CR, CVL, K] {
+        type SelectionValues = V
+
+        def apply = cvl => selectIndex(cvl)
+      }
+    }
+  }
+
+  trait ColumnMaterialzer {
+    def apply[A](name: String, atom: ColumnAtom[A]): Option[A]
+  }
+
+  trait MaterializeFromColumns[CR] extends DepFn1[CR] {
+    type OutValue
+    type Out = ColumnMaterialzer => Option[OutValue]
+  }
+
+  object MaterializeFromColumns {
+    type Aux[CR, OutValue0] = MaterializeFromColumns[CR] {
+      type OutValue = OutValue0
+    }
+    implicit val hnil = new MaterializeFromColumns[HNil] {
+      type CVL = HNil
+      type OutValue = HNil
+      def apply(cr: HNil) = _ => Some(HNil)
+    }
+    implicit def hcons[H, T <: HList, HV, TV <: HList](implicit hm: Aux[H, HV], tm: Aux[T, TV]): Aux[H :: T, HV :: TV] = new MaterializeFromColumns[H :: T] {
+      type OutValue = HV :: TV
+
+      def apply(t: H :: T) = m => hm(t.head).apply(m).flatMap(hv => tm(t.tail).apply(m).map(tv => hv :: tv))
+    }
+    implicit def column[S, V]: Aux[ColumnMapping[S, V], V] = new MaterializeFromColumns[ColumnMapping[S, V]] {
+      type OutValue = V
+
+      def apply(t: ColumnMapping[S, V]) = _(t.name, t.atom)
+    }
+
+    implicit def fieldColumn[K, V](implicit vm: MaterializeFromColumns[V]) = new MaterializeFromColumns[FieldType[K, V]] {
+      type OutValue = vm.OutValue
+
+      def apply(t: FieldType[K, V]) = m => vm(t:V).apply(m)
+    }
+  }
+
+  trait PhysicalValue {
+    type A
+    def name: String
+    def withCol[B](f: (A, PhysCol[A]) => B): B
+  }
+
+  object PhysicalValue {
+    def apply[A](_name: String, v: A, atom: ColumnAtom[A]): PhysicalValue = new PhysicalValue {
+      type A = atom.T
+      def name = _name
+      def withCol[B](f: (A, PhysCol[A]) => B): B = f(atom.to(v), atom.physicalColumn)
+    }
+  }
+
+  trait PhysicalValues[Value, Column] extends DepFn2[Value,Column] {
+    type Out = List[PhysicalValue]
+  }
+
+  object PhysicalValues {
+    implicit def convertToPhysical[CVL <: HList, CR <: HList, PV <: HList]
+    (implicit zipWith: ZipWith.Aux[CVL, CR, physicalValue.type, PV],
+     toList: ToList[PV, PhysicalValue]) = new PhysicalValues[CVL, CR] {
+      def apply(t: CVL, u: CR): List[PhysicalValue] = toList(zipWith(t, u))
+    }
+    implicit def convertSingleValue[A, CM](implicit mapper: physicalValue.Case.Aux[A, CM, PhysicalValue]) = new PhysicalValues[A, CM] {
+      def apply(t: A, u: CM) = List(mapper(t :: u :: HNil))
+    }
+  }
+
+  object physicalValue extends Poly2 {
+    implicit def mapToPhysical[A, S] = at[A, ColumnMapping[S, A]] { (v, mapping) =>
+      PhysicalValue(mapping.name, v, mapping.atom)
+    }
+    implicit def fieldValue[A, K, V](implicit c: Case.Aux[A, V, PhysicalValue]) = at[A, FieldType[K, V]] { (v, fv) => c(HList(v, fv)) : PhysicalValue }
+  }
+
   object columnNamesFromMappings extends Poly1 {
     implicit def mappingToName[S, A] = at[ColumnMapping[S, A]](_.name)
+
     implicit def fieldMappingToName[K, S, A] = at[FieldType[K, ColumnMapping[S, A]]](_.name)
   }
 
@@ -322,12 +450,9 @@ abstract class RelationMapper[F[_] : Monad] {
       type ColumnsValues = CV0
 
       def baseName = _baseName
+
       def mapper = _mapper
     }
-  }
-
-  def getRelationsForBuilder[T](forBuilder: RelationBuilder[T]): DDL[List[WriteQueries[T]]] = State.inspect {
-    tables => tables.map.get(forBuilder).toList.flatMap(_.map { case (_, wq) => wq })
   }
 
   trait RelationBuilder[T] {
@@ -339,12 +464,49 @@ abstract class RelationMapper[F[_] : Monad] {
 
     def mapper: ColumnMapper.Aux[T, Columns, ColumnsValues]
 
-    def queryByKey(implicit keyMapper: KeyMapper[T, Columns, Keys, ColumnsValues, Keys]) : DDL[SingleQuery[T, keyMapper.FullKey]] = ???
+    def addRelation(physRelation: PhysRelation[T]): DDL[physRelation.ReadQueries] = State { s =>
+      val _relationList = s.map.get(this).getOrElse(List.empty)
+      val tableName = if (_relationList.isEmpty) baseName else s"${baseName}_${_relationList.size + 1}"
+      val relationList = (physRelation, physRelation.createWriteQueries(tableName)) :: _relationList
+      val newMap = s.map + (this, relationList)
+      (s.copy(map = newMap), physRelation.createReadQueries(tableName))
+    }
 
-    def queryAllByKeyColumn(k: Witness)(implicit keyMapper: KeyMapper[T, Columns, Keys, ColumnsValues, k.T :: HNil]) : DDL[MultiQuery[T, keyMapper.PartitionKey]] = ???
+    def queryByKey[Meta]
+    (implicit
+     keyMapper: KeyMapper.Aux[T, Columns, Keys, ColumnsValues, Keys, Meta, _, _],
+     projector: Projector.Aux[T, Meta, selectStar.type, T])
+    : DDL[SingleQuery[T, keyMapper.FullKey]]
+    = {
+      val physTable = keyMapper(this)
+      addRelation(physTable).map { rq =>
+        val rq = physTable.createReadQueries(baseName)
+        SingleQuery { (fk: keyMapper.FullKey) =>
+          val w = rq.whereFullKey(fk)
+          rq.selectOne(projector(physTable, selectStar), w, true)
+        }
+      }
+    }
 
-    def writeQueries: DDL[WriteQueries[T]] = getRelationsForBuilder(this).map { relations =>
-      relations.reduce((l:WriteQueries[T],r:WriteQueries[T]) => l.combine(r))
+
+    def queryAllByKeyColumn[Meta, PartitionKey](k: Witness)
+                           (implicit
+                            keyMapper: KeyMapper.Aux[T, Columns, Keys, ColumnsValues, k.T :: HNil, Meta, PartitionKey, _],
+                            projector: Projector.Aux[T, Meta, selectStar.type, T]
+    ): DDL[MultiQuery[T, PartitionKey]]
+      = {
+      val physTable = keyMapper(this)
+      addRelation(physTable).map { rq =>
+        MultiQuery { (pk: PartitionKey) =>
+          val w = rq.wherePK(pk)
+          rq.selectMany(projector(physTable, selectStar), w, true)
+        }
+      }
+    }
+
+    def writeQueries: DDL[WriteQueries[T]] = State.inspect {
+      tables => val relations = tables.map.get(this).toList.flatMap(_.map { case (_, wq) => wq })
+      relations.reduce((l: WriteQueries[T], r: WriteQueries[T]) => l.combine(r))
     }
   }
 
@@ -352,9 +514,10 @@ abstract class RelationMapper[F[_] : Monad] {
 
     case class RelationBuilderPartial[T, Columns <: HList, ColumnsValues <: HList]
     (baseName: String, mapper: ColumnMapper.Aux[T, Columns, ColumnsValues]) extends SingletonProductArgs {
-      def key(k: Witness)(implicit ev: SelectAll[Columns, k.T :: HNil]) : RelationBuilder.Aux[T, Columns, k.T :: HNil, ColumnsValues]
+      def key(k: Witness)(implicit ev: SelectAll[Columns, k.T :: HNil]): RelationBuilder.Aux[T, Columns, k.T :: HNil, ColumnsValues]
       = RelationBuilder(baseName, mapper, ev)
-      def keys(k1: Witness, k2: Witness)(implicit ev: SelectAll[Columns, k1.T :: k2.T :: HNil]) : RelationBuilder.Aux[T, Columns, k1.T :: k2.T :: HNil, ColumnsValues]
+
+      def keys(k1: Witness, k2: Witness)(implicit ev: SelectAll[Columns, k1.T :: k2.T :: HNil]): RelationBuilder.Aux[T, Columns, k1.T :: k2.T :: HNil, ColumnsValues]
       = RelationBuilder(baseName, mapper, ev)
     }
 
@@ -370,7 +533,9 @@ abstract class RelationMapper[F[_] : Monad] {
 trait ValueConvert[V, L] extends (V => L)
 
 object ValueConvert {
+
   trait QuestionMarks
+
   implicit def forDebug[V] = new ValueConvert[V, QuestionMarks] {
     override def apply(v1: V): QuestionMarks = ???
   }

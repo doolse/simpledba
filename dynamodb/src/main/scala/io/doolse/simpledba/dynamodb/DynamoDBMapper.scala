@@ -7,7 +7,7 @@ import io.doolse.simpledba.dynamodb.DynamoDBRelationIO.{Effect, ResultOps}
 import io.doolse.simpledba.{ColumnName, RelationMapper}
 import shapeless._
 import shapeless.labelled.FieldType
-import shapeless.ops.hlist.{IsHCons, ToList, ZipWithKeys}
+import shapeless.ops.hlist.{IsHCons, ToList, Zip, ZipOne, ZipWith, ZipWithKeys}
 import shapeless.ops.record._
 import cats.syntax.all._
 import shapeless.ops.hlist
@@ -23,45 +23,88 @@ class DynamoDBMapper extends RelationMapper[DynamoDBRelationIO.Effect] {
 
   type PhysCol[A] = DynamoDBColumn[A]
   type DDLStatement = CreateTableRequest
-  type PhysRelationT[T, Meta] = DynamoPhysRelation[T, Meta]
-  type Where = DynamoWhere
+
+  sealed trait DynamoProjection[T] extends Projection[T] {
+    def materialize(mat: ColumnMaterialzer): Option[T]
+  }
+  case class All[T, CVL <: HList](m: ColumnMaterialzer => Option[CVL], toT: CVL => T) extends DynamoProjection[T] {
+    def materialize(mat: ColumnMaterialzer): Option[T] = m(mat).map(toT)
+  }
 
   sealed trait DynamoWhere
+  case class AttributeMatch(matches: List[(String, AttributeValue)]) extends DynamoWhere
 
-  abstract class DynamoPhysRelation[T, Meta] extends PhysRelation[T, Meta]
+  type Where = DynamoWhere
+  type ProjectionT[A] = DynamoProjection[A]
+
+  sealed trait DynamoPhysRelation[T] extends PhysRelation[T] {
+    type CR <: HList
+    type CVL <: HList
+    type Meta = (CR,CVL)
+    def mapper: ColumnMapper.Aux[T, CR, CVL]
+    def materializer: ColumnMaterialzer => Option[CVL]
+  }
+
+  type PhysRelationT[T] = DynamoPhysRelation[T]
+
+  implicit def projectAll[T, CR <: HList, CVL <: HList] : Projector.Aux[T, (CR, CVL), selectStar.type, T] = new Projector[T, (CR, CVL), selectStar.type] {
+    type A0 = T
+
+    def apply(t: PhysRelation.Aux[T, (CR, CVL), _, _], u: selectStar.type) = All(t.materializer, t.mapper.fromColumns)
+  }
 
   implicit def noSortKeyMapper[T, CR <: HList, KL <: HList, CVL <: HList,
-  PKK, PKL <: HList, PKC, PKV
+  PKK, PKL <: HList, PKC, PKV, PZL <: HList
   ]
   (implicit
    pkk: IsHCons.Aux[PKL, PKK, HNil],
    ev: IsHCons.Aux[KL, PKK, HNil],
    pkColumn: Selector.Aux[CR, PKK, PKC],
-   valType: ColumnValuesType.Aux[PKC, PKV]
+   valType: ColumnValuesType.Aux[PKC, PKV],
+   evCol: PKC =:= ColumnMapping[T, PKV],
+   pVals: PhysicalValues[CVL, CR],
+   pkVals: PhysicalValues[PKV, PKC],
+   mater: MaterializeFromColumns.Aux[CR, CVL],
+   extractVals: ValueExtractor.Aux[CR, CVL, PKK :: HNil :: HNil, PKV :: HNil :: HNil]
   )
-  : KeyMapper.Aux[T, CR, KL, CVL, PKL, Nothing, PKV, HNil] = new KeyMapper[T, CR, KL, CVL, PKL] {
-    type Meta = Nothing
+  : KeyMapper.Aux[T, CR, KL, CVL, PKL, (CR, CVL), PKV, HNil] = new KeyMapper[T, CR, KL, CVL, PKL] {
+    type Meta = (CR, CVL)
     type PartitionKey = PKV
     type SortKey = HNil
 
-    def apply(t: RelationBuilder.Aux[T, CR, KL, CVL]): PhysRelation.Aux[T, Nothing, PKV, HNil] = ???
+    def apply(t: RelationBuilder.Aux[T, CR, KL, CVL]) = {
+      DynamoDBPhysicalRelation(t.mapper, pkColumn(t.mapper.columns), HNil : HNil, extractVals())
+    }
   }
 
   implicit def dynamoDBRemainingSortKeyMapper[T, CR <: HList, KL <: HList, CVL <: HList,
   PKK, SKK, KeysOnlyR <: HList,
-  PKL <: HList, KLT <: HList, RemainingSK <: HList, KVL <: HList, PKV, SKV, KVLT <: HList
+  PKL <: HList, KLT <: HList, RemainingSK <: HList, PKC, SKC, PKV, SKV
   ]
   (implicit
    pkk: IsHCons.Aux[PKL, PKK, HNil],
    removePK: hlist.Remove.Aux[KL, PKK, (PKK, RemainingSK)],
    skk: IsHCons.Aux[RemainingSK, SKK, HNil],
-   keysOnly: SelectAll.Aux[CR, PKK :: SKK :: HNil, KeysOnlyR],
-   ev: ColumnValuesType.Aux[KeysOnlyR, KVL],
-   pkv: IsHCons.Aux[KVL, PKV, KVLT],
-   skv: IsHCons.Aux[KVLT, SKV, HNil]
+   pkColumn: Selector.Aux[CR, PKK, PKC],
+   pkv: ColumnValuesType.Aux[PKC, PKV],
+   skColumn: Selector.Aux[CR, SKK, SKC],
+   skv: ColumnValuesType.Aux[SKC, SKV],
+   ev: PKC =:= ColumnMapping[T, PKV],
+   ev2: SKC =:= ColumnMapping[T, SKV],
+   pVals: PhysicalValues[CVL, CR],
+   pkVals: PhysicalValues[PKV, PKC],
+   mater: MaterializeFromColumns.Aux[CR, CVL],
+   extractVals: ValueExtractor.Aux[CR, CVL, PKK :: SKK :: HNil, PKV :: SKV :: HNil]
   )
-
-  : KeyMapper.Aux[T, CR, KL, CVL, PKL, Nothing, PKV, SKV] = ???
+  : KeyMapper.Aux[T, CR, KL, CVL, PKL, (CR, CVL), PKV, SKV] = new KeyMapper[T, CR, KL, CVL, PKL] {
+    type Meta = (CR, CVL)
+    type PartitionKey = PKV
+    type SortKey = SKV
+    def apply(t: RelationBuilder.Aux[T, CR, KL, CVL]) = {
+      val cols = t.mapper.columns
+      DynamoDBPhysicalRelation(t.mapper, pkColumn(cols), ev2(skColumn(cols)), extractVals())
+    }
+  }
 
   implicit def dynamoDBAutoSortKeyMapper[T, CR <: HList, KL <: HList, CVL <: HList,
   PKK, SKK, KeysOnlyR <: HList,
@@ -72,7 +115,7 @@ class DynamoDBMapper extends RelationMapper[DynamoDBRelationIO.Effect] {
    skk: IsHCons.Aux[PKLT, SKK, HNil],
    keysOnly: SelectAll.Aux[CR, PKK :: SKK :: HNil, KeysOnlyR])
 
-  : KeyMapper.Aux[T, CR, KL, CVL, PKL, Nothing, Nothing, Nothing] = ???
+  : KeyMapper.Aux[T, CR, KL, CVL, PKL, (CR, CVL), Nothing, Nothing] = ???
 
   //  = new KeyMapper[T, CR, KL, CVL, PKK :: SKK :: HNil] {
   //    type Meta = Nothing
@@ -207,30 +250,87 @@ class DynamoDBMapper extends RelationMapper[DynamoDBRelationIO.Effect] {
   //
 
   object DynamoDBPhysicalRelation {
-    def apply[CR <: HList, CVL <: HList, S, PKV, SKL <: HList, SKV]
-    (colMapper: ColumnMapper.Aux[S, CR, CVL], pkCol: ColumnMapping[S, PKV], skl: SKL, cv: ColumnValuesType[SKL])
-    (implicit toList: ToList[SKL, ColumnMapping[S, SKV]]): DynamoPhysRelation[S, CR]
-    = new DynamoPhysRelation[S, CR] {
+    def apply[CR0 <: HList, CVL0 <: HList, S, PKV, SKV, SK, CL <: HList, VZL <: HList]
+    (colMapper: ColumnMapper.Aux[S, CR0, CVL0], pkCol: ColumnMapping[S, PKV],
+     skColL: SK, toKeys: CVL0 => PKV :: SKV :: HNil)
+    (implicit
+     cv: ColumnValuesType.Aux[SK, SKV],
+     allVals: PhysicalValues[CVL0, CR0],
+     pkVals: PhysicalValues[PKV, ColumnMapping[S, PKV]],
+     skVals: PhysicalValues[SKV, SK],
+     materializeAll: MaterializeFromColumns.Aux[CR0, CVL0]
+    ): PhysRelation.Aux[S, (CR0, CVL0), PKV, cv.Out]
+    = new DynamoPhysRelation[S] {
+      type CR = CR0
+      type CVL = CVL0
       type PartitionKey = PKV
-      type SortKey = cv.Out
+      type SortKey = SKV
 
-      def createReadQueries(tableName: String): ReadQueries = new ReadQueries {
-        def selectOne(projection: ProjectionT, where: Where, asc: Boolean): Effect[Option[projection.A]] = ???
+      def mapper = colMapper
+      val columns = colMapper.columns
+      val materializer = materializeAll(columns)
 
-        def selectMany(projection: ProjectionT, where: Where, asc: Boolean): Effect[List[projection.A]] = ???
+      def asAttrMap(l: List[PhysicalValue]) = l.map(physical2Attribute).toMap.asJava
 
-        def whereFullKey(pk: FullKey): Where = ???
+      def physical2Attribute(pc: PhysicalValue) = pc.name -> pc.withCol((v, c) => c.to(v))
 
-        def wherePK(pk: PartitionKey): Where = ???
-
-        def whereRange(pk: PKV, lower: SortKey, upper: SortKey): Where = ???
+      def createMaterializer(m: java.util.Map[String, AttributeValue]): ColumnMaterialzer = new ColumnMaterialzer {
+        def apply[A](name: String, atom: ColumnAtom[A]): Option[A] = {
+          Option(m.get(name)).map(av => atom.from(atom.physicalColumn.from(av)))
+        }
       }
 
-      def createWriteQueries(tableName: String): WriteQueries[S] = ???
+      def createReadQueries(tableName: String): ReadQueries = new ReadQueries {
+        def selectOne[A](projection: DynamoProjection[A], where: DynamoWhere, asc: Boolean): Effect[Option[A]] = Reader { s =>
+          val m = where match {
+            case AttributeMatch(matches) => Option(s.client.getItem(tableName, matches.toMap.asJava).getItem).map(createMaterializer)
+          }
+          m.flatMap(projection.materialize)
+        }
+
+        def selectMany[A](projection: DynamoProjection[A], where: DynamoWhere, asc: Boolean): Effect[List[A]] = Reader { s =>
+          val qr = new QueryRequest().withTableName(tableName)
+          val qr2 = where match {
+            case AttributeMatch(matches) =>
+              val exprs = matches.zipWithIndex map {
+                case ((n, av), ind) => (n, s"#F$ind", av, s":V$ind")
+              }
+              val expression = exprs.map { case (_, an, _, vn) => s"$an = $vn" } mkString " AND "
+              val names = exprs.map { case (n, nm, _, _) => (nm, n)}.toMap.asJava
+              val values = exprs.map { case (_, _, av, vn) => (vn, av) }.toMap.asJava
+              qr.withKeyConditionExpression(expression)
+                .withExpressionAttributeNames(names)
+                .withExpressionAttributeValues(values)
+          }
+          s.client.query(qr2).getItems.asScala.flatMap(v => projection.materialize(createMaterializer(v))).toList
+        }
+
+        def whereFullKey(pk: PartitionKey :: SortKey :: HNil): DynamoWhere
+        = AttributeMatch((pkVals(pk.head, pkCol) ++ skVals(pk.tail.head, skColL)).map(physical2Attribute))
+
+        def wherePK(pk: PartitionKey): DynamoWhere = AttributeMatch(pkVals(pk, pkCol).map(physical2Attribute) )
+
+        def whereRange(pk: PKV, lower: SortKey, upper: SortKey): DynamoWhere = ???
+      }
+
+      def createWriteQueries(tableName: String): WriteQueries[S] = new WriteQueries[S] {
+        def delete(t: S): Effect[Unit] = Reader { s =>
+          val keyHList = toKeys(mapper.toColumns(t))
+          val (pk, sk) = (keyHList.head, keyHList(1))
+          s.client.deleteItem(tableName, asAttrMap(pkVals(pk, pkCol) ++ skVals(sk, skColL)))
+        }
+
+        def insert(t: S): Effect[Unit] = Reader { s =>
+          s.client.putItem(tableName, asAttrMap(allVals(mapper.toColumns(t), columns)))
+        }
+
+        def update(existing: S, newValue: S): Effect[Boolean] = Reader { s => false }
+      }
 
       def createDDL(tableName: String): CreateTableRequest = ???
 
-      def convertKey[OMeta](other: DynamoPhysRelation[S, OMeta]): (other.FullKey) => FullKey = ???
+
+      def convertKey(other: PhysRelation[S]): (other.FullKey) => FullKey = ???
     }
   }
 
