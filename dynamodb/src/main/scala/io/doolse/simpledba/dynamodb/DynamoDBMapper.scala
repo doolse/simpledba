@@ -21,27 +21,18 @@ import scala.collection.JavaConverters._
 class DynamoDBMapper extends RelationMapper[DynamoDBRelationIO.Effect] {
 
   type PhysCol[A] = DynamoDBColumn[A]
-  type DDL[A] = State[PhysicalTables, A]
-  type DDLStatements = List[CreateTableRequest]
+  type DDLStatement = CreateTableRequest
 
-  def DDLMonad = Monad[DDL]
-
-  class BuilderToRelations[K, V]
-
-  implicit def btor[T] = new BuilderToRelations[RelationBuilder[T], List[WriteQueries[T]]]
-
-  case class PhysicalTables(map: HMap[BuilderToRelations] = HMap.empty, set: Set[DynamoDBTable[_, _, _]] = Set.empty)
-
-  case class KeyMapperData[T, Key, SortKey, PKeyValues, SKValues](makeTable: String => DynamoDBTable[T, Key, SortKey],
-                                                       makeQuery: DynamoDBTable[T, Key, SortKey] => RelationQueries.Aux[T, PKeyValues, SKValues])
-
-  trait KeyMapper[T, ColumnsIn <: HList, AllKeys <: HList, ColumnsValues <: HList, Keys, PKeyValues, SKeyValues] {
-    type ColumnsOut <: HList
-    type Key
-    type SortKey
-
-    def table(builder: RelationBuilder.Aux[T, ColumnsIn, AllKeys, ColumnsValues]): KeyMapperData[T, Key, SortKey, PKeyValues, SKeyValues]
-  }
+//  case class KeyMapperData[T, Key, SortKey, PKeyValues, SKValues](makeTable: String => DynamoDBTable[T, Key, SortKey],
+//                                                       makeQuery: DynamoDBTable[T, Key, SortKey] => RelationQueries.Aux[T, PKeyValues, SKValues])
+//
+//  trait KeyMapper[T, ColumnsIn <: HList, AllKeys <: HList, ColumnsValues <: HList, Keys, PKeyValues, SKeyValues] {
+//    type ColumnsOut <: HList
+//    type Key
+//    type SortKey
+//
+//    def table(builder: RelationBuilder.Aux[T, ColumnsIn, AllKeys, ColumnsValues]): KeyMapperData[T, Key, SortKey, PKeyValues, SKeyValues]
+//  }
 //
 //  implicit def singleKeyMapper[T, ColumnsIn <: HList, ColumnsValues <: HList, KeyName <: Symbol, KeyColumn <: HList, KeyValue,
 //  AllColumnKeys <: HList, CVRecord <: HList]
@@ -155,67 +146,55 @@ class DynamoDBMapper extends RelationMapper[DynamoDBRelationIO.Effect] {
 //  }
 //
 //
-  case class DynamoDBTable[T, Key, SortKey0]
-  (tableName: String, keyColumn: NamedColumn[Key],
-   sortKey: Option[NamedColumn[SortKey0]],
-   allColumns: List[NamedColumn[_]],
-   extract: T => (Eval[(Key, Option[SortKey0])], Eval[List[_]]), materialize: List[_] => T) extends WriteQueries[T] with RelationQueries[T] {
-
-  type PartitionKey = Key
-  type SortKey = SortKey0
-
-  def createTable: CreateTableRequest = {
-    val sortDef = (List(keyColumn) ++ sortKey).map(c => new AttributeDefinition(c.name, c.column.physicalColumn.attributeType))
-    val keyDef = new KeySchemaElement(keyColumn.name, KeyType.HASH)
-    val sortKeyDef = sortKey.map(c => new KeySchemaElement(c.name, KeyType.RANGE))
-    new CreateTableRequest(sortDef.asJava, tableName, (List(keyDef) ++ sortKeyDef).asJava, new ProvisionedThroughput(1L, 1L))
-  }
-
-  def materializeValue(attrMap: scala.collection.mutable.Map[String, AttributeValue]): T = {
-    materialize(allColumns.map { nc =>
-      val atom = nc.column
-      atom.from(atom.physicalColumn.from(attrMap.getOrElse(nc.name, throw new RuntimeException("Failed to get field"))))
-    } )
-  }
-
-  def attrValuePair[A](col: (A, NamedColumn[A])) = col._2.name -> attrValue(col._1, col._2.column)
-
-  def attrValue[A](a: A, atom: ColumnAtom[A]): AttributeValue =
-    atom.withColumn(a, (t, c) => c.to(t))
-
-  def keyAttributeValues(t: T) : Map[String, AttributeValue] = {
-    val (pkv, skO) = extract(t)._1.value
-    val justPK = Map(keyColumn.name -> attrValue(pkv, keyColumn.column))
-    sortKey.flatMap(sk => skO.map(skv => justPK + (sk.name -> attrValue(skv, sk.column)))).getOrElse(justPK)
-  }
-
-  def delete(t: T): Effect[Unit] = Reader { db => db.client.deleteItem(tableName, keyAttributeValues(t).asJava); () }
-
-  def update(existing: T, newValue: T): Effect[Boolean] = ???
-
-  def insert(t: T): Effect[Unit] = Reader { db =>
-    val attrValues = extract(t)._2.value.zip(allColumns).map(a => attrValuePair((a._1.asInstanceOf[Any], a._2.asInstanceOf[NamedColumn[Any]])))
-    db.client.putItem(tableName, attrValues.toMap.asJava)
-  }
-
-  def queryWithFullKey(k: Key, sortKey: SortKey0): Effect[Option[T]] = Reader { db => db.client.getItem()
-
-  def queryRange(k: Key, lower: SortKey0, upper: SortKey0, ascending: Boolean): Effect[List[T]] = ???
-
-  def queryWithPartitionKey(k: Key): Effect[List[T]] = ???
-}
-
-  def getRelationsForBuilder[T](forBuilder: RelationBuilder[T]): State[PhysicalTables, List[WriteQueries[T]]] = State.inspect {
-    s => s.map.get(forBuilder).getOrElse(List.empty)
-  }
-
-  def build[A](ddl: State[PhysicalTables, A]): A = ddl.runA(PhysicalTables()).value
-
-  def buildSchema[A](ddl: DDL[A]) = {
-    val (pt, res) = ddl.run(PhysicalTables()).value
-    val tables = pt.set.toList.map(_.createTable)
-    (tables, res)
-  }
+//  case class DynamoDBTable[T, Key, SortKey0]
+//  (tableName: String, keyColumn: NamedColumn[Key],
+//   sortKey: Option[NamedColumn[SortKey0]],
+//   allColumns: List[NamedColumn[_]],
+//   extract: T => (Eval[(Key, Option[SortKey0])], Eval[List[_]]), materialize: List[_] => T) extends WriteQueries[T] with RelationQueries[T] {
+//
+//  type PartitionKey = Key
+//  type SortKey = SortKey0
+//
+//  def createTable: CreateTableRequest = {
+//    val sortDef = (List(keyColumn) ++ sortKey).map(c => new AttributeDefinition(c.name, c.column.physicalColumn.attributeType))
+//    val keyDef = new KeySchemaElement(keyColumn.name, KeyType.HASH)
+//    val sortKeyDef = sortKey.map(c => new KeySchemaElement(c.name, KeyType.RANGE))
+//    new CreateTableRequest(sortDef.asJava, tableName, (List(keyDef) ++ sortKeyDef).asJava, new ProvisionedThroughput(1L, 1L))
+//  }
+//
+//  def materializeValue(attrMap: scala.collection.mutable.Map[String, AttributeValue]): T = {
+//    materialize(allColumns.map { nc =>
+//      val atom = nc.column
+//      atom.from(atom.physicalColumn.from(attrMap.getOrElse(nc.name, throw new RuntimeException("Failed to get field"))))
+//    } )
+//  }
+//
+//  def attrValuePair[A](col: (A, NamedColumn[A])) = col._2.name -> attrValue(col._1, col._2.column)
+//
+//  def attrValue[A](a: A, atom: ColumnAtom[A]): AttributeValue =
+//    atom.withColumn(a, (t, c) => c.to(t))
+//
+//  def keyAttributeValues(t: T) : Map[String, AttributeValue] = {
+//    val (pkv, skO) = extract(t)._1.value
+//    val justPK = Map(keyColumn.name -> attrValue(pkv, keyColumn.column))
+//    sortKey.flatMap(sk => skO.map(skv => justPK + (sk.name -> attrValue(skv, sk.column)))).getOrElse(justPK)
+//  }
+//
+//  def delete(t: T): Effect[Unit] = Reader { db => db.client.deleteItem(tableName, keyAttributeValues(t).asJava); () }
+//
+//  def update(existing: T, newValue: T): Effect[Boolean] = ???
+//
+//  def insert(t: T): Effect[Unit] = Reader { db =>
+//    val attrValues = extract(t)._2.value.zip(allColumns).map(a => attrValuePair((a._1.asInstanceOf[Any], a._2.asInstanceOf[NamedColumn[Any]])))
+//    db.client.putItem(tableName, attrValues.toMap.asJava)
+//  }
+//
+//  def queryWithFullKey(k: Key, sortKey: SortKey0): Effect[Option[T]] = Reader { db => db.client.getItem() }
+//
+//  def queryRange(k: Key, lower: SortKey0, upper: SortKey0, ascending: Boolean): Effect[List[T]] = ???
+//
+//  def queryWithPartitionKey(k: Key): Effect[List[T]] = ???
+//}
 
   //    val keyColumns = List(ColumnName(keyColumn.name))
   //    val sortColumns = sortKey.map(c => ColumnName(c.name)).toList
