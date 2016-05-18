@@ -81,9 +81,9 @@ abstract class RelationMapper[F[_] : Monad] {
     type SortKey
     type FullKey = PartitionKey :: SortKey :: HNil
 
-    def isFullKeyCompatibleWith[OPK, OSK](other: PhysRelation.Aux[T, _, OPK, OSK]): other.FullKey => FullKey
-    def createReadQueries(tableName: String): WriteQueries[T]
-    def createWriteQueries(tableName: String): ReadQueries
+    def convertKey[OMeta](other: PhysRelationT[T, OMeta]): other.FullKey => FullKey
+    def createWriteQueries(tableName: String): WriteQueries[T]
+    def createReadQueries(tableName: String): ReadQueries
     def createDDL(tableName: String): DDLStatement
 
     trait ReadQueries {
