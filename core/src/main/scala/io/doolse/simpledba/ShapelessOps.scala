@@ -4,7 +4,7 @@ import shapeless._
 import shapeless.labelled.FieldType
 import shapeless.labelled.field
 import shapeless.ops.hlist.ZipWithKeys
-import shapeless.ops.record.{SelectAll, SelectAllRecord}
+import shapeless.ops.record.SelectAll
 import shapeless.{DepFn1, DepFn2, HList, HNil, Nat, Succ}
 
 /**

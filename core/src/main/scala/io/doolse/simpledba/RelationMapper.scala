@@ -427,10 +427,18 @@ abstract class RelationMapper[F[_] : Monad] {
     }
   }
 
-  @implicitNotFound("Failed to find mapper for ${A}")
-  trait ColumnMapper[A] {
+  trait ColumnMapperT[A] {
     type Columns <: HList
     type ColumnsValues <: HList
+  }
+
+  trait ColumnMapperTAux[A, C0 <: HList, CV0 <: HList] extends ColumnMapperT[A] {
+    type Columns = C0
+    type ColumnsValues = CV0
+  }
+
+  @implicitNotFound("Failed to find mapper for ${A}")
+  trait ColumnMapper[A] extends ColumnMapperT[A] {
 
     def columns: Columns
 
@@ -440,47 +448,23 @@ abstract class RelationMapper[F[_] : Monad] {
   }
 
   object ColumnMapper {
-    type Aux[A, Columns0 <: HList, ColumnsValues0 <: HList] = ColumnMapper[A] {
-      type Columns = Columns0
-      type ColumnsValues = ColumnsValues0
-    }
+    case class Aux[A, Columns0 <: HList, ColumnsValues0 <: HList](columns: Columns0, fromColumns: ColumnsValues0 => A,
+                                                                  toColumns: A => ColumnsValues0)
+      extends ColumnMapper[A] with ColumnMapperTAux[A, Columns0, ColumnsValues0]
 
-    implicit val hnilMapper: ColumnMapper.Aux[HNil, HNil, HNil] = new ColumnMapper[HNil] {
-      type Columns = HNil
-      type ColumnsValues = HNil
-
-      def columns = HNil
-
-      def fromColumns = identity
-
-      def toColumns = identity
-    }
+    implicit val hnilMapper: ColumnMapper.Aux[HNil, HNil, HNil] = Aux(HNil, identity, identity)
 
     implicit def singleColumn[K <: Symbol, V](implicit atom: ColumnAtom[V], key: Witness.Aux[K], tt: TypeTag[FieldType[K, V]]):
-    ColumnMapper.Aux[FieldType[K, V], FieldType[K, ColumnMapping[FieldType[K, V], V]] :: HNil, V :: HNil] = new ColumnMapper[FieldType[K, V]] {
-      type Columns = FieldType[K, ColumnMapping[FieldType[K, V], V]] :: HNil
-      type ColumnsValues = V :: HNil
-
-      def columns = field[K](ColumnMapping[FieldType[K, V], V](key.value.name, atom, fv => fv: V)) :: HNil
-
-      def fromColumns = v => field[K](v.head)
-
-      def toColumns = _ :: HNil
-    }
-
+    ColumnMapper.Aux[FieldType[K, V], FieldType[K, ColumnMapping[FieldType[K, V], V]] :: HNil, V :: HNil] =
+      Aux(field[K](ColumnMapping[FieldType[K, V], V](key.value.name, atom, fv => fv: V)) :: HNil, v => field[K](v.head), _ :: HNil)
 
     implicit def multiColumn[K <: Symbol, V, Columns0 <: HList, ColumnsValues0 <: HList, CZ <: HList]
     (implicit mapping: ColumnMapper.Aux[V, Columns0, ColumnsValues0],
-     zipWithLens: ZipConst.Aux[FieldType[K, V] => V, Columns0, CZ], mapper: Mapper[composeLens.type, CZ]) = new ColumnMapper[FieldType[K, V]] {
-      type Columns = mapper.Out
-      type ColumnsValues = ColumnsValues0
+     zipWithLens: ZipConst.Aux[FieldType[K, V] => V, Columns0, CZ], mapper: Mapper[composeLens.type, CZ])
+    = Aux[FieldType[K, V], mapper.Out, ColumnsValues0](mapper(zipWithLens(v => v: V, mapping.columns)),
+      v => field[K](mapping.fromColumns(v)),
+      mapping.toColumns)
 
-      def columns = mapper(zipWithLens(v => v: V, mapping.columns))
-
-      def fromColumns = v => field[K](mapping.fromColumns(v))
-
-      def toColumns = mapping.toColumns
-    }
 
     implicit def hconsMapper[H, T <: HList,
     HC <: HList, HCZ <: HList, HCM <: HList,
@@ -493,33 +477,25 @@ abstract class RelationMapper[F[_] : Monad] {
      prependC: Prepend[HCM, TCM], prependV: Prepend.Aux[HV, TV, OutV],
      lenH: Length.Aux[HV, LenHV], headVals: Take.Aux[OutV, LenHV, HV], tailVals: Drop.Aux[OutV, LenHV, TV])
     : ColumnMapper.Aux[H :: T, prependC.Out, OutV] = {
-      new ColumnMapper[H :: T] {
-        type Columns = prependC.Out
-        type ColumnsValues = OutV
-
-        def columns = prependC(mappedHead(zipHeadLens(_.head, headMapper.columns)), mappedTail(zipTailLens(_.tail, tailMapper.columns)))
-
-        def fromColumns = v => headMapper.fromColumns(headVals(v)) :: tailMapper.fromColumns(tailVals(v))
-
-        def toColumns = v => prependV(headMapper.toColumns(v.head), tailMapper.toColumns(v.tail))
+      Aux(
+        prependC(mappedHead(zipHeadLens(_.head, headMapper.columns)), mappedTail(zipTailLens(_.tail, tailMapper.columns))),
+        v => headMapper.fromColumns(headVals(v)) :: tailMapper.fromColumns(tailVals(v)),
+        v => prependV(headMapper.toColumns(v.head), tailMapper.toColumns(v.tail)))
       }
-    }
   }
 
-  trait GenericColumnMapper[T] {
-    type Columns <: HList
-    type ColumnsValues <: HList
-
-    def apply(): ColumnMapper.Aux[T, Columns, ColumnsValues]
+  sealed trait GenericColumnMapper[T] extends ColumnMapperT[T] {
+    val aux: ColumnMapper.Aux[T, Columns, ColumnsValues]
   }
+
+//  trait GenericColumnMapper[T] extends ColumnMapperT[T] {
+//    def apply(): ColumnMapper.Aux[T, Columns, ColumnsValues]
+//  }
 
   object GenericColumnMapper {
-    def apply[T](implicit genMapper: GenericColumnMapper[T]): ColumnMapper.Aux[T, genMapper.Columns, genMapper.ColumnsValues] = genMapper.apply()
+    case class Aux[T, C0 <: HList, CV0 <: HList](aux: ColumnMapper.Aux[T, C0, CV0]) extends GenericColumnMapper[T] with ColumnMapperTAux[T, C0, CV0]
 
-    type Aux[T, Columns0 <: HList, ColumnsValues0 <: HList] = GenericColumnMapper[T] {
-      type Columns = Columns0
-      type ColumnsValues = ColumnsValues0
-    }
+    def apply[T](implicit genMapper: GenericColumnMapper[T]): ColumnMapper.Aux[T, genMapper.Columns, genMapper.ColumnsValues] = genMapper.aux
 
     implicit def genericColumn[T, Repr <: HList, Columns0 <: HList, ColumnsValues0 <: HList, ColumnsZ <: HList]
     (implicit
@@ -527,21 +503,10 @@ abstract class RelationMapper[F[_] : Monad] {
      mapping: ColumnMapper.Aux[Repr, Columns0, ColumnsValues0],
      zipWithLens: ZipConst.Aux[T => Repr, Columns0, ColumnsZ], mapper: Mapper[composeLens.type, ColumnsZ]
     ): Aux[T, mapper.Out, ColumnsValues0]
-    = new GenericColumnMapper[T] {
-      type Columns = mapper.Out
-      type ColumnsValues = ColumnsValues0
-
-      def apply() = new ColumnMapper[T] {
-        type Columns = mapper.Out
-        type ColumnsValues = ColumnsValues0
-
-        def columns = mapper(zipWithLens(lgen.to, mapping.columns))
-
-        def fromColumns = v => lgen.from(mapping.fromColumns(v))
-
-        def toColumns = v => mapping.toColumns(lgen.to(v))
-      }
-    }
+    = Aux(ColumnMapper.Aux(mapper(zipWithLens(lgen.to, mapping.columns)),
+      v => lgen.from(mapping.fromColumns(v)),
+      v => mapping.toColumns(lgen.to(v)))
+    )
   }
 
   case class SingleQuery[T, KeyValues](query: KeyValues => F[Option[T]]) {
@@ -620,8 +585,8 @@ abstract class RelationMapper[F[_] : Monad] {
     }
 
 
-    def apply[Columns <: HList, ColumnsValues <: HList](name: String)(implicit gen: GenericColumnMapper.Aux[T, Columns, ColumnsValues])
-    : RelationBuilderPartial[T, Columns, ColumnsValues] = RelationBuilderPartial(name, gen())
+    def apply(name: String)(implicit gen: GenericColumnMapper[T])
+    : RelationBuilderPartial[T, gen.Columns, gen.ColumnsValues] = RelationBuilderPartial(name, gen.aux)
   }
 
   def relation[T] = new RelationPartial[T]
