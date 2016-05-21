@@ -7,7 +7,6 @@ import com.datastax.driver.core.policies.{DCAwareRoundRobinPolicy, DowngradingCo
 import com.google.common.util.concurrent.ListenableFuture
 import fs2.Strategy
 import fs2.util.Task
-import io.doolse.simpledba.ColumnName
 
 import scala.concurrent.ExecutionContext.Implicits
 import scala.util.{Failure, Success, Try}
@@ -46,8 +45,6 @@ object CassandraSession {
   class CassandraIOException(msg: String, t: Throwable) extends RuntimeException(msg, t)
 
   val reservedColumns = Set("schema")
-  def escapeColumn(name: ColumnName): String =
-    escapeReserved(name.name)
 
   def escapeReserved(name: String) =
     if (reservedColumns(name.toLowerCase())) '"'+name+'"' else name

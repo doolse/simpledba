@@ -25,7 +25,7 @@ abstract class RelationMapper[F[_] : Monad] {
 
   class BuilderToRelations[K, V]
 
-  implicit def btor[T] = new BuilderToRelations[BuilderKey[T], List[(PhysRelation[T], WriteQueries[T], ReadQueries)]]
+  implicit def btor[T] = new BuilderToRelations[BuilderKey[T], List[(PhysRelation[T], WriteQueries[F, T], ReadQueries)]]
 
   case class PhysicalTables(map: HMap[BuilderToRelations] = HMap.empty, allNeeded: Vector[(String, PhysRelation[_])] = Vector.empty)
 
@@ -48,23 +48,6 @@ abstract class RelationMapper[F[_] : Monad] {
     def selectMany[A](projection: ProjectionT[A], where: Where, asc: Boolean): F[List[A]]
   }
 
-  trait WriteQueries[T] {
-    self =>
-    def delete(t: T): F[Unit]
-
-    def insert(t: T): F[Unit]
-
-    def update(existing: T, newValue: T): F[Boolean]
-
-    def combine(other: WriteQueries[T]): WriteQueries[T] = new WriteQueries[T] {
-      def delete(t: T): F[Unit] = self.delete(t) *> other.delete(t)
-
-      def insert(t: T): F[Unit] = self.insert(t) *> other.insert(t)
-
-      def update(existing: T, newValue: T): F[Boolean] = (self.update(existing, newValue) |@| other.update(existing, newValue)).map((a, b) => a || b)
-    }
-  }
-
   trait Projector[T, Meta, Select] extends DepFn2[PhysRelation.Aux[T, Meta, _, _], Select] {
     type A0
     type Out = ProjectionT[A0]
@@ -76,37 +59,60 @@ abstract class RelationMapper[F[_] : Monad] {
     }
   }
 
-  @implicitNotFound("Failed to map keys ('${PKL}') for ${T}")
-  trait KeyMapper[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList] extends DepFn1[RelationBuilder[T, CR, KL, CVL]] {
-    type Meta
-    type PartitionKey
-    type SortKey
-    type Out = PhysRelation.Aux[T, Meta, PartitionKey, SortKey]
+  trait ColumnMapped[A] {
+    type Columns <: HList
+    type ColumnsValues <: HList
   }
 
-  object KeyMapper {
-    type Aux[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList, Meta0, PartitionKey0, SortKey0] = KeyMapper[T, CR, KL, CVL, PKL] {
-      type Meta = Meta0
-      type PartitionKey = PartitionKey0
-      type SortKey = SortKey0
+  object ColumnMapped {
+    trait Aux[A, C0 <: HList, CV0 <: HList] extends ColumnMapped[A] {
+      type Columns = C0
+      type ColumnsValues = CV0
+    }
+    trait KeyList[A] extends ColumnMapped[A] {
+      type KeyNames <: HList
+    }
+    trait KeyListAux[A, C0 <: HList, CV0 <: HList, KL <: HList] extends Aux[A, C0, CV0] {
+      type KeyNames = KL
     }
   }
 
-  trait PhysRelation[T] {
-    type Meta
+
+
+  object Column
+
+  trait RelationKeys {
     type PartitionKey
     type SortKey
     type FullKey = PartitionKey :: SortKey :: HNil
+  }
 
-    def createWriteQueries(tableName: String): WriteQueries[T]
+  trait RelationKeysAux[PK0, SK0] extends RelationKeys {
+    type PartitionKey = PK0
+    type SortKey = SK0
+  }
+
+  @implicitNotFound("Failed to map keys ('${PKL}') for ${T}")
+  trait KeyMapper[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList] extends RelationKeys {
+    type Meta
+    def keysMapped(cm: ColumnMapper.Aux[T, CR, CVL]): PhysRelation.Aux[T, Meta, PartitionKey, SortKey]
+  }
+
+  object KeyMapper {
+    abstract class Aux[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList, Meta0, PartitionKey0, SortKey0]
+      extends KeyMapper[T, CR, KL, CVL, PKL] with RelationKeysAux[PartitionKey0, SortKey0] {
+      type Meta = Meta0
+    }
+  }
+
+  trait PhysRelation[T] extends RelationKeys {
+    type Meta
+
+    def createWriteQueries(tableName: String): WriteQueries[F, T]
 
     def createReadQueries(tableName: String): ReadQueries
 
     def createDDL(tableName: String): DDLStatement
-
-//    def keyAsMap(key: FullKey): Map[String, Any]
-//
-//    def whereFromKeyMap(keyMap: Map[String, Any]): Where
 
     def whereFullKey(pk: FullKey): Where
 
@@ -421,47 +427,34 @@ abstract class RelationMapper[F[_] : Monad] {
     implicit def fieldMappingToName[K, S, A] = at[FieldType[K, ColumnMapping[S, A]]](_.name)
   }
 
+  @implicitNotFound("Failed to find mapper for ${A}")
+  trait ColumnMapper[A] extends ColumnMapped[A] {
+    def columns: Columns
+    def fromColumns: ColumnsValues => A
+    def toColumns: A => ColumnsValues
+  }
+
   object composeLens extends Poly1 {
     implicit def convertLens[T, T2, K, A](implicit tt: TypeTag[T]) = at[(FieldType[K, ColumnMapping[T2, A]], T => T2)] {
       case (colMapping, lens) => field[K](colMapping.copy[T, A](get = colMapping.get compose lens))
     }
   }
 
-  trait ColumnMapperT[A] {
-    type Columns <: HList
-    type ColumnsValues <: HList
-  }
-
-  trait ColumnMapperTAux[A, C0 <: HList, CV0 <: HList] extends ColumnMapperT[A] {
-    type Columns = C0
-    type ColumnsValues = CV0
-  }
-
-  @implicitNotFound("Failed to find mapper for ${A}")
-  trait ColumnMapper[A] extends ColumnMapperT[A] {
-
-    def columns: Columns
-
-    def fromColumns: ColumnsValues => A
-
-    def toColumns: A => ColumnsValues
-  }
-
   object ColumnMapper {
-    case class Aux[A, Columns0 <: HList, ColumnsValues0 <: HList](columns: Columns0, fromColumns: ColumnsValues0 => A,
-                                                                  toColumns: A => ColumnsValues0)
-      extends ColumnMapper[A] with ColumnMapperTAux[A, Columns0, ColumnsValues0]
+    class Aux[A, Columns0 <: HList, ColumnsValues0 <: HList](val columns: Columns0, val fromColumns: ColumnsValues0 => A,
+                                                             val toColumns: A => ColumnsValues0)
+      extends ColumnMapper[A] with ColumnMapped.Aux[A, Columns0, ColumnsValues0]
 
-    implicit val hnilMapper: ColumnMapper.Aux[HNil, HNil, HNil] = Aux(HNil, identity, identity)
+    implicit val hnilMapper: ColumnMapper.Aux[HNil, HNil, HNil] = new Aux(HNil, identity, identity)
 
     implicit def singleColumn[K <: Symbol, V](implicit atom: ColumnAtom[V], key: Witness.Aux[K], tt: TypeTag[FieldType[K, V]]):
     ColumnMapper.Aux[FieldType[K, V], FieldType[K, ColumnMapping[FieldType[K, V], V]] :: HNil, V :: HNil] =
-      Aux(field[K](ColumnMapping[FieldType[K, V], V](key.value.name, atom, fv => fv: V)) :: HNil, v => field[K](v.head), _ :: HNil)
+      new Aux(field[K](ColumnMapping[FieldType[K, V], V](key.value.name, atom, fv => fv: V)) :: HNil, v => field[K](v.head), _ :: HNil)
 
     implicit def multiColumn[K <: Symbol, V, Columns0 <: HList, ColumnsValues0 <: HList, CZ <: HList]
     (implicit mapping: ColumnMapper.Aux[V, Columns0, ColumnsValues0],
      zipWithLens: ZipConst.Aux[FieldType[K, V] => V, Columns0, CZ], mapper: Mapper[composeLens.type, CZ])
-    = Aux[FieldType[K, V], mapper.Out, ColumnsValues0](mapper(zipWithLens(v => v: V, mapping.columns)),
+    = new Aux[FieldType[K, V], mapper.Out, ColumnsValues0](mapper(zipWithLens(v => v: V, mapping.columns)),
       v => field[K](mapping.fromColumns(v)),
       mapping.toColumns)
 
@@ -477,23 +470,19 @@ abstract class RelationMapper[F[_] : Monad] {
      prependC: Prepend[HCM, TCM], prependV: Prepend.Aux[HV, TV, OutV],
      lenH: Length.Aux[HV, LenHV], headVals: Take.Aux[OutV, LenHV, HV], tailVals: Drop.Aux[OutV, LenHV, TV])
     : ColumnMapper.Aux[H :: T, prependC.Out, OutV] = {
-      Aux(
+      new Aux(
         prependC(mappedHead(zipHeadLens(_.head, headMapper.columns)), mappedTail(zipTailLens(_.tail, tailMapper.columns))),
         v => headMapper.fromColumns(headVals(v)) :: tailMapper.fromColumns(tailVals(v)),
         v => prependV(headMapper.toColumns(v.head), tailMapper.toColumns(v.tail)))
       }
   }
 
-  sealed trait GenericColumnMapper[T] extends ColumnMapperT[T] {
-    val aux: ColumnMapper.Aux[T, Columns, ColumnsValues]
+  sealed trait GenericColumnMapper[T] extends ColumnMapped[T] {
+    def aux: ColumnMapper.Aux[T, Columns, ColumnsValues]
   }
 
-//  trait GenericColumnMapper[T] extends ColumnMapperT[T] {
-//    def apply(): ColumnMapper.Aux[T, Columns, ColumnsValues]
-//  }
-
   object GenericColumnMapper {
-    case class Aux[T, C0 <: HList, CV0 <: HList](aux: ColumnMapper.Aux[T, C0, CV0]) extends GenericColumnMapper[T] with ColumnMapperTAux[T, C0, CV0]
+    class Aux[T, C0 <: HList, CV0 <: HList](val aux: ColumnMapper.Aux[T, C0, CV0]) extends GenericColumnMapper[T] with ColumnMapped.Aux[T, C0, CV0]
 
     def apply[T](implicit genMapper: GenericColumnMapper[T]): ColumnMapper.Aux[T, genMapper.Columns, genMapper.ColumnsValues] = genMapper.aux
 
@@ -503,21 +492,33 @@ abstract class RelationMapper[F[_] : Monad] {
      mapping: ColumnMapper.Aux[Repr, Columns0, ColumnsValues0],
      zipWithLens: ZipConst.Aux[T => Repr, Columns0, ColumnsZ], mapper: Mapper[composeLens.type, ColumnsZ]
     ): Aux[T, mapper.Out, ColumnsValues0]
-    = Aux(ColumnMapper.Aux(mapper(zipWithLens(lgen.to, mapping.columns)),
+    = new Aux(new ColumnMapper.Aux(mapper(zipWithLens(lgen.to, mapping.columns)),
       v => lgen.from(mapping.fromColumns(v)),
       v => mapping.toColumns(lgen.to(v)))
     )
   }
 
-  case class SingleQuery[T, KeyValues](query: KeyValues => F[Option[T]]) {
-    def as[K](implicit vc: ValueConvert[K, KeyValues]) = copy[T, K](query = query compose vc)
+  trait RelationBuilder2[T] extends ColumnMapped.KeyList[T] {
+    type BuiltTables
+    type Results
+    def builtTables: BuiltTables
+    def results : Results
+    def schemaForTables: List[DDLStatement]
+    def queryByFullKey(implicit qbfk: QueryByFullKey[BuiltTables, Results, ColumnMapped.KeyList[T]]): qbfk.Out = qbfk()
   }
 
-  case class MultiQuery[T, KeyValues](ascending: Boolean, queryWithOrder: (KeyValues, Boolean) => F[List[T]]) {
-    def query(k: KeyValues) = queryWithOrder(k, ascending)
-
-    def as[K](implicit vc: ValueConvert[K, KeyValues]) = copy[T, K](queryWithOrder = (k, asc) => queryWithOrder(vc(k), asc))
+  trait QueryByFullKey[BT, R, In] {
+    type Out <: RelationBuilder2[_]
+    def apply(): Out
   }
+
+  object RelationBuilder2 {
+    abstract class Aux[T, CR, CVL, KL, BR, R] extends RelationBuilder2[T] with ColumnMapped.KeyListAux[T, CR, CVL, KL] {
+      type BuiltTables = BR
+      type Results = R
+    }
+  }
+
 
   case class RelationBuilder[T, CR <: HList, KL <: HList, CVL <: HList]
   (baseName: String, mapper: ColumnMapper.Aux[T, CR, CVL]) extends BuilderKey[T] {
@@ -536,8 +537,8 @@ abstract class RelationMapper[F[_] : Monad] {
     (implicit
      keyMapper: KeyMapper.Aux[T, CR, KL, CVL, KL, Meta, PK, SK],
      projector: Projector.Aux[T, Meta, selectStar.type, T])
-    : DDL[SingleQuery[T, PK :: SK :: HNil]] = {
-      val physTable = keyMapper(this)
+    : DDL[SingleQuery[F, T, PK :: SK :: HNil]] = {
+      val physTable = keyMapper.keysMapped(mapper)
       for {
         ptO <- State.inspect((s: PhysicalTables) => s.map.get(key).flatMap(_.headOption))
         rq <- ptO.map(r => Monad[DDL].pure(r._3)).getOrElse(addRelation(physTable))
@@ -555,9 +556,9 @@ abstract class RelationMapper[F[_] : Monad] {
     (implicit
      keyMapper: KeyMapper.Aux[T, CR, KL, CVL, k.T :: HNil, Meta, PartitionKey, _],
      projector: Projector.Aux[T, Meta, selectStar.type, T]
-    ): DDL[MultiQuery[T, PartitionKey]]
+    ): DDL[MultiQuery[F, T, PartitionKey]]
     = {
-      val physTable = keyMapper(this)
+      val physTable = keyMapper.keysMapped(mapper)
       addRelation(physTable).map { rq =>
         val queryWithOrder = { (pk: PartitionKey, ascending: Boolean) =>
           val w = physTable.wherePK(pk)
@@ -567,9 +568,9 @@ abstract class RelationMapper[F[_] : Monad] {
       }
     }
 
-    def writeQueries: DDL[WriteQueries[T]] = State.inspect {
+    def writeQueries: DDL[WriteQueries[F, T]] = State.inspect {
       tables => val relations = tables.map.get(key).toList.flatMap(_.map { case (_, wq, _) => wq })
-        relations.reduce((l: WriteQueries[T], r: WriteQueries[T]) => l.combine(r))
+        relations.reduce((l: WriteQueries[F, T], r: WriteQueries[F, T]) => l.combine(r))
     }
   }
 

@@ -3,7 +3,7 @@ package io.doolse.simpledba.dynamodb
 import cats.data.{Reader, Xor}
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient
 import com.amazonaws.services.dynamodbv2.model._
-import io.doolse.simpledba.RelationMapper
+import io.doolse.simpledba.{RelationMapper, WriteQueries}
 import io.doolse.simpledba.dynamodb.DynamoDBMapper.Effect
 import shapeless._
 import shapeless.ops.hlist
@@ -165,7 +165,7 @@ class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect] {
           }
         }
 
-        def createWriteQueries(tableName: String): WriteQueries[T] = new WriteQueries[T] {
+        def createWriteQueries(tableName: String): WriteQueries[Effect, T] = new WriteQueries[Effect, T] {
           def delete(t: T): Effect[Unit] = Reader { s =>
             s.client.deleteItem(tableName, keysAsAttributes(toKeys(toColumns(t))))
           }
@@ -207,12 +207,9 @@ class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect] {
   }
 
   class DynamoDBKeyMapper[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList, PKV, SKV, PKK, SKKL]
-  (implicit relMaker: DynamoDBPhysicalRelations.Aux[T, CR, CVL, PKK, SKKL, PKV, SKV]) extends KeyMapper[T, CR, KL, CVL, PKL] {
-    type Meta = (CR, CVL)
-    type PartitionKey = PKV
-    type SortKey = SKV
-
-    def apply(t: RelationBuilder[T, CR, KL, CVL]): PhysRelation.Aux[T, (CR, CVL), PKV, SKV] = relMaker(t.mapper)
+  (implicit relMaker: DynamoDBPhysicalRelations.Aux[T, CR, CVL, PKK, SKKL, PKV, SKV])
+    extends KeyMapper.Aux[T, CR, KL, CVL, PKL, (CR, CVL), PKV, SKV] {
+    def keysMapped(cm: ColumnMapper.Aux[T, CR, CVL]): PhysRelation.Aux[T, (CR, CVL), PKV, SKV] = relMaker(cm)
   }
 
   implicit def noSortKeyMapper[T, CR <: HList, KL <: HList, CVL <: HList, PKK, PKL <: HList, PKV]
