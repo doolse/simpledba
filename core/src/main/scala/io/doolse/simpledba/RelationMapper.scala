@@ -1,13 +1,14 @@
 package io.doolse.simpledba
 
-import cats.Monad
+import cats.{Cartesian, Monad}
 import cats.data.{Reader, State, Xor}
+import cats.functor.Invariant
 import cats.syntax.all._
 import shapeless._
 import shapeless.labelled._
 import shapeless.poly._
 import shapeless.ops.hlist.{At, Drop, Length, Mapper, Prepend, Split, Take, ToList, Zip, ZipConst, ZipOne, ZipWith}
-import shapeless.ops.product.ToHList
+import shapeless.ops.product.{ToHList, ToTuple}
 import shapeless.ops.record._
 
 import scala.annotation.implicitNotFound
@@ -498,27 +499,27 @@ abstract class RelationMapper[F[_] : Monad] {
     )
   }
 
-  trait RelationBuilder2[T] extends ColumnMapped.KeyList[T] {
-    type BuiltTables
-    type Results
-    def builtTables: BuiltTables
-    def results : Results
-    def schemaForTables: List[DDLStatement]
-    def queryByFullKey(implicit qbfk: QueryByFullKey[BuiltTables, Results, ColumnMapped.KeyList[T]]): qbfk.Out = qbfk()
+  trait QueryBuilder[Out] {
+    type MappedRelations
+    def relations: MappedRelations
+    def build: (Out, List[DDLStatement]) = ???
   }
 
-  trait QueryByFullKey[BT, R, In] {
-    type Out <: RelationBuilder2[_]
-    def apply(): Out
-  }
-
-  object RelationBuilder2 {
-    abstract class Aux[T, CR, CVL, KL, BR, R] extends RelationBuilder2[T] with ColumnMapped.KeyListAux[T, CR, CVL, KL] {
-      type BuiltTables = BR
-      type Results = R
+  object QueryBuilder {
+    type Aux[Out, MR0] = QueryBuilder[Out] {
+      type MappedRelations = MR0
     }
-  }
 
+    def queryByFullKey[T, CR <: HList, KL <: HList, CVL <: HList, PKV, SKV, M]
+    (rb: RelationBuilder[T, CR, KL, CVL])
+    (implicit
+     keyMapper: KeyMapper.Aux[T, CR, KL, CVL, KL, M, PKV, SKV]
+    ): QueryBuilder.Aux[SingleQuery[F,T,PKV :: SKV :: HNil], FieldType[(T, PKV, SKV), PhysRelation.Aux[T, M, PKV, SKV]] :: HNil] =
+      new QueryBuilder[SingleQuery[F,T,PKV :: SKV :: HNil]] {
+        type MappedRelations = FieldType[(T, PKV, SKV), PhysRelation.Aux[T, M, PKV, SKV]] :: HNil
+        def relations = field[(T, PKV, SKV)] (keyMapper.keysMapped (rb.mapper) ) :: HNil
+      }
+  }
 
   case class RelationBuilder[T, CR <: HList, KL <: HList, CVL <: HList]
   (baseName: String, mapper: ColumnMapper.Aux[T, CR, CVL]) extends BuilderKey[T] {
