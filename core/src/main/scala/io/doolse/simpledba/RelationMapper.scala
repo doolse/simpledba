@@ -3,11 +3,13 @@ package io.doolse.simpledba
 import cats.{Cartesian, Monad}
 import cats.data.{Reader, State, Xor}
 import cats.functor.Invariant
+import cats.sequence.{HListApply2, Sequencer}
 import cats.syntax.all._
 import shapeless._
 import shapeless.labelled._
 import shapeless.poly._
-import shapeless.ops.hlist.{At, Drop, Length, Mapper, Prepend, Split, Take, ToList, Zip, ZipConst, ZipOne, ZipWith}
+import shapeless.ops.hlist.{At, Drop, Length, Mapper, Prepend, RightFolder, Split, Take, ToList, Zip, ZipConst, ZipOne, ZipWith}
+import shapeless.ops.nat.ToInt
 import shapeless.ops.product.{ToHList, ToTuple}
 import shapeless.ops.record._
 
@@ -499,26 +501,90 @@ abstract class RelationMapper[F[_] : Monad] {
     )
   }
 
+  object mergePhysical extends Poly2 {
+
+    implicit def mergeWQ[T, OUT] = at[QueryBuilder.Aux[WriteQueries[F, T], String], OUT]((_,b) => b)
+    implicit def mergeRQNew[C <: HList, PR <: HList, T, PKV, SKV, MR, Q, M, P]
+    (implicit ev: LacksKey[C, T])
+    = at[QueryBuilder.Aux[Q, FieldType[(T, PKV, SKV), (P, String, PhysRelation.Aux[T, M, PKV, SKV])]], (C, PR)] {
+      (qb, o) =>
+        val table = qb.relations._3
+        val ft = field[T](table :: HNil)
+        val fld = field[(T, PKV, SKV)]((table, Nat._0))
+        (ft :: o._1, fld :: o._2)
+    }
+  }
+
+  object buildFromAll extends Poly2 {
+    implicit def buildSQ[Q, ForT <: HList, Rel <: HList, ACC <: HList, T, PKV, SKV, Out, N <: Nat, M, MR]
+    (implicit frmMap: Selector.Aux[Rel, (T, PKV, SKV), Out],
+     evPR: (PhysRelation.Aux[T, M, PKV, SKV], N) =:= Out,
+     evOW: Out =:= (PhysRelation.Aux[T, M, PKV, SKV], N),
+     toInt: ToInt[N]
+    )
+    = at[(QueryBuilder.Aux[SingleQuery[F, T, PKV :: SKV :: HNil],
+      FieldType[(T, PKV, SKV), (ProjectionT[T], String, PhysRelation.Aux[T, M, PKV, SKV])]], (ForT, Rel)), ACC] {
+      case ((qb,m),b) =>
+        val ind = toInt()
+        val rel = qb.relations
+        val (prj, baseName, table) = (rel._1, rel._2, rel._3)
+        val rq = table.createReadQueries(if (ind == 0) baseName else s"${baseName}_${ind+1}")
+        SingleQuery {
+          (fk : PKV :: SKV :: HNil) => rq.selectOne(prj, table.whereFullKey(fk))
+        } :: b
+    }
+
+    implicit def buildWQ[T, ForT <: HList, PL <: HList, Rel, ACC <: HList]
+    (implicit sel: Selector.Aux[ForT, T, PL],
+     toList: ToList[PL, PhysRelation[T]]
+    ) =
+      at[(QueryBuilder.Aux[WriteQueries[F, T], String], (ForT,Rel)), ACC] {
+        case ((qb,(forT, _)),acc) =>
+          val baseName = qb.relations
+          val wrq = toList(sel(forT)).zipWithIndex.map {
+            case (table, ind) => table.createWriteQueries(if (ind == 0) baseName else s"${baseName}_${ind+1}")
+          } reduce((wq1, wq2) => wq1.combine(wq2))
+          (wrq : WriteQueries[F, T]) :: acc
+      }
+  }
+
   trait QueryBuilder[Out] {
     type MappedRelations
     def relations: MappedRelations
-    def build: (Out, List[DDLStatement]) = ???
   }
-
   object QueryBuilder {
     type Aux[Out, MR0] = QueryBuilder[Out] {
       type MappedRelations = MR0
     }
 
+    def build[QB <: HList, ForT, Rel, ZL <: HList]
+    (qb: QB)
+    (implicit rightFolder: RightFolder.Aux[QB, (HNil, HNil), mergePhysical.type, (ForT, Rel)],
+     zipConst: ZipConst.Aux[(ForT,Rel), QB, ZL], bf: RightFolder[ZL, HNil, buildFromAll.type]): bf.Out
+    = bf(zipConst(rightFolder(qb, (HNil, HNil)), qb), HNil)
+
     def queryByFullKey[T, CR <: HList, KL <: HList, CVL <: HList, PKV, SKV, M]
     (rb: RelationBuilder[T, CR, KL, CVL])
     (implicit
-     keyMapper: KeyMapper.Aux[T, CR, KL, CVL, KL, M, PKV, SKV]
-    ): QueryBuilder.Aux[SingleQuery[F,T,PKV :: SKV :: HNil], FieldType[(T, PKV, SKV), PhysRelation.Aux[T, M, PKV, SKV]] :: HNil] =
+     keyMapper: KeyMapper.Aux[T, CR, KL, CVL, KL, M, PKV, SKV],
+     projector: Projector.Aux[T, M, selectStar.type, T]
+    ): QueryBuilder.Aux[SingleQuery[F,T,PKV :: SKV :: HNil], FieldType[(T, PKV, SKV), (ProjectionT[T], String, PhysRelation.Aux[T, M, PKV, SKV])]] =
       new QueryBuilder[SingleQuery[F,T,PKV :: SKV :: HNil]] {
-        type MappedRelations = FieldType[(T, PKV, SKV), PhysRelation.Aux[T, M, PKV, SKV]] :: HNil
-        def relations = field[(T, PKV, SKV)] (keyMapper.keysMapped (rb.mapper) ) :: HNil
+        type MappedRelations = FieldType[(T, PKV, SKV), (ProjectionT[T], String, PhysRelation.Aux[T, M, PKV, SKV])]
+        def relations : MappedRelations = {
+          val pr = keyMapper.keysMapped(rb.mapper)
+          val res = (projector(pr, selectStar), rb.baseName, pr)
+          field[(T, PKV, SKV)](res): FieldType[(T, PKV, SKV), (ProjectionT[T], String, PhysRelation.Aux[T, M, PKV, SKV])]
+        }
       }
+
+    def writeQueries[T, CR <: HList, KL <: HList, CVL <: HList]
+    (rb: RelationBuilder[T, CR, KL, CVL])
+    : QueryBuilder.Aux[WriteQueries[F,T], String] = new QueryBuilder[WriteQueries[F,T]] {
+      type MappedRelations = String
+
+      def relations = rb.baseName
+    }
   }
 
   case class RelationBuilder[T, CR <: HList, KL <: HList, CVL <: HList]

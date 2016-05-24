@@ -5,6 +5,9 @@ import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient
 import io.doolse.simpledba.dynamodb.DynamoDBMapper
 import shapeless._
 import cats.syntax.all._
+import cats.sequence._
+import io.doolse.simpledba.WriteQueries
+import io.doolse.simpledba.dynamodb.DynamoDBMapper.DynamoDBSession
 
 /**
   * Created by jolz on 23/05/16.
@@ -29,8 +32,15 @@ import mapper._
   val mappedTable = mapper.relation[Inst]("institution").key('uniqueid)
   val anotherTable = mapper.relation[User]("users").keys('firstName, 'lastName)
 
-  val qb = (QueryBuilder.queryByFullKey(mappedTable) |@|
-    QueryBuilder.queryByFullKey(anotherTable) |@| QueryBuilder.queryByFullKey(mappedTable)).tupled
-  val ((q1, q2, q3), _) = qb.build
+  val allBuilders = HList(QueryBuilder.queryByFullKey(mappedTable),
+    QueryBuilder.queryByFullKey(anotherTable), QueryBuilder.writeQueries(mappedTable))
 
+  val (q1, q2, wq : WriteQueries[DynamoDBMapper.Effect, Inst]) = QueryBuilder.build(allBuilders).tupled
+
+  val res : DynamoDBMapper.Effect[_] = for {
+    _ <- wq.insert(Inst(2L, EmbeddedFields("asd", true)))
+    q <- q1.as[Long].query(2L)
+  } yield q
+
+  println(res.run(DynamoDBSession(client)))
 }
