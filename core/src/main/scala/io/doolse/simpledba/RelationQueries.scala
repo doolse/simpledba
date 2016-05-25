@@ -22,8 +22,10 @@ trait WriteQueries[F[_], T] {
   def insert(t: T): F[Unit]
 
   def update(existing: T, newValue: T): F[Boolean]
+}
 
-  def combine(other: WriteQueries[F, T])(implicit A: Applicative[F]): WriteQueries[F, T] = new WriteQueries[F, T] {
+object WriteQueries {
+  def combine[F[_], T](self: WriteQueries[F, T], other: WriteQueries[F, T])(implicit A: Applicative[F]) = new WriteQueries[F, T] {
     def delete(t: T): F[Unit] = self.delete(t) *> other.delete(t)
 
     def insert(t: T): F[Unit] = self.insert(t) *> other.insert(t)

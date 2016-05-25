@@ -5,11 +5,35 @@ import shapeless.labelled.FieldType
 import shapeless.labelled.field
 import shapeless.ops.hlist.ZipWithKeys
 import shapeless.ops.record.SelectAll
+import shapeless.tag.@@
 import shapeless.{DepFn1, DepFn2, HList, HNil, Nat, Succ}
 
 /**
-  * Created by jolz on 18/05/16.
+  * Zip a HList with another HList, tagging the left with the right.
+  * L @@ R
+  *
+  * @author Jolse Maginnis
   */
+trait ZipWithTag[L <: HList, R <: HList] extends DepFn1[L] with Serializable { type Out <: HList }
+
+object ZipWithTag {
+  type Aux[L <: HList, R <: HList, Out0 <: HList] = ZipWithTag[L, R] { type Out = Out0 }
+
+  implicit val hnil : Aux[HNil, HNil, HNil] = new ZipWithTag[HNil, HNil] {
+    type Out = HNil
+
+    def apply(t: HNil) = HNil
+  }
+
+  implicit def hcons[LH, RH, LT <: HList, RT <: HList]
+  (implicit tailZipper: ZipWithTag[LT, RT])
+  : Aux[LH :: LT, RH :: RT, (LH @@ RH) :: tailZipper.Out] = new ZipWithTag[LH :: LT, RH :: RT] {
+    type Out = (LH @@ RH) :: tailZipper.Out
+
+    def apply(t: LH :: LT) = tag[RH](t.head) :: tailZipper(t.tail)
+  }
+}
+
 /**
   * Zip the values with their index.
   * FieldType[K, (V, Index)]
@@ -72,4 +96,22 @@ object SelectAllRecord {
 
     def apply(t: L): Out = zwk(sa(t))
   }
+}
+
+trait Values2[L <: HList] extends DepFn1[L] with Serializable { type Out <: HList }
+
+object Values2 {
+  type Aux[L <: HList, Out0 <: HList] = Values2[L] { type Out = Out0 }
+
+  implicit def hnilValues[L <: HNil]: Aux[L, HNil] =
+    new Values2[L] {
+      type Out = HNil
+      def apply(l: L): Out = HNil
+    }
+
+  implicit def hlistValues[K, K2, K3, V, T <: HList](implicit vt: Values2[T]): Aux[FieldType[(K, K2, K3), V] :: T, V :: vt.Out] =
+    new Values2[FieldType[(K, K2, K3), V] :: T] {
+      type Out = V :: vt.Out
+      def apply(l: FieldType[(K, K2, K3), V] :: T): Out = (l.head: V) :: vt(l.tail)
+    }
 }
