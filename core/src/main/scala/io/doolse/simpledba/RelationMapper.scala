@@ -23,7 +23,7 @@ import scala.reflect.runtime.universe.TypeTag
   */
 
 
-abstract class RelationMapper[F[_] : Monad] {
+abstract class RelationMapper[F[_] : Monad, FC <: Poly0] {
 
   type PhysCol[A]
   type DDLStatement
@@ -177,14 +177,14 @@ abstract class RelationMapper[F[_] : Monad] {
   }
 
   object ColumnAtom {
-    implicit def stdColumn[A](implicit col: PhysCol[A], tag: ClassTag[A]) = new ColumnAtom[A] {
+    implicit def stdColumn[A](implicit col: Case0.Aux[FC, PhysCol[A]], tag: ClassTag[A]) = new ColumnAtom[A] {
       type T = A
 
       def from = identity
 
       def to = identity
 
-      val physicalColumn = col
+      val physicalColumn = col.apply()
 
       override def toString = tag.runtimeClass.getName
     }
@@ -655,7 +655,7 @@ abstract class RelationMapper[F[_] : Monad] {
   def build[Q, QOut <: HList](q: Q)(implicit qb: QueriesBuilder.Aux[Q, QOut]): BuiltQueries[QOut] = qb(q)
 
   def queryByFullKey[T, CR <: HList, KL <: HList, CVL <: HList, PKK, PKV, SKK, SKV]
-  (rb: RelationBuilder[T, CR, KL, CVL])
+  (rb: RelationDef[T, CR, KL, CVL])
   (implicit
    keyMapper: KeyMapper.Aux[T, CR, KL, CVL, KL, PKK, PKV, SKK, SKV]
   ) = ReadQueryBuilder[T, PKK, PKV, SKK, SKV, (T, PKK, SKK),
@@ -669,7 +669,7 @@ abstract class RelationMapper[F[_] : Monad] {
     })
 
   def queryAllByKeyColumn[T, CR <: HList, KL <: HList, CVL <: HList, PKK, PKV, SKK, SKV]
-  (k: Witness, rb: RelationBuilder[T, CR, KL, CVL])
+  (k: Witness, rb: RelationDef[T, CR, KL, CVL])
   (implicit
    keyMapper: KeyMapper.Aux[T, CR, KL, CVL, k.T :: HNil, PKK, PKV, SKK, SKV]
   ) = ReadQueryBuilder[T, PKK, PKV, SKK, SKV, (T, PKK),
@@ -681,30 +681,23 @@ abstract class RelationMapper[F[_] : Monad] {
     }))
 
   def writeQueries[T, CR <: HList, KL <: HList, CVL <: HList]
-  (rb: RelationBuilder[T, CR, KL, CVL])
+  (rb: RelationDef[T, CR, KL, CVL])
   = new WriteQueryBuilder[T]
 
 
-  case class RelationBuilder[T, CR <: HList, KL <: HList, CVL <: HList]
+  case class RelationDef[T, CR <: HList, KL <: HList, CVL <: HList]
   (baseName: String, mapper: ColumnMapper.Aux[T, CR, CVL])
 
-  class RelationPartial[T] {
+  class RelationDefPartial[T, Columns <: HList, ColumnsValues <: HList](baseName: String, mapper: ColumnMapper.Aux[T, Columns, ColumnsValues]) {
 
-    case class RelationBuilderPartial[T, Columns <: HList, ColumnsValues <: HList]
-    (baseName: String, mapper: ColumnMapper.Aux[T, Columns, ColumnsValues]) extends SingletonProductArgs {
-      def key(k: Witness)(implicit ev: SelectAll[Columns, k.T :: HNil]): RelationBuilder[T, Columns, k.T :: HNil, ColumnsValues]
-      = RelationBuilder(baseName, mapper)
+    def key(k: Witness)(implicit ev: SelectAll[Columns, k.T :: HNil])
+    : RelationDef[T, Columns, k.T :: HNil, ColumnsValues] = RelationDef(baseName, mapper)
 
-      def keys(k1: Witness, k2: Witness)(implicit ev: SelectAll[Columns, k1.T :: k2.T :: HNil]): RelationBuilder[T, Columns, k1.T :: k2.T :: HNil, ColumnsValues]
-      = RelationBuilder(baseName, mapper)
-    }
-
-
-    def apply(name: String)(implicit gen: GenericColumnMapper[T])
-    : RelationBuilderPartial[T, gen.Columns, gen.ColumnsValues] = RelationBuilderPartial(name, gen.aux)
+    def keys(k1: Witness, k2: Witness)(implicit ev: SelectAll[Columns, k1.T :: k2.T :: HNil])
+    : RelationDef[T, Columns, k1.T :: k2.T :: HNil, ColumnsValues] = RelationDef(baseName, mapper)
   }
 
-  def relation[T] = new RelationPartial[T]
+  def relation[T](name: String)(implicit gen: GenericColumnMapper[T]) = new RelationDefPartial[T, gen.Columns, gen.ColumnsValues](name, gen.aux)
 
 }
 

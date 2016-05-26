@@ -20,11 +20,10 @@ object TestDynamoNew extends App {
   val config = new ClientConfiguration().withProxyHost("localhost").withProxyPort(8888)
   val client : AmazonDynamoDBClient = new AmazonDynamoDBClient(config).withEndpoint("http://localhost:8000")
   val mapper = new DynamoDBMapper()
-import mapper._
+  import mapper._
 
   case class EmbeddedFields(adminpassword: String, enabled: Boolean)
 
-  implicit val embeddedColumnMapper = mapper.GenericColumnMapper[EmbeddedFields]
 
   case class Inst(uniqueid: Long, embedded: EmbeddedFields)
 
@@ -38,10 +37,7 @@ import mapper._
                            queryByLastName: MultiQuery[F, User, String],
                            queryByFullName: SingleQuery[F, User, Username]
                           )
-
-
-
-  //case class Inst(uniqueid: Long, adminpassword: String, enabled: Boolean)
+  implicit val embeddedColumnMapper = mapper.GenericColumnMapper[EmbeddedFields]
 
   val instTable = mapper.relation[Inst]("institution").key('uniqueid)
   val userTable = mapper.relation[User]("users").keys('firstName, 'lastName)

@@ -23,7 +23,11 @@ object DynamoDBMapper {
 
 }
 
-class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect] {
+object getDynamoColumn extends Poly0 {
+  implicit def stdColumn[A](implicit dynamoDBColumn: DynamoDBColumn[A]) = at[DynamoDBColumn[A]](dynamoDBColumn)
+}
+
+class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect, getDynamoColumn.type] {
 
   type PhysCol[A] = DynamoDBColumn[A]
   type DDLStatement = CreateTableRequest
