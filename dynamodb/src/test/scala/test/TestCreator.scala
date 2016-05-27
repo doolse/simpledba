@@ -25,7 +25,7 @@ case class Queries[F[_]](instByPK: SingleQuery[F, Inst, Long],
 
 object TestCreator {
 
-  def createQueries[F[_], LC <: Poly0, C0 <: HList, CV0 <: HList, CZ <: HList](mapper: RelationMapper[F, LC]):
+  def createQueries[F[_]](mapper: RelationMapper[F]):
   (Queries[F], List[mapper.DDLStatement]) = {
 //    implicit val embeddedColumnMapper = mapper.GenericColumnMapper[EmbeddedFields]
 //    val instTable = mapper.relation[Inst]("institution").key('uniqueid)

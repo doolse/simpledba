@@ -23,9 +23,9 @@ import scala.reflect.runtime.universe.TypeTag
   */
 
 
-abstract class RelationMapper[F[_] : Monad, FC <: Poly0] {
+abstract class RelationMapper[F[_] : Monad] {
 
-  type PhysCol[A]
+  type ColumnAtom[A]
   type DDLStatement
 
   trait Projection[A]
@@ -62,18 +62,7 @@ abstract class RelationMapper[F[_] : Monad, FC <: Poly0] {
       type ColumnsValues = CV0
     }
 
-    trait KeyList[A] extends ColumnMapped[A] {
-      type KeyNames <: HList
-    }
-
-    trait KeyListAux[A, C0 <: HList, CV0 <: HList, KL <: HList] extends Aux[A, C0, CV0] {
-      type KeyNames = KL
-    }
-
   }
-
-
-  object Column
 
   @implicitNotFound("Failed to map keys ('${PKL}') for ${T}")
   trait KeyMapper[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList] {
@@ -162,31 +151,6 @@ abstract class RelationMapper[F[_] : Monad, FC <: Poly0] {
         val newKey = toKeys(newCols)
         if (oldKey == newKey) Xor.left(oldKey, differ(columns, (exCols, newCols))) else Xor.right(oldKey, newKey, toPhysicalValues(newCols))
       }
-    }
-  }
-
-
-  trait ColumnAtom[A] {
-    type T
-
-    def from: T => A
-
-    def to: A => T
-
-    val physicalColumn: PhysCol[T]
-  }
-
-  object ColumnAtom {
-    implicit def stdColumn[A](implicit col: Case0.Aux[FC, PhysCol[A]], tag: ClassTag[A]) = new ColumnAtom[A] {
-      type T = A
-
-      def from = identity
-
-      def to = identity
-
-      val physicalColumn = col.apply()
-
-      override def toString = tag.runtimeClass.getName
     }
   }
 
@@ -314,16 +278,16 @@ abstract class RelationMapper[F[_] : Monad, FC <: Poly0] {
 
     def name: String
 
-    def withCol[B](f: (A, PhysCol[A]) => B): B
+    def withCol[B](f: (A, ColumnAtom[A]) => B): B
   }
 
   object PhysicalValue {
-    def apply[A](_name: String, v: A, atom: ColumnAtom[A]): PhysicalValue = new PhysicalValue {
-      type A = atom.T
+    def apply[A0](_name: String, v: A0, atom: ColumnAtom[A0]): PhysicalValue = new PhysicalValue {
+      type A = A0
 
       def name = _name
 
-      def withCol[B](f: (A, PhysCol[A]) => B): B = f(atom.to(v), atom.physicalColumn)
+      def withCol[B](f: (A, ColumnAtom[A]) => B): B = f(v, atom)
     }
   }
 
@@ -370,7 +334,7 @@ abstract class RelationMapper[F[_] : Monad, FC <: Poly0] {
 
     def name: String
 
-    def withCol[B](f: (A, A, PhysCol[A]) => B): B
+    def withCol[B](f: (A, A, ColumnAtom[A]) => B): B
   }
 
   object ValueDifference {
@@ -379,11 +343,11 @@ abstract class RelationMapper[F[_] : Monad, FC <: Poly0] {
       case (cm, v1, v2) => Some {
         new ValueDifference {
           val atom = cm.atom
-          type A = atom.T
+          type A = A0
 
           def name = cm.name
 
-          def withCol[B](f: (A, A, PhysCol[A]) => B) = f(atom.to(v1), atom.to(v2), atom.physicalColumn)
+          def withCol[B](f: (A, A, ColumnAtom[A]) => B) = f(v1, v2, atom)
         }
       }
     }
@@ -424,15 +388,6 @@ abstract class RelationMapper[F[_] : Monad, FC <: Poly0] {
     implicit def fieldMappingToName[K, S, A] = at[FieldType[K, ColumnMapping[S, A]]](_.name)
   }
 
-  @implicitNotFound("Failed to find mapper for ${A}")
-  trait ColumnMapper[A] extends ColumnMapped[A] {
-    def columns: Columns
-
-    def fromColumns: ColumnsValues => A
-
-    def toColumns: A => ColumnsValues
-  }
-
   object composeLens extends Poly1 {
     implicit def convertLens[T, T2, K, A](implicit tt: TypeTag[T]) = at[(FieldType[K, ColumnMapping[T2, A]], T => T2)] {
       case (colMapping, lens) => field[K](colMapping.copy[T, A](get = colMapping.get compose lens))
@@ -443,7 +398,6 @@ abstract class RelationMapper[F[_] : Monad, FC <: Poly0] {
 
     class Aux[A, Columns0 <: HList, ColumnsValues0 <: HList](val columns: Columns0, val fromColumns: ColumnsValues0 => A,
                                                              val toColumns: A => ColumnsValues0)
-      extends ColumnMapper[A] with ColumnMapped.Aux[A, Columns0, ColumnsValues0]
 
     implicit val hnilMapper: ColumnMapper.Aux[HNil, HNil, HNil] = new Aux(HNil, identity, identity)
 

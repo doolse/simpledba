@@ -23,13 +23,9 @@ object DynamoDBMapper {
 
 }
 
-object getDynamoColumn extends Poly0 {
-  implicit def stdColumn[A](implicit dynamoDBColumn: DynamoDBColumn[A]) = at[DynamoDBColumn[A]](dynamoDBColumn)
-}
+class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect] {
 
-class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect, getDynamoColumn.type] {
-
-  type PhysCol[A] = DynamoDBColumn[A]
+  type ColumnAtom[A] = DynamoDBColumn[A]
   type DDLStatement = CreateTableRequest
 
   sealed trait DynamoProjection[T] extends Projection[T] {
@@ -137,7 +133,7 @@ class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect, getDynamoColu
 
         def createMaterializer(m: java.util.Map[String, AttributeValue]): ColumnMaterialzer = new ColumnMaterialzer {
           def apply[A](name: String, atom: ColumnAtom[A]): Option[A] = {
-            Option(m.get(name)).map(av => atom.from(atom.physicalColumn.from(av)))
+            Option(m.get(name)).map(av => atom.from(av))
           }
         }
 
@@ -187,7 +183,7 @@ class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect, getDynamoColu
         def createDDL: CreateTableRequest = {
           val keyColumn = evCol(pkCol)
           val sortKeyList = skToList(skColL)
-          val sortDef = (List(keyColumn) ++ sortKeyList).map(c => new AttributeDefinition(c.name, c.atom.physicalColumn.attributeType))
+          val sortDef = (List(keyColumn) ++ sortKeyList).map(c => new AttributeDefinition(c.name, c.atom.attributeType))
           val keyDef = new KeySchemaElement(keyColumn.name, KeyType.HASH)
           val sortKeyDef = sortKeyList.headOption.map(c => new KeySchemaElement(c.name, KeyType.RANGE))
           new CreateTableRequest(sortDef.asJava, tableName, (List(keyDef) ++ sortKeyDef).asJava, new ProvisionedThroughput(1L, 1L))
