@@ -33,6 +33,15 @@ abstract class RelationMapper[F[_] : Monad] {
   type ProjectionT[A] <: Projection[A]
   type Where
 
+  val stdColumnMaker = new MappingCreator[ColumnAtom, ColumnMapping] {
+    def makeMapping[S, A](name: String, atom: ColumnAtom[A], get: (S) => A): ColumnMapping[S, A] = ColumnMapping[S, A](name, atom, get)
+
+    def composer[S, S2](f: (S2) => S): ColumnComposer[ColumnMapping, S, S2] = new ColumnComposer[ColumnMapping, S, S2] {
+      def apply[A](cm: ColumnMapping[S, A]): ColumnMapping[S2, A] = cm.copy[S2, A](get = cm.get compose f)
+    }
+  }
+  val emptyContext = ColumnMapperContext(stdColumnMaker, HNil)
+
   trait ReadQueries {
     def selectOne[A](projection: ProjectionT[A], where: Where): F[Option[A]]
 
@@ -50,20 +59,6 @@ abstract class RelationMapper[F[_] : Monad] {
     }
   }
 
-  trait ColumnMapped[A] {
-    type Columns <: HList
-    type ColumnsValues <: HList
-  }
-
-  object ColumnMapped {
-
-    trait Aux[A, C0 <: HList, CV0 <: HList] extends ColumnMapped[A] {
-      type Columns = C0
-      type ColumnsValues = CV0
-    }
-
-  }
-
   @implicitNotFound("Failed to map keys ('${PKL}') for ${T}")
   trait KeyMapper[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList] {
     type PartitionKey
@@ -71,7 +66,7 @@ abstract class RelationMapper[F[_] : Monad] {
     type PartitionKeyNames
     type SortKeyNames
 
-    def keysMapped(cm: ColumnMapper.Aux[T, CR, CVL])(name: String): PhysRelation.Aux[T, PartitionKey, SortKey]
+    def keysMapped(cm: ColumnMapper[T, CR, CVL])(name: String): PhysRelation.Aux[T, PartitionKey, SortKey]
   }
 
   object KeyMapper {
@@ -126,7 +121,7 @@ abstract class RelationMapper[F[_] : Monad] {
   }
 
   abstract class AbstractColumnListRelation[T, CR0 <: HList, CVL0 <: HList]
-  (mapper: ColumnMapper.Aux[T, CR0, CVL0])
+  (mapper: ColumnMapper[T, CR0, CVL0])
   (implicit allVals: PhysicalValues.Aux[CVL0, CR0, List[PhysicalValue]],
    differ: ValueDifferences.Aux[CR0, CVL0, CVL0, List[ValueDifference]],
    materializeAll: MaterializeFromColumns.Aux[CR0, CVL0]
@@ -154,30 +149,30 @@ abstract class RelationMapper[F[_] : Monad] {
     }
   }
 
-  case class ColumnMapping[S, A](name: String, atom: ColumnAtom[A], get: S => A)(implicit tt: TypeTag[S]) {
-    override def toString = s"'$name' -> $atom,$tt"
+  case class ColumnMapping[S, A](name: String, atom: ColumnAtom[A], get: S => A) {
+    override def toString = s"'$name' -> $atom"
   }
 
-  trait ColumnValuesType[Column] {
+  trait ColumnValues[Column] {
     type Out
   }
 
-  object ColumnValuesType {
-    type Aux[Column, Out0] = ColumnValuesType[Column] {type Out = Out0}
-    implicit val hnilColumnType = new ColumnValuesType[HNil] {
+  object ColumnValues {
+    type Aux[Column, Out0] = ColumnValues[Column] {type Out = Out0}
+    implicit val hnilColumnType = new ColumnValues[HNil] {
       type Out = HNil
     }
 
-    implicit def fieldColumnType[S, K, V] = new ColumnValuesType[FieldType[K, ColumnMapping[S, V]]] {
+    implicit def fieldColumnType[S, K, V] = new ColumnValues[FieldType[K, ColumnMapping[S, V]]] {
       type Out = V
     }
 
-    implicit def mappingColumnType[S, V] = new ColumnValuesType[ColumnMapping[S, V]] {
+    implicit def mappingColumnType[S, V] = new ColumnValues[ColumnMapping[S, V]] {
       type Out = V
     }
 
-    implicit def hconsColumnType[S, H, T <: HList, TL <: HList](implicit headType: ColumnValuesType[H], tailTypes: ColumnValuesType.Aux[T, TL])
-    = new ColumnValuesType[H :: T] {
+    implicit def hconsColumnType[S, H, T <: HList, TL <: HList](implicit headType: ColumnValues[H], tailTypes: ColumnValues.Aux[T, TL])
+    = new ColumnValues[H :: T] {
       type Out = headType.Out :: TL
     }
   }
@@ -388,72 +383,6 @@ abstract class RelationMapper[F[_] : Monad] {
     implicit def fieldMappingToName[K, S, A] = at[FieldType[K, ColumnMapping[S, A]]](_.name)
   }
 
-  object composeLens extends Poly1 {
-    implicit def convertLens[T, T2, K, A](implicit tt: TypeTag[T]) = at[(FieldType[K, ColumnMapping[T2, A]], T => T2)] {
-      case (colMapping, lens) => field[K](colMapping.copy[T, A](get = colMapping.get compose lens))
-    }
-  }
-
-  object ColumnMapper {
-
-    class Aux[A, Columns0 <: HList, ColumnsValues0 <: HList](val columns: Columns0, val fromColumns: ColumnsValues0 => A,
-                                                             val toColumns: A => ColumnsValues0)
-
-    implicit val hnilMapper: ColumnMapper.Aux[HNil, HNil, HNil] = new Aux(HNil, identity, identity)
-
-    implicit def singleColumn[K <: Symbol, V](implicit atom: ColumnAtom[V], key: Witness.Aux[K], tt: TypeTag[FieldType[K, V]]):
-    ColumnMapper.Aux[FieldType[K, V], FieldType[K, ColumnMapping[FieldType[K, V], V]] :: HNil, V :: HNil] =
-      new Aux(field[K](ColumnMapping[FieldType[K, V], V](key.value.name, atom, fv => fv: V)) :: HNil, v => field[K](v.head), _ :: HNil)
-
-    implicit def multiColumn[K <: Symbol, V, Columns0 <: HList, ColumnsValues0 <: HList, CZ <: HList]
-    (implicit mapping: ColumnMapper.Aux[V, Columns0, ColumnsValues0],
-     zipWithLens: ZipConst.Aux[FieldType[K, V] => V, Columns0, CZ], mapper: Mapper[composeLens.type, CZ])
-    = new Aux[FieldType[K, V], mapper.Out, ColumnsValues0](mapper(zipWithLens(v => v: V, mapping.columns)),
-      v => field[K](mapping.fromColumns(v)),
-      mapping.toColumns)
-
-
-    implicit def hconsMapper[H, T <: HList,
-    HC <: HList, HCZ <: HList, HCM <: HList,
-    TC <: HList, TCZ <: HList, TCM <: HList,
-    HV <: HList, TV <: HList,
-    OutV <: HList, LenHV <: Nat]
-    (implicit headMapper: ColumnMapper.Aux[H, HC, HV], tailMapper: ColumnMapper.Aux[T, TC, TV], tt: TypeTag[T],
-     zipHeadLens: ZipConst.Aux[H :: T => H, HC, HCZ], zipTailLens: ZipConst.Aux[H :: T => T, TC, TCZ],
-     mappedHead: Mapper.Aux[composeLens.type, HCZ, HCM], mappedTail: Mapper.Aux[composeLens.type, TCZ, TCM],
-     prependC: Prepend[HCM, TCM], prependV: Prepend.Aux[HV, TV, OutV],
-     lenH: Length.Aux[HV, LenHV], headVals: Take.Aux[OutV, LenHV, HV], tailVals: Drop.Aux[OutV, LenHV, TV])
-    : ColumnMapper.Aux[H :: T, prependC.Out, OutV] = {
-      new Aux(
-        prependC(mappedHead(zipHeadLens(_.head, headMapper.columns)), mappedTail(zipTailLens(_.tail, tailMapper.columns))),
-        v => headMapper.fromColumns(headVals(v)) :: tailMapper.fromColumns(tailVals(v)),
-        v => prependV(headMapper.toColumns(v.head), tailMapper.toColumns(v.tail)))
-    }
-  }
-
-  sealed trait GenericColumnMapper[T] extends ColumnMapped[T] {
-    def aux: ColumnMapper.Aux[T, Columns, ColumnsValues]
-  }
-
-  object GenericColumnMapper {
-
-    class Aux[T, C0 <: HList, CV0 <: HList](val aux: ColumnMapper.Aux[T, C0, CV0]) extends GenericColumnMapper[T] with ColumnMapped.Aux[T, C0, CV0]
-
-    def apply[T](implicit genMapper: GenericColumnMapper[T]): ColumnMapper.Aux[T, genMapper.Columns, genMapper.ColumnsValues] = genMapper.aux
-
-    implicit def genericColumn[T, Repr <: HList, Columns0 <: HList, ColumnsValues0 <: HList, ColumnsZ <: HList]
-    (implicit
-     lgen: LabelledGeneric.Aux[T, Repr],
-     mapping: ColumnMapper.Aux[Repr, Columns0, ColumnsValues0],
-     zipWithLens: ZipConst.Aux[T => Repr, Columns0, ColumnsZ], mapper: Mapper[composeLens.type, ColumnsZ]
-    ): Aux[T, mapper.Out, ColumnsValues0]
-    = new Aux(new ColumnMapper.Aux(mapper(zipWithLens(lgen.to, mapping.columns)),
-      v => lgen.from(mapping.fromColumns(v)),
-      v => mapping.toColumns(lgen.to(v)))
-    )
-  }
-
-
   case class PhysicalBuilder[T, PKK, PKV, SKK, SKV](baseName: String, createPhysical: String => PhysRelation.Aux[T, PKV, SKV])
 
   case class ReadQueryBuilder[T, PKK, PKV, SKK, SKV, Key, RelRequired, Out]
@@ -640,9 +569,9 @@ abstract class RelationMapper[F[_] : Monad] {
 
 
   case class RelationDef[T, CR <: HList, KL <: HList, CVL <: HList]
-  (baseName: String, mapper: ColumnMapper.Aux[T, CR, CVL])
+  (baseName: String, mapper: ColumnMapper[T, CR, CVL])
 
-  class RelationDefPartial[T, Columns <: HList, ColumnsValues <: HList](baseName: String, mapper: ColumnMapper.Aux[T, Columns, ColumnsValues]) {
+  class RelationDefPartial[T, Columns <: HList, ColumnsValues <: HList](baseName: String, mapper: ColumnMapper[T, Columns, ColumnsValues]) {
 
     def key(k: Witness)(implicit ev: SelectAll[Columns, k.T :: HNil])
     : RelationDef[T, Columns, k.T :: HNil, ColumnsValues] = RelationDef(baseName, mapper)
@@ -651,7 +580,7 @@ abstract class RelationMapper[F[_] : Monad] {
     : RelationDef[T, Columns, k1.T :: k2.T :: HNil, ColumnsValues] = RelationDef(baseName, mapper)
   }
 
-  def relation[T](name: String)(implicit gen: GenericColumnMapper[T]) = new RelationDefPartial[T, gen.Columns, gen.ColumnsValues](name, gen.aux)
+  def relation[T, C <: HList, CV <: HList](name: String, gen: ColumnMapper[T, C, CV]) = new RelationDefPartial[T, C, CV](name, gen)
 
 }
 

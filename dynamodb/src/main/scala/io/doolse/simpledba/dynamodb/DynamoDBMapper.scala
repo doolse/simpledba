@@ -3,7 +3,7 @@ package io.doolse.simpledba.dynamodb
 import cats.data.{Reader, Xor}
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient
 import com.amazonaws.services.dynamodbv2.model._
-import io.doolse.simpledba.{RelationMapper, WriteQueries}
+import io.doolse.simpledba.{ColumnMapper, RelationMapper, WriteQueries}
 import io.doolse.simpledba.dynamodb.DynamoDBMapper.Effect
 import shapeless._
 import shapeless.ops.hlist
@@ -79,7 +79,7 @@ class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect] {
     def fromColumns: CVL => T
   }
 
-  trait DynamoDBPhysicalRelations[T, CR <: HList, CVL <: HList] extends DepFn2[ColumnMapper.Aux[T, CR, CVL], String] {
+  trait DynamoDBPhysicalRelations[T, CR <: HList, CVL <: HList] extends DepFn2[ColumnMapper[T, CR, CVL], String] {
     type PKV
     type SKV
     type Out = PhysRelation.Aux[T, PKV, SKV]
@@ -97,8 +97,8 @@ class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect] {
     (implicit
      selectPkCol: Selector.Aux[CR, PKK, PKC],
      skSel: SelectAll.Aux[CR, SKKL, SKCL],
-     pkv0: ColumnValuesType.Aux[PKC, PKV0],
-     skv0: ColumnValuesType.Aux[SKCL, SKV0],
+     pkv0: ColumnValues.Aux[PKC, PKV0],
+     skv0: ColumnValues.Aux[SKCL, SKV0],
      skToList: ToList[SKCL, ColumnMapping[T, _]],
      evCol: PKC =:= ColumnMapping[T, PKV0],
      pkVals: PhysicalValues.Aux[PKV0, PKC, PhysicalValue],
@@ -111,7 +111,7 @@ class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect] {
       type PKV = PKV0
       type SKV = SKV0
 
-      def apply(colMapper: ColumnMapper.Aux[T, CR, CVL], tableName: String): PhysRelation.Aux[T, PKV, SKV]
+      def apply(colMapper: ColumnMapper[T, CR, CVL], tableName: String): PhysRelation.Aux[T, PKV, SKV]
       = new AbstractColumnListRelation[T, CR, CVL](colMapper) with DynamoPhysRelation[T] with PhysRelation.Aux[T, PKV, SKV] {
         self =>
         val pkCol = selectPkCol(columns)
@@ -197,7 +197,7 @@ class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect] {
   class DynamoDBKeyMapper[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList, PKV, SKV, PKK, SKKL]
   (implicit relMaker: DynamoDBPhysicalRelations.Aux[T, CR, CVL, PKK, SKKL, PKV, SKV])
     extends KeyMapper.Aux[T, CR, KL, CVL, PKL, PKK, PKV, SKKL, SKV] {
-    def keysMapped(cm: ColumnMapper.Aux[T, CR, CVL])(name: String): PhysRelation.Aux[T, PKV, SKV] = relMaker(cm, name)
+    def keysMapped(cm: ColumnMapper[T, CR, CVL])(name: String): PhysRelation.Aux[T, PKV, SKV] = relMaker(cm, name)
   }
 
   implicit def noSortKeyMapper[T, CR <: HList, KL <: HList, CVL <: HList, PKK, PKL <: HList, PKV]

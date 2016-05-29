@@ -21,7 +21,6 @@ object composeLens extends Poly1 {
   = at[(FieldType[K, CM[T, A]], ColumnComposer[CM, T, T2])] {
     case (colMapping, c) => field[K](c(colMapping: CM[T, A]))
   }
-
 }
 
 trait MappingCreator[ColumnAtom[_], ColumnMapping[_, _]] {
@@ -34,36 +33,6 @@ case class ColumnMapper[A, Columns <: HList, ColumnsValues <: HList](columns: Co
                                                                      toColumns: A => ColumnsValues)
 
 case class ColumnMapperContext[CA[_], CM[_, _], E <: HList](ops: MappingCreator[CA, CM], embeddedMappings: E = HList())
-
-trait GenericMapping[A, CA[_], CM[_, _], E <: HList] {
-  type C <: HList
-  type CV <: HList
-
-  def lookup(context: ColumnMapperContext[CA, CM, E]): ColumnMapper[A, C, CV]
-
-  def embed(context: ColumnMapperContext[CA, CM, E]): ColumnMapperContext[CA, CM, FieldType[A, ColumnMapper[A, C, CV]] :: E]
-}
-
-object GenericMapping {
-  implicit def genMapping[A, CA[_], CM[_, _], E <: HList, Repr, C0 <: HList, CV0 <: HList, CC <: HList, COut <: HList]
-  (implicit lgen: LabelledGeneric.Aux[A, Repr],
-   b: ColumnMapperBuilder.Aux[Repr, CA, CM, E, C0, CV0],
-   zipWithLens: ZipConst.Aux[ColumnComposer[CM, Repr, A], C0, CC],
-   compose: Mapper.Aux[composeLens.type, CC, COut],
-   updated: Updater[E, FieldType[A, ColumnMapper[A, CC, CV0]]]) = new GenericMapping[A, CA, CM, E] {
-    type C = COut
-    type CV = CV0
-
-    def lookup(context: ColumnMapperContext[CA, CM, E]) = {
-      val recMapping = b(context)
-      new ColumnMapper[A, C, CV](compose(zipWithLens(context.ops.composer(lgen.to), recMapping.columns)),
-        v => lgen.from(recMapping.fromColumns(v)), a => recMapping.toColumns(lgen.to(a)))
-    }
-
-    def embed(context: ColumnMapperContext[CA, CM, E]) =
-      context.copy(embeddedMappings = field[A](lookup(context)) :: context.embeddedMappings)
-  }
-}
 
 object ColumnMapperContext {
 
@@ -141,37 +110,31 @@ object ColumnMapperBuilder {
     }
 }
 
-object TestCM extends App {
+trait GenericMapping[A, CA[_], CM[_, _], E <: HList] {
+  type C <: HList
+  type CV <: HList
 
-  case class MyColumnMapping[S, A](name: String, atom: FakeColumn[A], get: S => A) {
-    override def toString = s"'$name' -> $atom"
-  }
+  def lookup(context: ColumnMapperContext[CA, CM, E]): ColumnMapper[A, C, CV]
 
-  class FakeColumn[A]
+  def embed(context: ColumnMapperContext[CA, CM, E]): ColumnMapperContext[CA, CM, FieldType[A, ColumnMapper[A, C, CV]] :: E]
+}
 
-  object FakeColumn {
-    implicit val fakes = new FakeColumn[String]
-    implicit val fakeb = new FakeColumn[Boolean]
-    implicit val fakel = new FakeColumn[Long]
-  }
+object GenericMapping {
+  implicit def genMapping[A, CA[_], CM[_, _], E <: HList, Repr, C0 <: HList, CV0 <: HList, CC <: HList, COut <: HList]
+  (implicit lgen: LabelledGeneric.Aux[A, Repr],
+   b: ColumnMapperBuilder.Aux[Repr, CA, CM, E, C0, CV0],
+   zipWithLens: ZipConst.Aux[ColumnComposer[CM, Repr, A], C0, CC],
+   compose: Mapper.Aux[composeLens.type, CC, COut]) = new GenericMapping[A, CA, CM, E] {
+    type C = COut
+    type CV = CV0
 
-  object MappingOps extends MappingCreator[FakeColumn, MyColumnMapping] {
-    def makeMapping[S, A](name: String, atom: FakeColumn[A], get: (S) => A): MyColumnMapping[S, A] = MyColumnMapping[S, A](name, atom, get)
-
-    def composer[S, S2](f: (S2) => S) = new ColumnComposer[MyColumnMapping, S, S2] {
-      def apply[A](m: MyColumnMapping[S, A]) = m.copy[S2, A](get = m.get compose f)
+    def lookup(context: ColumnMapperContext[CA, CM, E]) = {
+      val recMapping = b(context)
+      new ColumnMapper[A, C, CV](compose(zipWithLens(context.ops.composer(lgen.to), recMapping.columns)),
+        v => lgen.from(recMapping.fromColumns(v)), a => recMapping.toColumns(lgen.to(a)))
     }
+
+    def embed(context: ColumnMapperContext[CA, CM, E]) =
+      context.copy(embeddedMappings = field[A](lookup(context)) :: context.embeddedMappings)
   }
-
-  case class EmbeddedFields(adminpassword: String, enabled: Boolean)
-
-  case class Inst(uniqueid: Long, embedded: EmbeddedFields)
-
-  val context = ColumnMapperContext(MappingOps).embed[EmbeddedFields].lookup[Inst]
-
-  println(context.toColumns(Inst(1L, EmbeddedFields("password", true))))
-
-
-  case class User(firstName: String, lastName: String, year: Int)
-
 }

@@ -37,10 +37,10 @@ object TestDynamoNew extends App {
                            queryByLastName: MultiQuery[F, User, String],
                            queryByFullName: SingleQuery[F, User, Username]
                           )
-  implicit val embeddedColumnMapper = mapper.GenericColumnMapper[EmbeddedFields]
+  val ctx = mapper.emptyContext.embed[EmbeddedFields]
 
-  val instTable = mapper.relation[Inst]("institution").key('uniqueid)
-  val userTable = mapper.relation[User]("users").keys('firstName, 'lastName)
+  val instTable = mapper.relation("institution", ctx.lookup[Inst]).key('uniqueid)
+  val userTable = mapper.relation("users", ctx.lookup[User]).keys('firstName, 'lastName)
 
   val allBuilders = HList(
     queryByFullKey(instTable),

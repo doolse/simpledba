@@ -27,7 +27,7 @@ object TestDynamo extends App {
 
   case class EmbeddedFields(adminpassword: String, enabled: Boolean)
 
-  implicit val embeddedColumnMapper = mapper.GenericColumnMapper[EmbeddedFields]
+  val newContext = mapper.emptyContext.embed[EmbeddedFields]
 
   case class Inst(uniqueid: Long, embedded: EmbeddedFields)
 
@@ -37,8 +37,8 @@ object TestDynamo extends App {
   //case class Inst(uniqueid: Long, adminpassword: String, enabled: Boolean)
 
   val instRecord = ('uniqueid ->> 0L) :: ('adminpassword ->> "hi") :: ('enabled ->> true) :: HNil
-  val mappedTable = mapper.relation[Inst]("institution").key('uniqueid)
-  val anotherTable = mapper.relation[User]("users").keys('firstName, 'lastName)
+  val mappedTable = mapper.relation("institution", newContext.lookup[Inst]).key('uniqueid)
+  val anotherTable = mapper.relation("users", newContext.lookup[User]).keys('firstName, 'lastName)
 
 //  val (creation, (qpk, writer, users, byFirstName, writeUsers)) = mapper.buildSchema(for {
 //    qpk <- mappedTable.queryByKey
