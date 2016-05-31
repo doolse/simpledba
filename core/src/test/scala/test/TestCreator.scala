@@ -1,13 +1,13 @@
 package test
 
-import io.doolse.simpledba._
-import RelationModel._
 import cats.Monad
 import cats.data.ReaderT
+import cats.syntax.all._
+import io.doolse.simpledba.RelationModel._
+import io.doolse.simpledba._
 import shapeless._
 import shapeless.syntax.singleton._
 import cats.std.option._
-import cats.syntax.all._
 
 /**
   * Created by jolz on 26/05/16.
@@ -53,7 +53,7 @@ object TestCreator {
   val updated = Inst(2L, EmbeddedFields("pass", enabled = false))
   val updatedAgain = Inst(2L, EmbeddedFields("changed", enabled = true))
 
-  def doTest[F[_] : Monad] : ReaderT[F, Queries[F], Any] = ReaderT { (q:Queries[F]) =>
+  def doTest[F[_] : Monad](q:Queries[F]) = {
     import q._
     for {
       _ <- writeUsers.insert(User("Jolse", "Maginnis", 1980))

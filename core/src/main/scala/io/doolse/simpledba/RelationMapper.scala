@@ -501,11 +501,12 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
 
     implicit def buildAll[QB <: HList, MergeOut, WithMerged <: HList,
     WithCreated <: HList, P2F <: HList, F2B <: HList,
-    RelationMap <: HList, TypeRelations <: HList, AllRelations <: HList]
+    RelationMap <: HList, TypeRelations <: HList, AllRelations <: HList, CROUT]
     (implicit merger: RightFolder.Aux[QB, MergedRelations[HNil, HNil], mergePhysical.type, MergeOut],
      ev: MergedRelations[F2B, P2F] =:= MergeOut,
      zipWithMerged: ZipConst.Aux[MergeOut, QB, WithMerged],
-     create: RightFolder.Aux[WithMerged, CreatedRelations[HNil, HNil], createRelations.type, CreatedRelations[RelationMap, TypeRelations]],
+     create: RightFolder.Aux[WithMerged, CreatedRelations[HNil, HNil], createRelations.type, CROUT],
+     ev2: CROUT <:<  CreatedRelations[RelationMap, TypeRelations],
      zipWithCreated: ZipConst.Aux[CreatedRelations[RelationMap, TypeRelations] @@ P2F, QB, WithCreated],
      allRelations: Values.Aux[RelationMap, AllRelations],
      toPhysList: ToList[AllRelations, PhysRelation[_]],
@@ -516,7 +517,7 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
       def apply(qb: QB) = {
         val merged = merger(qb, MergedRelations[HNil, HNil](HNil: HNil))
         val created = create(zipWithMerged(merged, qb), CreatedRelations(HNil, HNil))
-        BuiltQueries(bf(zipWithCreated(tag[P2F](created), qb)),
+        BuiltQueries(bf(zipWithCreated(tag[P2F](ev2(created)), qb)),
           Eval.later(toPhysList(allRelations(created.relMap)).map(_.createDDL))
         )
       }

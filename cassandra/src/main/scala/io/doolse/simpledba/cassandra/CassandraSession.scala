@@ -49,5 +49,6 @@ object CassandraSession {
   def escapeReserved(name: String) =
     if (reservedColumns(name.toLowerCase())) '"'+name+'"' else name
 
-
 }
+
+case class SessionConfig(session: Session, logger: (() ⇒ String) ⇒ Unit = _ => ())

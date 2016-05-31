@@ -20,14 +20,6 @@ object TestDynamo extends App {
   val client: AmazonDynamoDBClient = new AmazonDynamoDBClient(config).withEndpoint("http://localhost:8000")
   val mapper = new DynamoDBMapper()
   import mapper._
-  import RelationModel._
-
-  implicit def hnilRightFolder[L <: HNil, In, HF]: RightFolder.Aux[L, In, HF, In] =
-    new RightFolder[L, In, HF] {
-      type Out = In
-
-      def apply(l: L, in: In): Out = in
-    }
 
   val built = mapper.buildModel(TestCreator.model)
 
@@ -47,8 +39,8 @@ object TestDynamo extends App {
     case Failure(f) => f.printStackTrace()
     case _ =>
   })
-  val q = TestCreator.doTest[DynamoDBMapper.Effect]
-  val res = q(queries).run(DynamoDBSession(client))
+  val q = TestCreator.doTest(queries)
+  val res = q.run(DynamoDBSession(client))
   println(res)
 
 }
