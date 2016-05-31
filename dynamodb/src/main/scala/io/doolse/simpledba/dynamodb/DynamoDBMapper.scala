@@ -23,7 +23,7 @@ object DynamoDBMapper {
 
 }
 
-class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect] {
+class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect, DynamoDBColumn] {
 
   type ColumnAtom[A] = DynamoDBColumn[A]
   type DDLStatement = CreateTableRequest

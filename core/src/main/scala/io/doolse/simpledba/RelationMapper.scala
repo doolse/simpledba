@@ -1,31 +1,21 @@
 package io.doolse.simpledba
 
-import cats.{Cartesian, Eval, Monad}
-import cats.data.{Reader, State, Xor}
-import cats.functor.Invariant
-import cats.sequence.{HListApply2, Sequencer}
-import cats.syntax.all._
+import cats.data.Xor
+import cats.{Eval, Monad}
 import shapeless._
 import shapeless.labelled._
-import shapeless.poly._
-import shapeless.ops.hlist.{At, Drop, Length, Mapper, Prepend, RightFolder, Split, Take, ToList, Zip, ZipConst, ZipOne, ZipWith}
+import shapeless.ops.hlist.{At, ConstMapper, Length, Mapper, RightFolder, ToList, Zip, ZipConst, ZipWith}
 import shapeless.ops.nat.ToInt
-import shapeless.ops.product.{ToHList, ToTuple}
 import shapeless.ops.record._
 import shapeless.tag.@@
-
-import scala.annotation.implicitNotFound
-import scala.reflect.ClassTag
-import scala.reflect.runtime.universe.TypeTag
 
 /**
   * Created by jolz on 10/05/16.
   */
 
 
-abstract class RelationMapper[F[_] : Monad] {
+abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
 
-  type ColumnAtom[A]
   type DDLStatement
 
   trait Projection[A]
@@ -40,7 +30,6 @@ abstract class RelationMapper[F[_] : Monad] {
       def apply[A](cm: ColumnMapping[S, A]): ColumnMapping[S2, A] = cm.copy[S2, A](get = cm.get compose f)
     }
   }
-  val emptyContext = ColumnMapperContext(stdColumnMaker, HNil)
 
   trait ReadQueries {
     def selectOne[A](projection: ProjectionT[A], where: Where): F[Option[A]]
@@ -59,7 +48,7 @@ abstract class RelationMapper[F[_] : Monad] {
     }
   }
 
-  @implicitNotFound("Failed to map keys ('${PKL}') for ${T}")
+  //  @implicitNotFound("Failed to map keys ('${PKL}') for ${T}")
   trait KeyMapper[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList] {
     type PartitionKey
     type SortKey
@@ -535,53 +524,77 @@ abstract class RelationMapper[F[_] : Monad] {
     }
   }
 
-  def build[Q, QOut <: HList](q: Q)(implicit qb: QueriesBuilder.Aux[Q, QOut]): BuiltQueries[QOut] = qb(q)
-
-  def queryByFullKey[T, CR <: HList, KL <: HList, CVL <: HList, PKK, PKV, SKK, SKV]
-  (rb: RelationDef[T, CR, KL, CVL])
-  (implicit
-   keyMapper: KeyMapper.Aux[T, CR, KL, CVL, KL, PKK, PKV, SKK, SKV]
-  ) = ReadQueryBuilder[T, PKK, PKV, SKK, SKV, (T, PKK, SKK),
-    PhysRelation.Aux[T, PKV, SKV],
-    SingleQuery[F, T, PKV :: SKV :: HNil]](PhysicalBuilder[T, PKK, PKV, SKK, SKV](rb.baseName, keyMapper.keysMapped(rb.mapper)),
-    table => SingleQuery {
-      (fk: PKV :: SKV :: HNil) =>
-        val w = table.whereFullKey(fk)
-        val rq = table.createReadQueries
-        rq.selectOne(table.selectAll, w)
-    })
-
-  def queryAllByKeyColumn[T, CR <: HList, KL <: HList, CVL <: HList, PKK, PKV, SKK, SKV]
-  (k: Witness, rb: RelationDef[T, CR, KL, CVL])
-  (implicit
-   keyMapper: KeyMapper.Aux[T, CR, KL, CVL, k.T :: HNil, PKK, PKV, SKK, SKV]
-  ) = ReadQueryBuilder[T, PKK, PKV, SKK, SKV, (T, PKK),
-    PartKeyOnly.Aux[T, PKV],
-    MultiQuery[F, T, PKV]](PhysicalBuilder[T, PKK, PKV, SKK, SKV](rb.baseName, keyMapper.keysMapped(rb.mapper)),
-    table => MultiQuery(true, { (pk, asc) =>
-      val rq = table.createReadQueries
-      rq.selectMany(table.selectAll, table.wherePK(pk), asc)
-    }))
-
-  def writeQueries[T, CR <: HList, KL <: HList, CVL <: HList]
-  (rb: RelationDef[T, CR, KL, CVL])
-  = new WriteQueryBuilder[T]
-
 
   case class RelationDef[T, CR <: HList, KL <: HList, CVL <: HList]
   (baseName: String, mapper: ColumnMapper[T, CR, CVL])
 
-  class RelationDefPartial[T, Columns <: HList, ColumnsValues <: HList](baseName: String, mapper: ColumnMapper[T, Columns, ColumnsValues]) {
-
-    def key(k: Witness)(implicit ev: SelectAll[Columns, k.T :: HNil])
-    : RelationDef[T, Columns, k.T :: HNil, ColumnsValues] = RelationDef(baseName, mapper)
-
-    def keys(k1: Witness, k2: Witness)(implicit ev: SelectAll[Columns, k1.T :: k2.T :: HNil])
-    : RelationDef[T, Columns, k1.T :: k2.T :: HNil, ColumnsValues] = RelationDef(baseName, mapper)
+  private object embedAll extends Poly2 {
+    implicit def embed[A, E <: HList, C <: HList, CV <: HList](implicit gm: GenericMapping.Aux[A, ColumnAtom, ColumnMapping, E, C, CV])
+    = at[Embed[A], ColumnMapperContext[ColumnAtom, ColumnMapping, E]] {
+      case (_, context) => gm.embed(context): ColumnMapperContext[ColumnAtom, ColumnMapping, FieldType[A, ColumnMapper[A, C, CV]] :: E]
+    }
   }
 
-  def relation[T, C <: HList, CV <: HList](name: String, gen: ColumnMapper[T, C, CV]) = new RelationDefPartial[T, C, CV](name, gen)
+  private object lookupAll extends Poly2 {
+    implicit def lookupRelation[A, K <: Symbol, Keys <: HList, E <: HList, CR <: HList, CVL <: HList, CTX]
+    (implicit
+     gm: GenericMapping.Aux[A, ColumnAtom, ColumnMapping, E, CR, CVL], w: Witness.Aux[K])
+    = at[ColumnMapperContext[ColumnAtom, ColumnMapping, E], FieldType[K, Relation[A, Keys]]](
+      (context, rel) => field[K](RelationDef[A, CR, Keys, CVL](w.value.name, gm.lookup(context)))
+    )
+  }
 
+  private object convertQueries extends Poly2 {
+    implicit def convertPartialKey[R <: HList, K, Keys <: HList, A, CR <: HList, CVL <: HList, KL <: HList, SR, PKK, PKV, SKK, SKV]
+    (implicit selRel: Selector.Aux[R, K, SR],
+     ev: SR <:< RelationDef[A, CR, KL, CVL],
+     keyMapper: KeyMapper.Aux[A, CR, KL, CVL, Keys, PKK, PKV, SKK, SKV]
+    )
+    = at[R, PartialKey[K, Keys]]((rels, q) => {
+      val rb = ev(selRel(rels))
+      ReadQueryBuilder[A, PKK, PKV, SKK, SKV, (A, PKK),
+        PartKeyOnly.Aux[A, PKV],
+        MultiQuery[F, A, PKV]](PhysicalBuilder[A, PKK, PKV, SKK, SKV](rb.baseName, keyMapper.keysMapped(rb.mapper)),
+        table => MultiQuery(true, { (pk, asc) =>
+          val rq = table.createReadQueries
+          rq.selectMany(table.selectAll, table.wherePK(pk), asc)
+        }))
+    })
+
+    implicit def convertFullKey[R <: HList, K, A, PKK, PKV, SKK, SKV, SR, CR <: HList, KL <: HList, CVL <: HList]
+    (implicit selRel: Selector.Aux[R, K, SR],
+     ev: SR <:< RelationDef[A, CR, KL, CVL],
+     keyMapper: KeyMapper.Aux[A, CR, KL, CVL, KL, PKK, PKV, SKK, SKV]) = at[R, FullKey[K]]((rels, q) => {
+      val rb = ev(selRel(rels))
+      ReadQueryBuilder[A, PKK, PKV, SKK, SKV, (A, PKK, SKK),
+        PhysRelation.Aux[A, PKV, SKV],
+        SingleQuery[F, A, PKV :: SKV :: HNil]](PhysicalBuilder[A, PKK, PKV, SKK, SKV](rb.baseName, keyMapper.keysMapped(rb.mapper)),
+        table => SingleQuery {
+          (fk: PKV :: SKV :: HNil) =>
+            val w = table.whereFullKey(fk)
+            val rq = table.createReadQueries
+            rq.selectOne(table.selectAll, w)
+        })
+    })
+
+    implicit def convertWrites[R <: HList, K, A, SR](implicit selRel: Selector.Aux[R, K, SR],
+                                                     ev: SR <:< RelationDef[A, _, _, _]) = at[R, RelationWriter[K]]((rels, q) => new WriteQueryBuilder[A])
+  }
+
+  def buildModel[E <: HList, R <: HList, Q <: HList, RKL <: HList, EO <: HList, CTXO,
+  ZCO <: HList, V <: HList, CRD <: HList, RDQ <: HList, QL <: HList, QOut]
+  (rm: RelationModel[E, R, Q])
+  (implicit rf: RightFolder.Aux[E, ColumnMapperContext[ColumnAtom, ColumnMapping, HNil], embedAll.type, CTXO],
+   zipConst: ConstMapper.Aux[CTXO, R, ZCO],
+   mapRelations: ZipWith.Aux[ZCO, R, lookupAll.type, CRD],
+   relDefs: ConstMapper.Aux[CRD, Q, RDQ],
+   mapQueries: ZipWith.Aux[RDQ, Q, convertQueries.type, QL],
+   queryBuilder: QueriesBuilder.Aux[QL, QOut]
+  ): BuiltQueries[QOut] = {
+    val relationRecord = mapRelations(zipConst(rf(rm.embedList, ColumnMapperContext(stdColumnMaker, HNil)), rm.relationRecord), rm.relationRecord)
+    val queryList = mapQueries(relDefs(relationRecord, rm.queryList), rm.queryList)
+    queryBuilder(queryList)
+  }
 }
 
 
