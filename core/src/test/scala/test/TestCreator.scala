@@ -13,6 +13,7 @@ import shapeless.syntax.singleton._
 
 case class EmbeddedFields(adminpassword: String, enabled: Boolean)
 
+case class Embedded2(whoCares: Long)
 
 case class Inst(uniqueid: Long, embedded: EmbeddedFields)
 
@@ -32,7 +33,7 @@ object TestCreator {
                           )
 
   val model = RelationModel(
-    HList(embed[EmbeddedFields]),
+    embed[EmbeddedFields] :: embed[Embedded2] :: HNil,
     HList(
       'institution ->> relation[Inst]('uniqueid),
       'users ->> relation[User]('firstName, 'lastName)

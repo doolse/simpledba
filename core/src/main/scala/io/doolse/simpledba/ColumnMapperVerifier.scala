@@ -33,17 +33,17 @@ trait ColumnMapperVerifierLP {
   )
   = successWithErrors[CA, E, S :: E2, Embed[S]](verified.errors)
 
-  implicit def relation[C, C2, S, Keys <: HList, Repr <: HList, WC <: HList]
+  implicit def relation[C, C2, S, Keys <: HList, Repr <: HList, WC <: HList, K <: Symbol]
   (implicit lg: LabelledGeneric.Aux[S, Repr], zipWith: ZipConst.Aux[S, Repr, WC],
    verified: ColumnMapperVerifier.Aux[C, WC, C2])
-  = ColumnMapperVerifier[C, Relation[S, Keys], C2](verified.errors)
+  = ColumnMapperVerifier[C, FieldType[K, Relation[S, Keys]], C2](verified.errors)
 
   implicit def noAtomFound[CA[_], E, S, K <: Symbol, A](implicit tt: ClassTag[S], vc: ClassTag[A], k: Witness.Aux[K])
   = verError[CA, E, (FieldType[K, A], S)](
     s"${tt.runtimeClass.getName} -> ${k.value.name} : ${vc.runtimeClass.getName} has no atom or embedding")
 
   implicit def noAtomColumn[CA[_], E, S, A](implicit at: ClassTag[A], o: ClassTag[S])
-  = verError[CA, E, Atom[S, A]](
+  = verError[CA, E, CustomAtom[S, A]](
     s"${o.runtimeClass.getName} has not atom for ${at.runtimeClass.getName}"
   )
 }
@@ -79,7 +79,7 @@ object ColumnMapperVerifier extends ColumnMapperVerifierLP {
   (implicit e: Selector[E, A]) = success[CA, E, E, (FieldType[K, A], S)]
 
   implicit def foundUnderlyingColumn[CA[_], E <: HList, EOut <: HList, S, A]
-  (implicit uc: CA[A]) = success[CA, E, S :: E, Atom[S, A]]
+  (implicit uc: CA[A]) = success[CA, E, S :: E, CustomAtom[S, A]]
 }
 
 object ClassNames {

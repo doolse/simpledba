@@ -80,7 +80,7 @@ trait ColumnMapperBuilderLP {
   VCM, C0 <: HList, CV0 <: HList, CZ <: HList, COut <: HList]
   (implicit
    selectMapping: Selector.Aux[E, V, VCM],
-   ev: VCM <:< (V => A, A => V),
+   ev: VCM <:< CustomAtom[V, A],
    atom: CA[A]
   ) = new ColumnMapperBuilder.Aux[FieldType[K, V], CA, CM, E, FieldType[K, CM[FieldType[K, V], V]] :: HNil, V :: HNil] {
     def apply(t: ColumnMapperContext[CA, CM, E]) = ???

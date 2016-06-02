@@ -15,7 +15,7 @@ object RelationModel {
 }
 
 class Embed[A]
-class Atom[S, A](to: S => A, from: A => S)
+class CustomAtom[S, A](val to: S => A, val from: A => S)
 class Relation[A, Keys <: HList]
 
 class FullKey[K]

@@ -14,10 +14,10 @@ trait ValueConvertLP {
 
 object ValueConvert extends ValueConvertLP {
 
-  trait QuestionMarks
+  object QuestionMarks
 
-  implicit def forDebug[V] = new ValueConvert[V, QuestionMarks] {
-    override def apply(v1: V): QuestionMarks = ???
+  implicit def forDebug[V] = new ValueConvert[V, QuestionMarks.type] {
+    override def apply(v1: V): QuestionMarks.type = ???
   }
 
   implicit def reflValue[V] = new ValueConvert[V, V] {

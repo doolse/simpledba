@@ -8,10 +8,10 @@ import shapeless.{::, Generic, HNil, Witness}
 package object simpledba {
   def embed[A] = new Embed[A]
 
-  def atom[S, A](to: S => A, from: A => S) = new Atom(to, from)
+  def atom[S, A](to: S => A, from: A => S) = new CustomAtom(to, from)
 
   def atom[S, A](gen: Generic[S])(implicit ev: gen.Repr <:< (A :: HNil), ev2: (A :: HNil) <:< gen.Repr)
-  = new Atom[S, A](s => ev(gen.to(s)).head, a => gen.from(a :: HNil))
+  = new CustomAtom[S, A](s => ev(gen.to(s)).head, a => gen.from(a :: HNil))
 
   def relation[A](w: Witness) = new Relation[A, w.T :: HNil]
 

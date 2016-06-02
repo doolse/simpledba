@@ -2,12 +2,15 @@ package io.doolse.simpledba
 
 import cats.data.Xor
 import cats.{Eval, Monad}
+import io.doolse.simpledba.ValueConvert.QuestionMarks
 import shapeless._
 import shapeless.labelled._
-import shapeless.ops.hlist.{At, Comapped, ConstMapper, Length, Mapper, RightFolder, ToList, Zip, ZipConst, ZipWith}
+import shapeless.ops.hlist.{At, Comapped, ConstMapper, Length, Mapper, Reverse, RightFolder, ToList, Zip, ZipConst, ZipWith}
 import shapeless.ops.nat.ToInt
 import shapeless.ops.record._
 import shapeless.tag.@@
+
+import scala.reflect.ClassTag
 
 /**
   * Created by jolz on 10/05/16.
@@ -533,9 +536,15 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
   (baseName: String, mapper: ColumnMapper[T, CR, CVL])
 
   private object embedAll extends Poly2 {
+
+    implicit def customAtom[S, A, E <: HList] = at[CustomAtom[S, A], ColumnMapperContext[ColumnAtom, ColumnMapping, E]] {
+      case (custom, context) => context.copy(embeddedMappings = field[S](custom) :: context.embeddedMappings)
+        : ColumnMapperContext[ColumnAtom, ColumnMapping, FieldType[S, CustomAtom[S, A]] :: E]
+    }
+
     implicit def embed[A, E <: HList, C <: HList, CV <: HList](implicit gm: GenericMapping.Aux[A, ColumnAtom, ColumnMapping, E, C, CV])
     = at[Embed[A], ColumnMapperContext[ColumnAtom, ColumnMapping, E]] {
-      case (_, context) => gm.embed(context): ColumnMapperContext[ColumnAtom, ColumnMapping, FieldType[A, ColumnMapper[A, C, CV]] :: E]
+      case (_, context) => gm.embed(context)
     }
   }
 
@@ -586,28 +595,30 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
   }
 
   def buildModel[E <: HList, R <: HList, Q <: HList, RKL <: HList, EO <: HList, CTXO,
-  ZCO <: HList, V <: HList, CRD <: HList, RDQ <: HList, QL <: HList, QOut]
+  ZCO <: HList, V <: HList, CRD <: HList, RDQ <: HList, QL <: HList, QOut, ER <: HList]
   (rm: RelationModel[E, R, Q])
-  (implicit rf: RightFolder.Aux[E, ColumnMapperContext[ColumnAtom, ColumnMapping, HNil], embedAll.type, CTXO],
+  (implicit
+   rev: Reverse.Aux[E, ER], // LeftFolder caused diverging implicits
+   rf: RightFolder.Aux[ER, ColumnMapperContext[ColumnAtom, ColumnMapping, HNil], embedAll.type, CTXO],
    zipConst: ConstMapper.Aux[CTXO, R, ZCO],
    mapRelations: ZipWith.Aux[ZCO, R, lookupAll.type, CRD],
    relDefs: ConstMapper.Aux[CRD, Q, RDQ],
    mapQueries: ZipWith.Aux[RDQ, Q, convertQueries.type, QL],
    queryBuilder: QueriesBuilder.Aux[QL, QOut]
   ): BuiltQueries[QOut] = {
-    val relationRecord = mapRelations(zipConst(rf(rm.embedList, ColumnMapperContext(stdColumnMaker, HNil)), rm.relationRecord), rm.relationRecord)
+    val relationRecord = mapRelations(zipConst(rf(rev(rm.embedList), ColumnMapperContext(stdColumnMaker, HNil)), rm.relationRecord), rm.relationRecord)
     val queryList = mapQueries(relDefs(relationRecord, rm.queryList), rm.queryList)
     queryBuilder(queryList)
   }
 
   def verifyModel[E <: HList, R <: HList, Q <: HList, C2]
-  (rm: RelationModel[E, R, Q], p: String => Unit)
+  (rm: RelationModel[E, R, Q], p: String => Unit = Console.err.println)
   (implicit
    vEmbed: ColumnMapperVerifier.Aux[VerifierContext[ColumnAtom, HNil], E, C2],
    vRels: ColumnMapperVerifier[C2, R])
-  : BuiltQueries[Unit] = {
+  : BuiltQueries[QuestionMarks.type] = {
     (vEmbed.errors ++ vRels.errors).foreach(p)
-    BuiltQueries[Unit]((), Eval.now(List.empty))
+    BuiltQueries[QuestionMarks.type](QuestionMarks, Eval.now(List.empty))
   }
 }
 

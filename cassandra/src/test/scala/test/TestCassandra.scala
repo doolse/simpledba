@@ -18,9 +18,8 @@ object TestCassandra extends App {
   val mapper = new CassandraMapper()
   import mapper._
 
-  val built = mapper.verifyModel(RealisticModel.model, Console.err.println)
-//  val built = mapper.buildModel(RealisticModel.model)
-  val queries : RealisticModel.Queries = ??? //built.as()
+  val built = mapper.verifyModel(RealisticModel.model)
+  val queries = built.as[RealisticModel.Queries]()
 
   val session = CassandraSession.simpleSession("localhost", Some("eps"))
   val creation = built.ddl.value

@@ -4,13 +4,14 @@ import java.util.{Date, UUID}
 
 import io.doolse.simpledba._
 import shapeless._
+import shapeless.syntax.singleton._
 
 /**
   * Created by jolz on 2/06/16.
   */
 object RealisticModel {
 
-  case class Queries()
+  case class Queries[F[_]]()
 
   case class InstitutionId(id: Long)
 
@@ -24,5 +25,5 @@ object RealisticModel {
       atom[Map[String, String], String]((_:Map[String, String]) => ???, (_:String) => ???),
       atom(Generic[InstitutionId]),
       embed[BaseEntityFields]
-    ), HList(relation[ItemCollection]('id)), HList())
+    ), HList('itemcollection ->> relation[ItemCollection]('id)), HList())
 }
