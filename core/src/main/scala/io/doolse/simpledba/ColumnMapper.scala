@@ -16,23 +16,23 @@ trait ColumnComposer[CM[_, _], S, S2] {
 
 /**
   * For some reason this wouldn't work with a Poly2 because of
-  * divergent implicit expansion
+  * divergent implicit expansion - hmmm maybe use Lazy?
   */
-trait ColumnsComposed[In, CM[_,_], S1, S2] extends DepFn2[In, ColumnComposer[CM, S1, S2]] {
+trait ColumnsComposed[In, CM[_, _], S1, S2] extends DepFn2[In, ColumnComposer[CM, S1, S2]] {
   type Out
 }
 
 object ColumnsComposed {
+
   trait Aux[In, CM[_, _], S1, S2, Out0] extends ColumnsComposed[In, CM, S1, S2] {
     type Out = Out0
   }
 
-  implicit def fieldCompose[CM[_,_], S1, S2, K, A] = new Aux[FieldType[K, CM[S1, A]], CM, S1, S2, FieldType[K, CM[S2, A]]]
-  {
+  implicit def fieldCompose[CM[_, _], S1, S2, K, A] = new Aux[FieldType[K, CM[S1, A]], CM, S1, S2, FieldType[K, CM[S2, A]]] {
     def apply(t: FieldType[K, CM[S1, A]], u: ColumnComposer[CM, S1, S2]): FieldType[K, CM[S2, A]] = field[K](u(t))
   }
 
-  implicit def hnilCompose[CM[_,_], S1, S2] = new Aux[HNil, CM, S1, S2, HNil] {
+  implicit def hnilCompose[CM[_, _], S1, S2] = new Aux[HNil, CM, S1, S2, HNil] {
     def apply(t: HNil, u: ColumnComposer[CM, S1, S2]) = t
   }
 
@@ -44,6 +44,8 @@ object ColumnsComposed {
 }
 
 trait MappingCreator[ColumnAtom[_], ColumnMapping[_, _]] {
+  def wrapAtom[S, A](atom: ColumnAtom[A], to: S => A, from: A => S): ColumnAtom[S]
+
   def makeMapping[S, A](name: String, atom: ColumnAtom[A], get: S => A): ColumnMapping[S, A]
 
   def composer[S, S2](f: S2 => S): ColumnComposer[ColumnMapping, S, S2]
@@ -51,6 +53,7 @@ trait MappingCreator[ColumnAtom[_], ColumnMapping[_, _]] {
 
 case class ColumnMapper[A, Columns <: HList, ColumnsValues <: HList](columns: Columns, fromColumns: ColumnsValues => A,
                                                                      toColumns: A => ColumnsValues)
+
 case class ColumnMapperContext[CA[_], CM[_, _], E <: HList](ops: MappingCreator[CA, CM], embeddedMappings: E = HList())
 
 
@@ -69,8 +72,18 @@ trait ColumnMapperBuilderLP {
       val otherMapper = ev(selectMapping(t.embeddedMappings))
       new ColumnMapper(composer(otherMapper.columns, t.ops.composer(identity)),
         cv => field[K](otherMapper.fromColumns(cv)),
-        fld => otherMapper.toColumns(fld:V))
+        fld => otherMapper.toColumns(fld: V))
     }
+  }
+
+  implicit def singleIsoColumn[CA[_], CM[_, _], E <: HList, K <: Symbol, V, A,
+  VCM, C0 <: HList, CV0 <: HList, CZ <: HList, COut <: HList]
+  (implicit
+   selectMapping: Selector.Aux[E, V, VCM],
+   ev: VCM <:< (V => A, A => V),
+   atom: CA[A]
+  ) = new ColumnMapperBuilder.Aux[FieldType[K, V], CA, CM, E, FieldType[K, CM[FieldType[K, V], V]] :: HNil, V :: HNil] {
+    def apply(t: ColumnMapperContext[CA, CM, E]) = ???
   }
 }
 
@@ -128,7 +141,8 @@ trait GenericMapping[A, CA[_], CM[_, _], E <: HList] {
 }
 
 object GenericMapping {
-  trait Aux[A, CA[_], CM[_,_], E <: HList, C0 <: HList, CV0 <: HList] extends GenericMapping[A, CA, CM, E] {
+
+  trait Aux[A, CA[_], CM[_, _], E <: HList, C0 <: HList, CV0 <: HList] extends GenericMapping[A, CA, CM, E] {
     type C = C0
     type CV = CV0
   }

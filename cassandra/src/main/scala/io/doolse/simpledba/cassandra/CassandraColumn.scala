@@ -1,5 +1,7 @@
 package io.doolse.simpledba.cassandra
 
+import java.util.{Date, UUID}
+
 import com.datastax.driver.core.querybuilder.{Assignment, QueryBuilder}
 import com.datastax.driver.core.{DataType, Row, TypeCodec}
 
@@ -28,4 +30,6 @@ object CassandraColumn {
   implicit val intCol : CassandraColumn[Int] = CassandraCodecColumn(DataType.cint(), TypeCodec.cint(), Integer2int, _.asInstanceOf[AnyRef])
   implicit val boolCol : CassandraColumn[Boolean] = CassandraCodecColumn(DataType.cboolean(), TypeCodec.cboolean(), Boolean2boolean, _.asInstanceOf[AnyRef])
   implicit val stringCol : CassandraColumn[String] = CassandraCodecColumn.direct[String](DataType.text(), TypeCodec.varchar())
+  implicit val dateCol : CassandraColumn[Date] = CassandraCodecColumn.direct[Date](DataType.timestamp(), TypeCodec.timestamp())
+  implicit val uuidCol : CassandraColumn[UUID] = CassandraCodecColumn.direct[UUID](DataType.uuid(), TypeCodec.uuid())
 }

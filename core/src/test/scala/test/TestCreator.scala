@@ -1,13 +1,11 @@
 package test
 
 import cats.Monad
-import cats.data.ReaderT
 import cats.syntax.all._
-import io.doolse.simpledba.RelationModel._
+import cats.std.option._
 import io.doolse.simpledba._
 import shapeless._
 import shapeless.syntax.singleton._
-import cats.std.option._
 
 /**
   * Created by jolz on 26/05/16.

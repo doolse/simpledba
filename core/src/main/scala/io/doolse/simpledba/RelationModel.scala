@@ -12,16 +12,10 @@ case class RelationModel[Embedded <: HList, Relations <: HList, Queries <: HList
 
 object RelationModel {
   def apply[R <: HList, Q <: HList](relations: R, queries: Q) = new RelationModel[HNil, R, Q](HNil : HNil, relations, queries)
-
-  def embed[A] = new Embed[A]
-  def relation[A](w: Witness) = new Relation[A, w.T :: HNil]
-  def relation[A](w1: Witness, w2: Witness) = new Relation[A, w1.T :: w2.T :: HNil]
-  def queryFullKey(w: Witness) = new FullKey[w.T]
-  def queryPartialKey(w: Witness, k: Witness) = new PartialKey[w.T, k.T :: HNil]
-  def queryWrites(w: Witness) = new RelationWriter[w.T]
 }
 
 class Embed[A]
+class Atom[S, A](to: S => A, from: A => S)
 class Relation[A, Keys <: HList]
 
 class FullKey[K]

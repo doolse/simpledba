@@ -4,7 +4,7 @@ import cats.data.Xor
 import cats.{Eval, Monad}
 import shapeless._
 import shapeless.labelled._
-import shapeless.ops.hlist.{At, ConstMapper, Length, Mapper, RightFolder, ToList, Zip, ZipConst, ZipWith}
+import shapeless.ops.hlist.{At, Comapped, ConstMapper, Length, Mapper, RightFolder, ToList, Zip, ZipConst, ZipWith}
 import shapeless.ops.nat.ToInt
 import shapeless.ops.record._
 import shapeless.tag.@@
@@ -25,6 +25,8 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
     def composer[S, S2](f: (S2) => S): ColumnComposer[ColumnMapping, S, S2] = new ColumnComposer[ColumnMapping, S, S2] {
       def apply[A](cm: ColumnMapping[S, A]): ColumnMapping[S2, A] = cm.copy[S2, A](get = cm.get compose f)
     }
+
+    def wrapAtom[S, A](atom: ColumnAtom[A], to: (S) => A, from: (A) => S): ColumnAtom[S] = ???
   }
 
   trait ReadQueries {
@@ -596,6 +598,16 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
     val relationRecord = mapRelations(zipConst(rf(rm.embedList, ColumnMapperContext(stdColumnMaker, HNil)), rm.relationRecord), rm.relationRecord)
     val queryList = mapQueries(relDefs(relationRecord, rm.queryList), rm.queryList)
     queryBuilder(queryList)
+  }
+
+  def verifyModel[E <: HList, R <: HList, Q <: HList, C2]
+  (rm: RelationModel[E, R, Q], p: String => Unit)
+  (implicit
+   vEmbed: ColumnMapperVerifier.Aux[VerifierContext[ColumnAtom, HNil], E, C2],
+   vRels: ColumnMapperVerifier[C2, R])
+  : BuiltQueries[Unit] = {
+    (vEmbed.errors ++ vRels.errors).foreach(p)
+    BuiltQueries[Unit]((), Eval.now(List.empty))
   }
 }
 
