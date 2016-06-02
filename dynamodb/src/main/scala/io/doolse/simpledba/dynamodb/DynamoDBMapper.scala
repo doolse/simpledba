@@ -28,13 +28,11 @@ class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect, DynamoDBColum
   type ColumnAtom[A] = DynamoDBColumn[A]
   type DDLStatement = CreateTableRequest
 
-  sealed trait DynamoProjection[T] extends Projection[T] {
-    def materialize(mat: ColumnMaterialzer): Option[T]
+  sealed trait DynamoProjection[T] {
+    def materialize : ColumnMaterialzer => Option[T]
   }
 
-  case class All[T, CVL <: HList](m: ColumnMaterialzer => Option[CVL], toT: CVL => T) extends DynamoProjection[T] {
-    def materialize(mat: ColumnMaterialzer): Option[T] = m(mat).map(toT)
-  }
+  case class All[T, CVL <: HList](materialize: ColumnMaterialzer => Option[T]) extends DynamoProjection[T]
 
   def asAttrMap(l: List[PhysicalValue]) = l.map(physical2Attribute).toMap.asJava
 
@@ -68,55 +66,36 @@ class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect, DynamoDBColum
   }
 
   type Where = DynamoWhere
-  type ProjectionT[A] = DynamoProjection[A]
+  type Projection[A] = DynamoProjection[A]
 
-  trait DynamoPhysRelation[T] extends PhysRelation[T] {
-    type CR <: HList
-    type CVL <: HList
-
-    def materializer: ColumnMaterialzer => Option[CVL]
-
-    def fromColumns: CVL => T
-  }
-
-  trait DynamoDBPhysicalRelations[T, CR <: HList, CVL <: HList] extends DepFn2[ColumnMapper[T, CR, CVL], String] {
-    type PKV
-    type SKV
-    type Out = PhysRelation.Aux[T, PKV, SKV]
+  trait DynamoDBPhysicalRelations[T, CR <: HList, CVL <: HList, PKN0, SKN0, PKV, SKV] extends DepFn2[ColumnMapper[T, CR, CVL], String] {
+    type Out = PhysRelationImpl[T, PKV, SKV]
   }
 
   object DynamoDBPhysicalRelations {
 
-    type Aux[T, CR <: HList, CVL <: HList, PKN0, SKN0, PKV0, SKV0] = DynamoDBPhysicalRelations[T, CR, CVL] {
-      type PKV = PKV0
-      type SKV = SKV0
-    }
-
-    implicit def dynamoDBTable[T, CR <: HList, CVL <: HList, PKK, SKKL <: HList, PKV0, SKV0,
+    implicit def dynamoDBTable[T, CR <: HList, CVL <: HList, PKK, SKKL <: HList, PKV, SKV,
     SKCL <: HList, PKC]
     (implicit
      selectPkCol: Selector.Aux[CR, PKK, PKC],
      skSel: SelectAll.Aux[CR, SKKL, SKCL],
-     pkv0: ColumnValues.Aux[PKC, PKV0],
-     skv0: ColumnValues.Aux[SKCL, SKV0],
+     pkValB: PhysicalValues.Aux[PKC, PKV, PhysicalValue],
      skToList: ToList[SKCL, ColumnMapping[T, _]],
-     evCol: PKC =:= ColumnMapping[T, PKV0],
-     pkVals: PhysicalValues.Aux[PKV0, PKC, PhysicalValue],
-     skVals: PhysicalValues.Aux[SKV0, SKCL, List[PhysicalValue]],
-     allVals: PhysicalValues.Aux[CVL, CR, List[PhysicalValue]],
-     differ: ValueDifferences.Aux[CR, CVL, CVL, List[ValueDifference]],
-     materializeAll: MaterializeFromColumns.Aux[CR, CVL],
-     extractVals: ValueExtractor.Aux[CR, CVL, PKK :: SKKL :: HNil, PKV0 :: SKV0 :: HNil]
-    ): Aux[T, CR, CVL, PKK, SKKL, PKV0, SKV0] = new DynamoDBPhysicalRelations[T, CR, CVL] {
-      type PKV = PKV0
-      type SKV = SKV0
+     evCol: PKC =:= ColumnMapping[T, PKV],
+     skValB: PhysicalValues.Aux[SKCL, SKV, List[PhysicalValue]],
+     helperB: ColumnListHelperBuilder[T, CR, CVL, PKV :: SKV :: HNil],
+     extractVals: ValueExtractor.Aux[CR, CVL, PKK :: SKKL :: HNil, PKV :: SKV :: HNil]
+    ) = new DynamoDBPhysicalRelations[T, CR, CVL, PKK, SKKL, PKV, SKV] {
 
-      def apply(colMapper: ColumnMapper[T, CR, CVL], tableName: String): PhysRelation.Aux[T, PKV, SKV]
-      = new AbstractColumnListRelation[T, CR, CVL](colMapper) with DynamoPhysRelation[T] with PhysRelation.Aux[T, PKV, SKV] {
+      def apply(colMapper: ColumnMapper[T, CR, CVL], tableName: String): PhysRelationImpl[T, PKV, SKV]
+      = new PhysRelationImpl[T, PKV, SKV] {
         self =>
-        val pkCol = selectPkCol(columns)
-        val skColL = skSel(columns)
         val toKeys = extractVals()
+        val helper = helperB(colMapper, toKeys)
+        val pkCol = selectPkCol(colMapper.columns)
+        val skColL = skSel(colMapper.columns)
+        val pkVals = pkValB(pkCol)
+        val skVals = skValB(skColL)
 
         def keysAsAttributes(keys: FullKey) =
           keyMatchFromList(keys).asMap
@@ -125,7 +104,7 @@ class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect, DynamoDBColum
           createKeyMatch(keys.head, keys.tail.head)
 
         def createKeyMatch(pk: PartitionKey, sk: SortKey): DynamoWhere
-        = KeyMatch(pkVals(pk, pkCol), skVals(sk, skColL).headOption)
+        = KeyMatch(pkVals(pk), skVals(sk).headOption)
 
         def asValueUpdate(d: ValueDifference) = {
           d.name -> d.withCol((a, b, c) => c.diff(a, b))
@@ -139,7 +118,7 @@ class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect, DynamoDBColum
 
         def whereFullKey(fk: PartitionKey :: SortKey :: HNil): DynamoWhere = keyMatchFromList(fk)
 
-        def wherePK(pk: PartitionKey): DynamoWhere = KeyMatch(pkVals(pk, pkCol), None)
+        def wherePK(pk: PartitionKey): DynamoWhere = KeyMatch(pkVals(pk), None)
 
         def whereRange(pk: PKV, lower: SortKey, upper: SortKey): DynamoWhere = ???
 
@@ -151,24 +130,24 @@ class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect, DynamoDBColum
             m.flatMap(projection.materialize)
           }
 
-          def selectMany[A](projection: DynamoProjection[A], where: DynamoWhere, asc: Boolean): Effect[List[A]] = Reader { s =>
-            val qr = new QueryRequest().withTableName(tableName)
-            val qr2 = where.forRequest(qr).withScanIndexForward(asc)
+          def selectMany[A](projection: DynamoProjection[A], where: DynamoWhere, asc: Option[Boolean]): Effect[List[A]] = Reader { s =>
+            val qr = where.forRequest(new QueryRequest().withTableName(tableName))
+            val qr2 = asc.map(a => qr.withScanIndexForward(a)).getOrElse(qr)
             s.client.query(qr2).getItems.asScala.flatMap(v => projection.materialize(createMaterializer(v))).toList
           }
         }
 
         def createWriteQueries: WriteQueries[Effect, T] = new WriteQueries[Effect, T] {
           def delete(t: T): Effect[Unit] = Reader { s =>
-            s.client.deleteItem(tableName, keysAsAttributes(toKeys(toColumns(t))))
+            s.client.deleteItem(tableName, keysAsAttributes(toKeys(colMapper.toColumns(t))))
           }
 
           def insert(t: T): Effect[Unit] = Reader { s =>
-            s.client.putItem(tableName, asAttrMap(toPhysicalValues(toColumns(t))))
+            s.client.putItem(tableName, asAttrMap(helper.toPhysicalValues(t)))
           }
 
           def update(existing: T, newValue: T): Effect[Boolean] = Reader { s =>
-            changeChecker(existing, newValue).exists {
+            helper.changeChecker(existing, newValue).exists {
               case Xor.Left((k, changes)) =>
                 s.client.updateItem(tableName, keysAsAttributes(k), changes.map(asValueUpdate).toMap.asJava)
                 true
@@ -189,23 +168,23 @@ class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect, DynamoDBColum
           new CreateTableRequest(sortDef.asJava, tableName, (List(keyDef) ++ sortKeyDef).asJava, new ProvisionedThroughput(1L, 1L))
         }
 
-        def selectAll: DynamoProjection[T] = All(materializer, fromColumns)
+        def selectAll: DynamoProjection[T] = All(helper.materializer)
       }
     }
   }
 
   class DynamoDBKeyMapper[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList, PKV, SKV, PKK, SKKL]
-  (implicit relMaker: DynamoDBPhysicalRelations.Aux[T, CR, CVL, PKK, SKKL, PKV, SKV])
-    extends KeyMapper.Aux[T, CR, KL, CVL, PKL, PKK, PKV, SKKL, SKV] {
-    def keysMapped(cm: ColumnMapper[T, CR, CVL])(name: String): PhysRelation.Aux[T, PKV, SKV] = relMaker(cm, name)
+  (implicit relMaker: DynamoDBPhysicalRelations[T, CR, CVL, PKK, SKKL, PKV, SKV])
+    extends KeyMapperImpl[T, CR, KL, CVL, PKL, PKK, PKV, SKKL, SKV] {
+    def keysMapped(cm: ColumnMapper[T, CR, CVL])(name: String): PhysRelationImpl[T, PKV, SKV] = relMaker(cm, name)
   }
 
   implicit def noSortKeyMapper[T, CR <: HList, KL <: HList, CVL <: HList, PKK, PKL <: HList, PKV]
   (implicit
    pkk: IsHCons.Aux[PKL, PKK, HNil],
    ev: IsHCons.Aux[KL, PKK, HNil],
-   relMaker: DynamoDBPhysicalRelations.Aux[T, CR, CVL, PKK, HNil, PKV, HNil]
-  ): KeyMapper.Aux[T, CR, KL, CVL, PKL, PKK, PKV, HNil, HNil] = new DynamoDBKeyMapper
+   relMaker: DynamoDBPhysicalRelations[T, CR, CVL, PKK, HNil, PKV, HNil]
+  ): KeyMapperImpl[T, CR, KL, CVL, PKL, PKK, PKV, HNil, HNil] = new DynamoDBKeyMapper
 
   implicit def dynamoDBRemainingSortKeyMapper[T, CR <: HList, KL <: HList, CVL <: HList,
   PKK, SKK, PKL <: HList, RemainingSK <: HList, PKV, SKV]
@@ -213,16 +192,16 @@ class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect, DynamoDBColum
    pkk: IsHCons.Aux[PKL, PKK, HNil],
    removePK: hlist.Remove.Aux[KL, PKK, (PKK, RemainingSK)],
    skk: IsHCons.Aux[RemainingSK, SKK, HNil],
-   relMaker: DynamoDBPhysicalRelations.Aux[T, CR, CVL, PKK, SKK :: HNil, PKV, SKV]
-  ) : KeyMapper.Aux[T, CR, KL, CVL, PKL, PKK, PKV, SKK :: HNil, SKV] = new DynamoDBKeyMapper
+   relMaker: DynamoDBPhysicalRelations[T, CR, CVL, PKK, SKK :: HNil, PKV, SKV]
+  ) : KeyMapperImpl[T, CR, KL, CVL, PKL, PKK, PKV, SKK :: HNil, SKV] = new DynamoDBKeyMapper
 
   implicit def dynamoDBAutoSortKeyMapper[T, CR <: HList, KL <: HList, CVL <: HList,
   PKL <: HList, PKLT <: HList, PKK, SKK, PKV, SKV]
   (implicit
    pkk: IsHCons.Aux[PKL, PKK, PKLT],
    skk: IsHCons.Aux[PKLT, SKK, HNil],
-   relMaker: DynamoDBPhysicalRelations.Aux[T, CR, CVL, PKK, SKK :: HNil, PKV, SKV]
-  ) : KeyMapper.Aux[T, CR, KL, CVL, PKL, PKK, PKV, SKK :: HNil, SKV] = new DynamoDBKeyMapper
+   relMaker: DynamoDBPhysicalRelations[T, CR, CVL, PKK, SKK :: HNil, PKV, SKV]
+  ) : KeyMapperImpl[T, CR, KL, CVL, PKL, PKK, PKV, SKK :: HNil, SKV] = new DynamoDBKeyMapper
 
 
 }

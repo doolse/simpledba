@@ -12,15 +12,11 @@ import shapeless.tag.@@
 /**
   * Created by jolz on 10/05/16.
   */
-
-
 abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
 
   type DDLStatement
 
-  trait Projection[A]
-
-  type ProjectionT[A] <: Projection[A]
+  type Projection[A]
   type Where
 
   val stdColumnMaker = new MappingCreator[ColumnAtom, ColumnMapping] {
@@ -32,14 +28,14 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
   }
 
   trait ReadQueries {
-    def selectOne[A](projection: ProjectionT[A], where: Where): F[Option[A]]
+    def selectOne[A](projection: Projection[A], where: Where): F[Option[A]]
 
-    def selectMany[A](projection: ProjectionT[A], where: Where, asc: Boolean): F[List[A]]
+    def selectMany[A](projection: Projection[A], where: Where, asc: Option[Boolean]): F[List[A]]
   }
 
   trait Projector[T, Meta, Select] extends DepFn2[PhysRelation[T], Select] {
     type A0
-    type Out = ProjectionT[A0]
+    type Out = Projection[A0]
   }
 
   object Projector {
@@ -48,27 +44,21 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
     }
   }
 
-  //  @implicitNotFound("Failed to map keys ('${PKL}') for ${T}")
   trait KeyMapper[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList] {
     type PartitionKey
     type SortKey
     type PartitionKeyNames
     type SortKeyNames
 
-    def keysMapped(cm: ColumnMapper[T, CR, CVL])(name: String): PhysRelation.Aux[T, PartitionKey, SortKey]
+    def keysMapped(cm: ColumnMapper[T, CR, CVL])(name: String): PhysRelationImpl[T, PartitionKey, SortKey]
   }
 
-  object KeyMapper {
-
-    abstract class Aux[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList, PKN0, PartitionKey0, SKN0, SortKey0]
-      extends KeyMapper[T, CR, KL, CVL, PKL] {
-      type PartitionKey = PartitionKey0
-      type SortKey = SortKey0
-      type PartitionKeyNames = PKN0
-      type SortKeyNames = SKN0
-    }
-
-
+  abstract class KeyMapperImpl[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList, PKN0, PartitionKey0, SKN0, SortKey0]
+    extends KeyMapper[T, CR, KL, CVL, PKL] {
+    type PartitionKey = PartitionKey0
+    type SortKey = SortKey0
+    type PartitionKeyNames = PKN0
+    type SortKeyNames = SKN0
   }
 
   trait PartKeyOnly[T] {
@@ -76,7 +66,7 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
 
     def wherePK(pk: PartitionKey): Where
 
-    def selectAll: ProjectionT[T]
+    def selectAll: Projection[T]
 
     def createReadQueries: ReadQueries
   }
@@ -100,40 +90,50 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
     def whereRange(pk: PartitionKey, lower: SortKey, upper: SortKey): Where
   }
 
-  object PhysRelation {
-
-    trait Aux[T, PartKey0, SortKey0] extends PhysRelation[T] {
-      type PartitionKey = PartKey0
-      type SortKey = SortKey0
-    }
-
+  trait PhysRelationImpl[T, PartKey0, SortKey0] extends PhysRelation[T] {
+    type PartitionKey = PartKey0
+    type SortKey = SortKey0
   }
 
-  abstract class AbstractColumnListRelation[T, CR0 <: HList, CVL0 <: HList]
-  (mapper: ColumnMapper[T, CR0, CVL0])
-  (implicit allVals: PhysicalValues.Aux[CVL0, CR0, List[PhysicalValue]],
-   differ: ValueDifferences.Aux[CR0, CVL0, CVL0, List[ValueDifference]],
-   materializeAll: MaterializeFromColumns.Aux[CR0, CVL0]
-  ) {
-    type CR = CR0
-    type CVL = CVL0
-    type FullKey
-    val columns: CR = mapper.columns
-    val materializer: ColumnMaterialzer => Option[CVL0] = materializeAll(columns)
-    val toColumns: T => CVL = mapper.toColumns
-    val fromColumns: CVL => T = mapper.fromColumns
-    val toPhysicalValues: CVL0 => List[PhysicalValue] = allVals(_, columns)
+  trait ColumnListHelper[T, CVL <: HList, FullKey] {
+    def materializer: ColumnMaterialzer => Option[T]
 
-    def toKeys: CVL0 => FullKey
+    def toPhysicalValues: T => List[PhysicalValue]
 
-    val changeChecker: (T, T) => Option[Xor[(FullKey, List[ValueDifference]), (FullKey, FullKey, List[PhysicalValue])]] = (existing, newValue) => {
-      if (existing == newValue) None
-      else Some {
-        val exCols = toColumns(existing)
-        val newCols = toColumns(newValue)
-        val oldKey = toKeys(exCols)
-        val newKey = toKeys(newCols)
-        if (oldKey == newKey) Xor.left(oldKey, differ(columns, (exCols, newCols))) else Xor.right(oldKey, newKey, toPhysicalValues(newCols))
+    def changeChecker: (T, T) => Option[Xor[(FullKey, List[ValueDifference]), (FullKey, FullKey, List[PhysicalValue])]]
+  }
+
+  trait ColumnListHelperBuilder[T, CR <: HList, CVL <: HList, FullKey] extends DepFn2[ColumnMapper[T, CR, CVL], CVL => FullKey] {
+    type Out = ColumnListHelper[T, CVL, FullKey]
+  }
+
+  object ColumnListHelperBuilder {
+    implicit def helper[T, CR <: HList, CVL <: HList, FullKey]
+    (implicit allVals: PhysicalValues.Aux[CR, CVL, List[PhysicalValue]],
+     differ: ValueDifferences.Aux[CR, CVL, CVL, List[ValueDifference]],
+     materializeAll: MaterializeFromColumns.Aux[CR, CVL]
+    ) = new ColumnListHelperBuilder[T, CR, CVL, FullKey] {
+      def apply(mapper: ColumnMapper[T, CR, CVL], u: (CVL) => FullKey): ColumnListHelper[T, CVL, FullKey]
+      = new ColumnListHelper[T, CVL, FullKey] {
+        val columns = mapper.columns
+        val toColumns = mapper.toColumns
+        val fromColumns = mapper.fromColumns
+        val materializer = materializeAll(columns) andThen (_.map(fromColumns))
+        val colsToValues = allVals(columns)
+        val toPhysicalValues = colsToValues compose toColumns
+
+        val toKeys = u
+
+        val changeChecker: (T, T) => Option[Xor[(FullKey, List[ValueDifference]), (FullKey, FullKey, List[PhysicalValue])]] = (existing, newValue) => {
+          if (existing == newValue) None
+          else Some {
+            val exCols = toColumns(existing)
+            val newCols = toColumns(newValue)
+            val oldKey = toKeys(exCols)
+            val newKey = toKeys(newCols)
+            if (oldKey == newKey) Xor.left(oldKey, differ(columns, (exCols, newCols))) else Xor.right(oldKey, newKey, colsToValues(newCols))
+          }
+        }
       }
     }
   }
@@ -206,7 +206,7 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
     (implicit
      zipWithIndex: ZipValuesWithIndex.Aux[CR, CRI],
      selectCol: Selector.Aux[CRI, K, Out],
-     ev: (_, N) =:= Out,
+     ev: Out <:< (_, N),
      selectIndex: At.Aux[CVL, N, V]
     ): Aux[CR, CVL, K, V]
     = {
@@ -275,41 +275,41 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
     }
   }
 
-  trait PhysicalValues[Value, Column] extends DepFn2[Value, Column]
+  trait PhysicalValues[Columns] extends DepFn1[Columns] {
+    type Value
+    type OutPhys
+    type Out = Value => OutPhys
+  }
 
   trait LowPriorityPhysicalValues {
     implicit def singleValueAsList[A, CM]
-    (implicit mapper: PhysicalValues.Aux[A, CM, PhysicalValue]): PhysicalValues.Aux[A, CM, List[PhysicalValue]] = new PhysicalValues[A, CM] {
-      type Out = List[PhysicalValue]
-
-      def apply(t: A, u: CM) = List(mapper(t, u))
+    (implicit mapper: PhysicalValues.Aux[CM, A, PhysicalValue]) = new PhysicalValues.Aux[CM, A, List[PhysicalValue]] {
+      def apply(u: CM) = v => List(mapper(u).apply(v))
     }
   }
 
   object PhysicalValues extends LowPriorityPhysicalValues {
-    type Aux[Value, Column, Out0] = PhysicalValues[Value, Column] {type Out = Out0}
+    trait Aux[Column, Value0, Out0] extends PhysicalValues[Column] {type Value = Value0; type OutPhys = Out0}
 
     object physicalValue extends Poly2 {
       implicit def mapToPhysical[A, S] = at[A, ColumnMapping[S, A]] { (v, mapping) =>
         PhysicalValue(mapping.name, v, mapping.atom)
       }
 
-      implicit def fieldValue[A, K, V](implicit c: Case.Aux[A, V, PhysicalValue]) = at[A, FieldType[K, V]] { (v, fv) => c(HList(v, fv)): PhysicalValue }
+      implicit def fieldValue[A, K, V](implicit c: Case.Aux[A, V, PhysicalValue])
+      = at[A, FieldType[K, V]] { (v, fv) => c(HList(v, fv)): PhysicalValue }
     }
 
     implicit def convertToPhysical[CVL <: HList, CR <: HList, PV <: HList]
-    (implicit zipWith: ZipWith.Aux[CVL, CR, physicalValue.type, PV],
-     toList: ToList[PV, PhysicalValue]): Aux[CVL, CR, List[PhysicalValue]] = new PhysicalValues[CVL, CR] {
-      type Out = List[PhysicalValue]
+    (implicit cvl: ColumnValues.Aux[CR, CVL], zipWith: ZipWith.Aux[CVL, CR, physicalValue.type, PV],
+     toList: ToList[PV, PhysicalValue]) = new Aux[CR, CVL, List[PhysicalValue]] {
 
-      def apply(t: CVL, u: CR): List[PhysicalValue] = toList(zipWith(t, u))
+      def apply(u: CR) = v => toList(zipWith(v, u))
     }
 
     implicit def convertSingleValue[A, CM]
-    (implicit mapper: physicalValue.Case.Aux[A, CM, PhysicalValue]): Aux[A, CM, PhysicalValue] = new PhysicalValues[A, CM] {
-      type Out = PhysicalValue
-
-      def apply(t: A, u: CM) = mapper(t :: u :: HNil)
+    (implicit mapper: physicalValue.Case.Aux[A, CM, PhysicalValue]) = new Aux[CM, A, PhysicalValue] {
+      def apply(u: CM) = t => mapper(t :: u :: HNil)
     }
   }
 
@@ -372,7 +372,7 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
     implicit def fieldMappingToName[K, S, A] = at[FieldType[K, ColumnMapping[S, A]]](_.name)
   }
 
-  case class PhysicalBuilder[T, PKK, PKV, SKK, SKV](baseName: String, createPhysical: String => PhysRelation.Aux[T, PKV, SKV])
+  case class PhysicalBuilder[T, PKK, PKV, SKK, SKV](baseName: String, createPhysical: String => PhysRelationImpl[T, PKV, SKV])
 
   case class ReadQueryBuilder[T, PKK, PKV, SKK, SKV, Key, RelRequired, Out]
   (physical: PhysicalBuilder[T, PKK, PKV, SKK, SKV],
@@ -447,7 +447,7 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
        fromKeyMap: Selector.Aux[P2F, Key, FullKey],
        ev: LacksKey[InKeyMap, FullKey], ev2: LacksKey[InTypeMap, T],
        selectBuilder: Selector.Aux[F2B, FullKey, PhysicalBuilder[T, PKK, PKV, SKK, SKV]],
-       addKey: Updater[InKeyMap, FieldType[(T, PKK, SKK), PhysRelation.Aux[T, PKV, SKV]]],
+       addKey: Updater[InKeyMap, FieldType[(T, PKK, SKK), PhysRelationImpl[T, PKV, SKV]]],
        addNewList: Updater[InTypeMap, FieldType[T, PhysRelation[T] :: HNil]]
       )
       = at[(ReadQueryBuilder[T, PKK, PKV, SKK, SKV, Key, InRel, Out], MergedRelations[F2B, P2F]), CreatedRelations[InKeyMap, InTypeMap]]({
@@ -463,17 +463,18 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
        fromKeyMap: Selector.Aux[P2F, Key, FullKey],
        selectBuilder: Selector.Aux[F2B, FullKey, PhysicalBuilder[T, PKK, PKV, SKK, SKV]],
        selectExisting: Selector.Aux[InTypeMap, T, Already],
-       addKey: Updater[InKeyMap, FieldType[(T, PKK, SKK), PhysRelation.Aux[T, PKV, SKV]]],
-       update: Updater[InTypeMap, FieldType[T, PhysRelation[T] :: Already]],
+       addKey: Updater[InKeyMap, FieldType[(T, PKK, SKK), PhysRelationImpl[T, PKV, SKV]]],
+       update: Modifier[InTypeMap, T, Already, PhysRelation[T] :: Already],
        len: Length.Aux[Already, Len],
        toInt: ToInt[Len],
        ev: LacksKey[InKeyMap, FullKey]
       )
       = at[(ReadQueryBuilder[T, PKK, PKV, SKK, SKV, Key, InRel, Out], MergedRelations[F2B, P2F]), CreatedRelations[InKeyMap, InTypeMap]]({
         case (rqb, cr) =>
+          val already = selectExisting(cr.typeRel)
           val b = selectBuilder(rqb._2.full2Builder)
           val pt = b.createPhysical(s"${b.baseName}_${toInt() + 1}")
-          CreatedRelations(addKey(cr.relMap, field[(T, PKK, SKK)](pt)), update(cr.typeRel, field[T](pt :: selectExisting(cr.typeRel))))
+          CreatedRelations(addKey(cr.relMap, field[(T, PKK, SKK)](pt)), update(cr.typeRel, pt :: _))
       })
     }
 
@@ -506,7 +507,7 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
      ev: MergedRelations[F2B, P2F] =:= MergeOut,
      zipWithMerged: ZipConst.Aux[MergeOut, QB, WithMerged],
      create: RightFolder.Aux[WithMerged, CreatedRelations[HNil, HNil], createRelations.type, CROUT],
-     ev2: CROUT <:<  CreatedRelations[RelationMap, TypeRelations],
+     ev2: CROUT <:< CreatedRelations[RelationMap, TypeRelations],
      zipWithCreated: ZipConst.Aux[CreatedRelations[RelationMap, TypeRelations] @@ P2F, QB, WithCreated],
      allRelations: Values.Aux[RelationMap, AllRelations],
      toPhysList: ToList[AllRelations, PhysRelation[_]],
@@ -549,14 +550,14 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
     implicit def convertPartialKey[R <: HList, K, Keys <: HList, A, CR <: HList, CVL <: HList, KL <: HList, SR, PKK, PKV, SKK, SKV]
     (implicit selRel: Selector.Aux[R, K, SR],
      ev: SR <:< RelationDef[A, CR, KL, CVL],
-     keyMapper: KeyMapper.Aux[A, CR, KL, CVL, Keys, PKK, PKV, SKK, SKV]
+     keyMapper: KeyMapperImpl[A, CR, KL, CVL, Keys, PKK, PKV, SKK, SKV]
     )
     = at[R, PartialKey[K, Keys]]((rels, q) => {
       val rb = ev(selRel(rels))
       ReadQueryBuilder[A, PKK, PKV, SKK, SKV, (A, PKK),
         PartKeyOnly.Aux[A, PKV],
         MultiQuery[F, A, PKV]](PhysicalBuilder[A, PKK, PKV, SKK, SKV](rb.baseName, keyMapper.keysMapped(rb.mapper)),
-        table => MultiQuery(true, { (pk, asc) =>
+        table => MultiQuery(None, { (pk, asc) =>
           val rq = table.createReadQueries
           rq.selectMany(table.selectAll, table.wherePK(pk), asc)
         }))
@@ -565,10 +566,10 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
     implicit def convertFullKey[R <: HList, K, A, PKK, PKV, SKK, SKV, SR, CR <: HList, KL <: HList, CVL <: HList]
     (implicit selRel: Selector.Aux[R, K, SR],
      ev: SR <:< RelationDef[A, CR, KL, CVL],
-     keyMapper: KeyMapper.Aux[A, CR, KL, CVL, KL, PKK, PKV, SKK, SKV]) = at[R, FullKey[K]]((rels, q) => {
+     keyMapper: KeyMapperImpl[A, CR, KL, CVL, KL, PKK, PKV, SKK, SKV]) = at[R, FullKey[K]]((rels, q) => {
       val rb = ev(selRel(rels))
       ReadQueryBuilder[A, PKK, PKV, SKK, SKV, (A, PKK, SKK),
-        PhysRelation.Aux[A, PKV, SKV],
+        PhysRelationImpl[A, PKV, SKV],
         SingleQuery[F, A, PKV :: SKV :: HNil]](PhysicalBuilder[A, PKK, PKV, SKK, SKV](rb.baseName, keyMapper.keysMapped(rb.mapper)),
         table => SingleQuery {
           (fk: PKV :: SKV :: HNil) =>

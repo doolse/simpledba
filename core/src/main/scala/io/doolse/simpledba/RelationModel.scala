@@ -32,10 +32,12 @@ case class SingleQuery[F[_], T, KeyValues](query: KeyValues => F[Option[T]]) {
   def as[K](implicit vc: ValueConvert[K, KeyValues]) = copy[F, T, K](query = query compose vc)
 }
 
-case class MultiQuery[F[_], T, KeyValues](ascending: Boolean, queryWithOrder: (KeyValues, Boolean) => F[List[T]]) {
-  def query(k: KeyValues) = queryWithOrder(k, ascending)
+case class MultiQuery[F[_], T, KeyValues](ascending: Option[Boolean], _q: (KeyValues, Option[Boolean]) => F[List[T]]) {
+  def query(k: KeyValues) = _q(k, ascending)
 
-  def as[K](implicit vc: ValueConvert[K, KeyValues]) = copy[F, T, K](queryWithOrder = (k, asc) => queryWithOrder(vc(k), asc))
+  def queryWithOrder(k: KeyValues, asc: Boolean) = _q(k, Some(asc))
+
+  def as[K](implicit vc: ValueConvert[K, KeyValues]) = copy[F, T, K](_q = (k, asc) => _q(vc(k), asc))
 }
 
 trait WriteQueries[F[_], T] {

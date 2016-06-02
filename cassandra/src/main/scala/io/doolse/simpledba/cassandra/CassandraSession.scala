@@ -51,4 +51,9 @@ object CassandraSession {
 
 }
 
-case class SessionConfig(session: Session, logger: (() ⇒ String) ⇒ Unit = _ => ())
+case class SessionConfig(session: Session, logger: (() ⇒ String) ⇒ Unit = _ => ()) {
+  def executeLater(stmt: Statement): Task[ResultSet] = {
+    logger(() => stmt.toString())
+    CassandraSession.executeLater(stmt, session)
+  }
+}
