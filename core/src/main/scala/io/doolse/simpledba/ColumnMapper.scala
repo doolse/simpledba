@@ -80,10 +80,16 @@ trait ColumnMapperBuilderLP {
   VCM, C0 <: HList, CV0 <: HList, CZ <: HList, COut <: HList]
   (implicit
    selectMapping: Selector.Aux[E, V, VCM],
+   cname: Witness.Aux[K],
    ev: VCM <:< CustomAtom[V, A],
    atom: CA[A]
   ) = new ColumnMapperBuilder.Aux[FieldType[K, V], CA, CM, E, FieldType[K, CM[FieldType[K, V], V]] :: HNil, V :: HNil] {
-    def apply(t: ColumnMapperContext[CA, CM, E]) = ???
+    def apply(t: ColumnMapperContext[CA, CM, E]) = {
+      val ca = ev(selectMapping(t.embeddedMappings))
+      new ColumnMapper(field[K](t.ops.makeMapping(cname.value.name, t.ops.wrapAtom(atom, ca.to, ca.from), (f:FieldType[K, V]) => f: V)) :: HNil,
+        cv => field[K](cv.head),
+        fld => (fld: V) :: HNil)
+    }
   }
 }
 

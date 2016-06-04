@@ -5,8 +5,9 @@ name := "simpledba"
 
 val commonSettings = Seq(
   organization := "io.doolse",
-  version := "0.1-SNAPSHOT",
+  version := "0.1.0-SNAPSHOT",
   scalaVersion := "2.11.8",
+  scalacOptions += "-Xlog-implicits",
   resolvers += Resolver.sonatypeRepo("snapshots")
 )
 val subSettings = Seq(
@@ -16,8 +17,9 @@ val subSettings = Seq(
 
 lazy val dynamodb = project.settings(subSettings: _*).dependsOn(core)
 lazy val cassandra = project.settings(subSettings: _*).dependsOn(core)
+lazy val circe = project.settings(subSettings: _*).dependsOn(core)
 lazy val core = project.settings(subSettings: _*)
 
-lazy val parent = (project in file(".")).aggregate(core, cassandra, dynamodb)
+lazy val parent = (project in file(".")).aggregate(core, cassandra, dynamodb, circe)
 
 commonSettings

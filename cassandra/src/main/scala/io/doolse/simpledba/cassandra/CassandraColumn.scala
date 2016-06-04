@@ -17,6 +17,14 @@ sealed trait CassandraColumn[A] {
   }
 }
 
+case class WrappedColumn[S, A](wrapped: CassandraColumn[A], to: S => A, from: A => S) extends CassandraColumn[S] {
+  def byName(r: Row, n: String): Option[S] = wrapped.byName(r, n).map(from)
+
+  val binding: (S) => AnyRef = s => wrapped.binding(to(s))
+
+  def dataType: DataType = wrapped.dataType
+}
+
 case class CassandraCodecColumn[A0, A](dataType: DataType, tt: TypeCodec[A0], from: A0 => A, binding: A => AnyRef) extends CassandraColumn[A] {
   def byName(r: Row, n: String): Option[A] = Option(r.get(n, tt)).map(from)
 }

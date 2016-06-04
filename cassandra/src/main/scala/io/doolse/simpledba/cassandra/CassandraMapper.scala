@@ -122,7 +122,7 @@ class CassandraMapper extends RelationMapper[Effect, CassandraColumn] {
           val pkNameSet = pkNames.toSet
           val skNS = skNames.toSet
           allColumns.foreach { cm =>
-            val name = cm.name
+            val name = CassandraSession.escapeReserved(cm.name)
             val dt = cm.atom.dataType
             if (pkNameSet(name)) create.addPartitionKey(name, dt)
             else if (skNS(name)) create.addClusteringColumn(name, dt)
@@ -183,4 +183,5 @@ class CassandraMapper extends RelationMapper[Effect, CassandraColumn] {
     def keysMapped(cm: ColumnMapper[T, CR, CVL])(name: String): PhysRelationImpl[T, PKV, SKV] = tableCreator(cm, name)
   }
 
+  def doWrapAtom[S, A](atom: CassandraColumn[A], to: (S) => A, from: (A) => S): CassandraColumn[S] = WrappedColumn[S, A](atom, to, from)
 }

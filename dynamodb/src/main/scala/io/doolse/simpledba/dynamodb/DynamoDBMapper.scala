@@ -25,7 +25,6 @@ object DynamoDBMapper {
 
 class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect, DynamoDBColumn] {
 
-  type ColumnAtom[A] = DynamoDBColumn[A]
   type DDLStatement = CreateTableRequest
 
   sealed trait DynamoProjection[T] {
@@ -111,7 +110,7 @@ class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect, DynamoDBColum
         }
 
         def createMaterializer(m: java.util.Map[String, AttributeValue]): ColumnMaterialzer = new ColumnMaterialzer {
-          def apply[A](name: String, atom: ColumnAtom[A]): Option[A] = {
+          def apply[A](name: String, atom: DynamoDBColumn[A]): Option[A] = {
             Option(m.get(name)).map(av => atom.from(av))
           }
         }
@@ -203,5 +202,8 @@ class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect, DynamoDBColum
    relMaker: DynamoDBPhysicalRelations[T, CR, CVL, PKK, SKK :: HNil, PKV, SKV]
   ) : KeyMapperImpl[T, CR, KL, CVL, PKL, PKK, PKV, SKK :: HNil, SKV] = new DynamoDBKeyMapper
 
-
+  def doWrapAtom[S, A](atom: DynamoDBColumn[A], to: (S) => A, from: (A) => S): DynamoDBColumn[S] = DynamoDBColumn[S](
+    atom.from andThen from,
+    atom.to compose to,
+    atom.attributeType, (ex,nv) => atom.diff(to(ex), to(nv)))
 }

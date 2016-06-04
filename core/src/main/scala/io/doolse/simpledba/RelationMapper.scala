@@ -29,8 +29,10 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
       def apply[A](cm: ColumnMapping[S, A]): ColumnMapping[S2, A] = cm.copy[S2, A](get = cm.get compose f)
     }
 
-    def wrapAtom[S, A](atom: ColumnAtom[A], to: (S) => A, from: (A) => S): ColumnAtom[S] = ???
+    def wrapAtom[S, A](atom: ColumnAtom[A], to: (S) => A, from: (A) => S): ColumnAtom[S] = doWrapAtom(atom, to, from)
   }
+
+  def doWrapAtom[S, A](atom: ColumnAtom[A], to: (S) => A, from: (A) => S): ColumnAtom[S]
 
   trait ReadQueries {
     def selectOne[A](projection: Projection[A], where: Where): F[Option[A]]
