@@ -23,7 +23,7 @@ object TestDynamo extends App {
 
   val built = mapper.buildModel(TestCreator.model)
 
-  val queries = built.as[TestCreator.Queries]()
+  val queries = built.queries
   val creation = built.ddl.value
 
   val existingTables = client.listTables().getTableNames.asScala.toSet

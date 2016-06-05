@@ -1,6 +1,5 @@
 package io.doolse.simpledba
 
-import io.doolse.simpledba.ValueConvert.QuestionMarks
 import shapeless.ops.product.ToHList
 import shapeless._
 import shapeless.tag.@@
@@ -12,17 +11,12 @@ trait ValueConvertLP {
     def apply(v1: VH :: VT) = hvc(v1.head) :: ct(v1.tail)
   }
 
-  implicit def withTrailingHNil[V, H, T <: HList](implicit vc: ValueConvert[V, H], vn: ValueConvert[HNil, T], nev: V =:!= QuestionMarks.type) = new ValueConvert[V, H :: T] {
-    def apply(v1: V) = vc(v1) :: vn(HNil)
-  }
 }
 
 object ValueConvert extends ValueConvertLP {
 
-  object QuestionMarks
-
-  implicit def forDebug[V] = new ValueConvert[QuestionMarks.type, V] {
-    def apply(v1: QuestionMarks.type): V = sys.error("Just for debugging")
+  implicit def withTrailingHNil[V, H, T <: HList](implicit vc: ValueConvert[V, H], vn: ValueConvert[HNil, T]) = new ValueConvert[V, H :: T] {
+    def apply(v1: V) = vc(v1) :: vn(HNil)
   }
 
   implicit def reflValue[V] = new ValueConvert[V, V] {

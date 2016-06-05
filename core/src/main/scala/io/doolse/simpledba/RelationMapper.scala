@@ -2,7 +2,6 @@ package io.doolse.simpledba
 
 import cats.data.Xor
 import cats.{Eval, Monad}
-import io.doolse.simpledba.ValueConvert.QuestionMarks
 import shapeless._
 import shapeless.labelled._
 import shapeless.ops.hlist.{At, Comapped, ConstMapper, Length, Mapper, Reverse, RightFolder, ToList, Zip, ZipConst, ZipWith}
@@ -399,14 +398,16 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
     def apply(v1: MultiQuery[F, T, K1]) = v1.as[K2]
   }
 
-  case class BuiltQueries[Q](q: Q, ddl: Eval[List[DDLStatement]]) {
+  trait BuiltQueries[Q] {
+    def queries: Q
+    def ddl: Eval[List[DDLStatement]]
+  }
 
-    def as[NQ[_[_]]] = new AsPartial[NQ]
-
-    class AsPartial[NQ[_[_]]] {
-      def apply[Repr]()(implicit gen: Generic.Aux[NQ[F], Repr], findAs: ValueConvert[Q, Repr]): NQ[F] = gen.from(findAs(q))
+  object BuiltQueries {
+    def apply[Q](q: Q, _ddl: Eval[List[DDLStatement]]) = new BuiltQueries[Q] {
+      def queries = q
+      def ddl = _ddl
     }
-
   }
 
   trait QueriesBuilder[Queries] extends DepFn1[Queries] {
@@ -597,8 +598,8 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
   }
 
   def buildModel[E <: HList, R <: HList, Q <: HList, RKL <: HList, EO <: HList, CTXO,
-  ZCO <: HList, V <: HList, CRD <: HList, RDQ <: HList, QL <: HList, QOut, ER <: HList]
-  (rm: RelationModel[E, R, Q])
+  ZCO <: HList, V <: HList, CRD <: HList, RDQ <: HList, QL <: HList, QOut, ER <: HList, As[_[_]], AsRepr]
+  (rm: RelationModel[E, R, Q, As])
   (implicit
    rev: Reverse.Aux[E, ER], // LeftFolder caused diverging implicits
    rf: RightFolder.Aux[ER, ColumnMapperContext[ColumnAtom, ColumnMapping, HNil], embedAll.type, CTXO],
@@ -606,21 +607,27 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
    mapRelations: ZipWith.Aux[ZCO, R, lookupAll.type, CRD],
    relDefs: ConstMapper.Aux[CRD, Q, RDQ],
    mapQueries: ZipWith.Aux[RDQ, Q, convertQueries.type, QL],
-   queryBuilder: QueriesBuilder.Aux[QL, QOut]
-  ): BuiltQueries[QOut] = {
+   queryBuilder: QueriesBuilder.Aux[QL, QOut],
+   genAs: Generic.Aux[As[F], AsRepr],
+   convert: ValueConvert[QOut, AsRepr]
+  ): BuiltQueries[As[F]] = {
     val relationRecord = mapRelations(zipConst(rf(rev(rm.embedList), ColumnMapperContext(stdColumnMaker, HNil)), rm.relationRecord), rm.relationRecord)
     val queryList = mapQueries(relDefs(relationRecord, rm.queryList), rm.queryList)
-    queryBuilder(queryList)
+    val unconverted = queryBuilder(queryList)
+    BuiltQueries(genAs.from(convert(unconverted.queries)), unconverted.ddl)
   }
 
-  def verifyModel[E <: HList, R <: HList, Q <: HList, C2]
-  (rm: RelationModel[E, R, Q], p: String => Unit = Console.err.println)
+  def verifyModel[E <: HList, R <: HList, Q <: HList, C2, As[_[_]]]
+  (rm: RelationModel[E, R, Q, As], p: String => Unit = Console.err.println)
   (implicit
    vEmbed: ColumnMapperVerifier.Aux[VerifierContext[ColumnAtom, HNil], E, C2],
    vRels: ColumnMapperVerifier[C2, R])
-  : BuiltQueries[QuestionMarks.type] = {
+  : BuiltQueries[As[F]] = {
     (vEmbed.errors ++ vRels.errors).foreach(p)
-    BuiltQueries[QuestionMarks.type](QuestionMarks, Eval.now(List.empty))
+    new BuiltQueries[As[F]] {
+      def queries: As[F] = sys.error("Only for verification")
+      def ddl: Eval[List[DDLStatement]] = sys.error("Only for verification")
+    }
   }
 }
 

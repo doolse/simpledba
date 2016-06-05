@@ -8,15 +8,20 @@ import shapeless._
   * Created by jolz on 21/05/16.
   */
 
-case class RelationModel[Embedded <: HList, Relations <: HList, Queries <: HList](embedList: Embedded, relationRecord: Relations, queryList: Queries)
+case class RelationModel[Embedded <: HList, Relations <: HList, Queries <: HList, As[_[_]]](embedList: Embedded, relationRecord: Relations, queryList: Queries) {
+  def as[As0[_[_]]] = this.asInstanceOf[RelationModel[Embedded, Relations, Queries, As0]]
+}
 
 object RelationModel {
-  def apply[R <: HList, Q <: HList](relations: R, queries: Q) = new RelationModel[HNil, R, Q](HNil : HNil, relations, queries)
+  def apply[R <: HList, Q <: HList](relations: R, queries: Q) = new RelationModel[HNil, R, Q, Nothing](HNil : HNil, relations, queries)
 }
 
 class Embed[A]
 class CustomAtom[S, A](val to: S => A, val from: A => S)
-class Relation[A, Keys <: HList]
+class Relation[A, Keys <: HList] extends SingletonProductArgs {
+  def key(w: Witness) = this.asInstanceOf[Relation[A, w.T :: Keys]]
+  def keysProduct[L <: HList](keys: L)(implicit p: Prepend[L, Keys]) = this.asInstanceOf[Relation[A, p.Out]]
+}
 
 class FullKey[K]
 class PartialKey[K, Keys <: HList]

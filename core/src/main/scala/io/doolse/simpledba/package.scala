@@ -13,13 +13,13 @@ package object simpledba {
   def atom[S, A](gen: Generic[S])(implicit ev: gen.Repr <:< (A :: HNil), ev2: (A :: HNil) <:< gen.Repr)
   = new CustomAtom[S, A](s => ev(gen.to(s)).head, a => gen.from(a :: HNil))
 
-  def relation[A](w: Witness) = new Relation[A, w.T :: HNil]
-
-  def relation[A](w1: Witness, w2: Witness) = new Relation[A, w1.T :: w2.T :: HNil]
+  def relation[A] = new Relation[A, HNil]
 
   def queryFullKey(w: Witness) = new FullKey[w.T]
 
   def queryPartialKey(w: Witness, k: Witness) = new PartialKey[w.T, k.T :: HNil]
+
+  def queryPartialKeys(w: Witness, k1: Witness, k2: Witness) = new PartialKey[w.T, k1.T :: k2.T :: HNil]
 
   def queryWrites(w: Witness) = new RelationWriter[w.T]
 

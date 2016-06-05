@@ -9,10 +9,11 @@ import io.doolse.simpledba.cassandra._
   */
 object TestCassandra extends App {
   val mapper = new CassandraMapper()
+  import mapper._
 
   //val built = mapper.verifyModel(RealisticModel.model, Console.err.println)
-  val built = mapper.verifyModel(TestCreator.model)
-  val queries = built.as[TestCreator.Queries]()
+  val built = mapper.buildModel(TestCreator.model)
+  val queries = built.queries
 
   val session = CassandraSession.simpleSession("localhost", Some("eps"))
   val creation = built.ddl.value
