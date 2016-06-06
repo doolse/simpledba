@@ -14,10 +14,11 @@ import scala.reflect.ClassTag
 /**
   * Created by jolz on 10/05/16.
   */
-abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
+abstract class RelationMapper[F[_] : Monad] {
 
   type DDLStatement
 
+  type ColumnAtom[A]
   type Projection[A]
   type Where
 
@@ -50,6 +51,8 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
     }
   }
 
+  type KeyMapperT
+
   trait KeyMapper[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList] {
     type PartitionKey
     type SortKey
@@ -59,12 +62,14 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
     def keysMapped(cm: ColumnMapper[T, CR, CVL])(name: String): PhysRelationImpl[T, PartitionKey, SortKey]
   }
 
-  abstract class KeyMapperImpl[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList, PKN0, PartitionKey0, SKN0, SortKey0]
-    extends KeyMapper[T, CR, KL, CVL, PKL] {
-    type PartitionKey = PartitionKey0
-    type SortKey = SortKey0
-    type PartitionKeyNames = PKN0
-    type SortKeyNames = SKN0
+  object KeyMapper {
+    type Aux[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList, PKN0, PartitionKey0, SKN0, SortKey0]
+    = KeyMapperT with KeyMapper[T, CR, KL, CVL, PKL] {
+      type PartitionKey = PartitionKey0
+      type SortKey = SortKey0
+      type PartitionKeyNames = PKN0
+      type SortKeyNames = SKN0
+    }
   }
 
   trait PartKeyOnly[T] {
@@ -390,14 +395,6 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
     }
   }
 
-  implicit def singleQueryConvert[T, K1, K2](implicit vc: ValueConvert[K2, K1]) = new ValueConvert[SingleQuery[F, T, K1], SingleQuery[F, T, K2]] {
-    def apply(v1: SingleQuery[F, T, K1]) = v1.as[K2]
-  }
-
-  implicit def multiQueryConvert[T, K1, K2](implicit vc: ValueConvert[K2, K1]) = new ValueConvert[MultiQuery[F, T, K1], MultiQuery[F, T, K2]] {
-    def apply(v1: MultiQuery[F, T, K1]) = v1.as[K2]
-  }
-
   trait BuiltQueries[Q] {
     def queries: Q
     def ddl: Eval[List[DDLStatement]]
@@ -564,7 +561,7 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
     implicit def convertPartialKey[R <: HList, K, Keys <: HList, A, CR <: HList, CVL <: HList, KL <: HList, SR, PKK, PKV, SKK, SKV]
     (implicit selRel: Selector.Aux[R, K, SR],
      ev: SR <:< RelationDef[A, CR, KL, CVL],
-     keyMapper: KeyMapperImpl[A, CR, KL, CVL, Keys, PKK, PKV, SKK, SKV]
+     keyMapper: KeyMapper.Aux[A, CR, KL, CVL, Keys, PKK, PKV, SKK, SKV]
     )
     = at[R, PartialKey[K, Keys]]((rels, q) => {
       val rb = ev(selRel(rels))
@@ -580,7 +577,7 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
     implicit def convertFullKey[R <: HList, K, A, PKK, PKV, SKK, SKV, SR, CR <: HList, KL <: HList, CVL <: HList]
     (implicit selRel: Selector.Aux[R, K, SR],
      ev: SR <:< RelationDef[A, CR, KL, CVL],
-     keyMapper: KeyMapperImpl[A, CR, KL, CVL, KL, PKK, PKV, SKK, SKV]) = at[R, FullKey[K]]((rels, q) => {
+     keyMapper: KeyMapper.Aux[A, CR, KL, CVL, KL, PKK, PKV, SKK, SKV]) = at[R, FullKey[K]]((rels, q) => {
       val rb = ev(selRel(rels))
       ReadQueryBuilder[A, PKK, PKV, SKK, SKV, (A, PKK, SKK),
         PhysRelationImpl[A, PKV, SKV],
@@ -597,8 +594,25 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
                                                      ev: SR <:< RelationDef[A, _, _, _]) = at[R, RelationWriter[K]]((rels, q) => new WriteQueryBuilder[A])
   }
 
+  trait queriesAsLP extends Poly1 {
+    implicit def sq[FA, FB, T, A, B]
+    (implicit ev: FA <:< SingleQuery[F, T, A], ev2: FB <:< SingleQuery[F, T, B],
+     conv: ValueConvert[B, A]) = at[FA @@ FB] {
+      ev(_).as[B]
+    }
+    implicit def mq[FA, FB, T, A, B]
+    (implicit ev: FA <:< MultiQuery[F, T, A], ev2: FB <:< MultiQuery[F, T, B],
+     conv: ValueConvert[B, A]) = at[FA @@ FB] {
+      ev(_).as[B]
+    }
+  }
+
+  object queriesAs extends queriesAsLP {
+    implicit def same[A, B](implicit ev: A <:< B) = at[A @@ B](a => a : B)
+  }
+
   def buildModel[E <: HList, R <: HList, Q <: HList, RKL <: HList, EO <: HList, CTXO,
-  ZCO <: HList, V <: HList, CRD <: HList, RDQ <: HList, QL <: HList, QOut, ER <: HList, As[_[_]], AsRepr]
+  ZCO <: HList, V <: HList, CRD <: HList, RDQ <: HList, QL <: HList, QOut <: HList, ER <: HList, As[_[_]], AsRepr <: HList, QOutTag <: HList]
   (rm: RelationModel[E, R, Q, As])
   (implicit
    rev: Reverse.Aux[E, ER], // LeftFolder caused diverging implicits
@@ -609,12 +623,13 @@ abstract class RelationMapper[F[_] : Monad, ColumnAtom[_]] {
    mapQueries: ZipWith.Aux[RDQ, Q, convertQueries.type, QL],
    queryBuilder: QueriesBuilder.Aux[QL, QOut],
    genAs: Generic.Aux[As[F], AsRepr],
-   convert: ValueConvert[QOut, AsRepr]
+   zip: ZipWithTag.Aux[QOut, AsRepr, QOutTag],
+   convert: Mapper.Aux[queriesAs.type, QOutTag, AsRepr]
   ): BuiltQueries[As[F]] = {
     val relationRecord = mapRelations(zipConst(rf(rev(rm.embedList), ColumnMapperContext(stdColumnMaker, HNil)), rm.relationRecord), rm.relationRecord)
     val queryList = mapQueries(relDefs(relationRecord, rm.queryList), rm.queryList)
     val unconverted = queryBuilder(queryList)
-    BuiltQueries(genAs.from(convert(unconverted.queries)), unconverted.ddl)
+    BuiltQueries(genAs.from(convert(zip(unconverted.queries))), unconverted.ddl)
   }
 
   def verifyModel[E <: HList, R <: HList, Q <: HList, C2, As[_[_]]]

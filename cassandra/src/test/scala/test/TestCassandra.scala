@@ -9,9 +9,7 @@ import io.doolse.simpledba.cassandra._
   */
 object TestCassandra extends App {
   val mapper = new CassandraMapper()
-  import mapper._
 
-  //val built = mapper.verifyModel(RealisticModel.model, Console.err.println)
   val built = mapper.buildModel(TestCreator.model)
   val queries = built.queries
 

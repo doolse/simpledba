@@ -18,9 +18,8 @@ object TestDynamo extends App {
 
   val config = new ClientConfiguration().withProxyHost("localhost").withProxyPort(8888)
   val client: AmazonDynamoDBClient = new AmazonDynamoDBClient(config).withEndpoint("http://localhost:8000")
-  val mapper = new DynamoDBMapper()
-  import mapper._
 
+  val mapper = new DynamoDBMapper()
   val built = mapper.buildModel(TestCreator.model)
 
   val queries = built.queries

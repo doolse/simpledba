@@ -24,7 +24,9 @@ object CassandraMapper {
   type Effect[A] = ReaderT[Task, SessionConfig, A]
 }
 
-class CassandraMapper extends RelationMapper[Effect, CassandraColumn] {
+class CassandraMapper extends RelationMapper[Effect] {
+
+  type ColumnAtom[A] = CassandraColumn[A]
 
   trait CassandraTables[T, CR <: HList, CVL <: HList, PKL, SKL, PKV, SKV] extends DepFn2[ColumnMapper[T, CR, CVL], String] {
     type Out = PhysRelationImpl[T, PKV, SKV]
@@ -42,6 +44,9 @@ class CassandraMapper extends RelationMapper[Effect, CassandraColumn] {
   type Where = CassandraWhere
   type Projection[A] = CassandraProjection[A]
   type DDLStatement = (String, Create)
+  type KeyMapperT = CassandraKeyMapper
+
+  trait CassandraKeyMapper
 
   object CassandraTables {
     implicit def cassandraTable[T, CR <: HList, CVL <: HList,
@@ -173,14 +178,21 @@ class CassandraMapper extends RelationMapper[Effect, CassandraColumn] {
   }
 
 
-  implicit def cassandraKeyMapper[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList, SKLR, SKL <: HList, PKV, SKV]
-  (implicit
-   sortKeys: RemoveAll.Aux[KL, PKL, SKLR],
-   ev: SKLR <:< (_, SKL),
-   tableCreator: CassandraTables[T, CR, CVL, PKL, SKL, PKV, SKV]
-  )
-  = new KeyMapperImpl[T, CR, KL, CVL, PKL, PKL, PKV, SKL, SKV] {
-    def keysMapped(cm: ColumnMapper[T, CR, CVL])(name: String): PhysRelationImpl[T, PKV, SKV] = tableCreator(cm, name)
+  object CassandraKeyMapper {
+    implicit def cassandraKeyMapper[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList, SKLR, SKL <: HList, PKV, SKV]
+    (implicit
+     sortKeys: RemoveAll.Aux[KL, PKL, SKLR],
+     ev: SKLR <:< (_, SKL),
+     tableCreator: CassandraTables[T, CR, CVL, PKL, SKL, PKV, SKV]
+    )
+    = new CassandraKeyMapper with KeyMapper[T, CR, KL, CVL, PKL] {
+      type PartitionKey = PKV
+      type SortKey = SKV
+      type PartitionKeyNames = PKL
+      type SortKeyNames = SKL
+
+      def keysMapped(cm: ColumnMapper[T, CR, CVL])(name: String): PhysRelationImpl[T, PKV, SKV] = tableCreator(cm, name)
+    }
   }
 
   def doWrapAtom[S, A](atom: CassandraColumn[A], to: (S) => A, from: (A) => S): CassandraColumn[S] = WrappedColumn[S, A](atom, to, from)

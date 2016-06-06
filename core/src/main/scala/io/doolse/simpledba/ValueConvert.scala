@@ -1,8 +1,7 @@
 package io.doolse.simpledba
 
-import shapeless.ops.product.ToHList
 import shapeless._
-import shapeless.tag.@@
+import shapeless.ops.product.ToHList
 
 trait ValueConvert[V, L] extends (V => L)
 
@@ -10,7 +9,6 @@ trait ValueConvertLP {
   implicit def consConvert[VH, VT <: HList, TH, TT <: HList](implicit hvc: ValueConvert[VH, TH], ct: ValueConvert[VT, TT]) = new ValueConvert[VH :: VT, TH :: TT] {
     def apply(v1: VH :: VT) = hvc(v1.head) :: ct(v1.tail)
   }
-
 }
 
 object ValueConvert extends ValueConvertLP {
@@ -21,10 +19,6 @@ object ValueConvert extends ValueConvertLP {
 
   implicit def reflValue[V] = new ValueConvert[V, V] {
     def apply(v1: V): V = v1
-  }
-
-  implicit def convertTagged[V, L](implicit vc: ValueConvert[V, L]) = new ValueConvert[V @@ L, L] {
-    def apply(v1: V @@ L) = vc(v1)
   }
 
   implicit def stripHNil[V] = new ValueConvert[V :: HNil, V] {
