@@ -531,30 +531,28 @@ abstract class RelationMapper[F[_] : Monad] {
     }
   }
 
+  case class MappingContext[E <: HList, R <: HList](ctx: ColumnMapperContext[ColumnAtom, ColumnMapping, E], relations: R)
 
   case class RelationDef[T, CR <: HList, KL <: HList, CVL <: HList]
   (baseName: String, mapper: ColumnMapper[T, CR, CVL])
 
-  private object embedAll extends Poly2 {
+  private object columnMapAll extends Poly2 {
 
-    implicit def customAtom[S, A, E <: HList] = at[CustomAtom[S, A], ColumnMapperContext[ColumnAtom, ColumnMapping, E]] {
-      case (custom, context) => context.copy(embeddedMappings = field[S](custom) :: context.embeddedMappings)
-        : ColumnMapperContext[ColumnAtom, ColumnMapping, FieldType[S, CustomAtom[S, A]] :: E]
+    implicit def customAtom[S, A, E <: HList, R <: HList] = at[CustomAtom[S, A], MappingContext[E, R]] {
+      case (custom, MappingContext(context, r)) => MappingContext(context.copy(embeddedMappings = field[S](custom) :: context.embeddedMappings), r)
     }
 
-    implicit def embed[A, E <: HList, C <: HList, CV <: HList](implicit gm: GenericMapping.Aux[A, ColumnAtom, ColumnMapping, E, C, CV])
-    = at[Embed[A], ColumnMapperContext[ColumnAtom, ColumnMapping, E]] {
-      case (_, context) => gm.embed(context)
+    implicit def embed[A, E <: HList, R <: HList, C <: HList, CV <: HList](implicit gm: GenericMapping.Aux[A, ColumnAtom, ColumnMapping, E, C, CV])
+    = at[Embed[A], MappingContext[E, R]] {
+      case (_, MappingContext(context,r)) => MappingContext(gm.embed(context), r)
     }
-  }
 
-  private object lookupAll extends Poly2 {
-    implicit def lookupRelation[A, K <: Symbol, Keys <: HList, E <: HList, CR <: HList, CVL <: HList, CTX]
+    implicit def lookupRelation[A, K <: Symbol, Keys <: HList, E <: HList, R <: HList, CR <: HList, CVL <: HList, CTX]
     (implicit
      gm: GenericMapping.Aux[A, ColumnAtom, ColumnMapping, E, CR, CVL], w: Witness.Aux[K])
-    = at[ColumnMapperContext[ColumnAtom, ColumnMapping, E], FieldType[K, Relation[A, Keys]]](
-      (context, rel) => field[K](RelationDef[A, CR, Keys, CVL](w.value.name, gm.lookup(context)))
-    )
+    = at[Relation[K, A, Keys], MappingContext[E, R]] {
+      case (_, MappingContext(context, r)) => MappingContext(context, field[K](RelationDef[A, CR, Keys, CVL](w.value.name, gm.lookup(context))) :: r)
+    }
   }
 
   private object convertQueries extends Poly2 {
@@ -611,14 +609,13 @@ abstract class RelationMapper[F[_] : Monad] {
     implicit def same[A, B](implicit ev: A <:< B) = at[A @@ B](a => a : B)
   }
 
-  def buildModel[E <: HList, R <: HList, Q <: HList, RKL <: HList, EO <: HList, CTXO,
+  def buildModel[R <: HList, Q <: HList, RKL <: HList, EO <: HList, CTXO,
   ZCO <: HList, V <: HList, CRD <: HList, RDQ <: HList, QL <: HList, QOut <: HList, ER <: HList, As[_[_]], AsRepr <: HList, QOutTag <: HList]
-  (rm: RelationModel[E, R, Q, As])
+  (rm: RelationModel[R, Q, As])
   (implicit
-   rev: Reverse.Aux[E, ER], // LeftFolder caused diverging implicits
-   rf: RightFolder.Aux[ER, ColumnMapperContext[ColumnAtom, ColumnMapping, HNil], embedAll.type, CTXO],
-   zipConst: ConstMapper.Aux[CTXO, R, ZCO],
-   mapRelations: ZipWith.Aux[ZCO, R, lookupAll.type, CRD],
+   rev: Reverse.Aux[R, ER], // LeftFolder caused diverging implicits
+   rf: RightFolder.Aux[ER, MappingContext[HNil, HNil], columnMapAll.type, CTXO],
+   ev: CTXO <:< MappingContext[_, CRD],
    relDefs: ConstMapper.Aux[CRD, Q, RDQ],
    mapQueries: ZipWith.Aux[RDQ, Q, convertQueries.type, QL],
    queryBuilder: QueriesBuilder.Aux[QL, QOut],
@@ -626,19 +623,18 @@ abstract class RelationMapper[F[_] : Monad] {
    zip: ZipWithTag.Aux[QOut, AsRepr, QOutTag],
    convert: Mapper.Aux[queriesAs.type, QOutTag, AsRepr]
   ): BuiltQueries[As[F]] = {
-    val relationRecord = mapRelations(zipConst(rf(rev(rm.embedList), ColumnMapperContext(stdColumnMaker, HNil)), rm.relationRecord), rm.relationRecord)
+    val relationRecord = ev(rf(rev(rm.relations), MappingContext(ColumnMapperContext(stdColumnMaker, HNil), HNil))).relations
     val queryList = mapQueries(relDefs(relationRecord, rm.queryList), rm.queryList)
     val unconverted = queryBuilder(queryList)
     BuiltQueries(genAs.from(convert(zip(unconverted.queries))), unconverted.ddl)
   }
 
-  def verifyModel[E <: HList, R <: HList, Q <: HList, C2, As[_[_]]]
-  (rm: RelationModel[E, R, Q, As], p: String => Unit = Console.err.println)
+  def verifyModel[R <: HList, Q <: HList, C2, As[_[_]]]
+  (rm: RelationModel[R, Q, As], p: String => Unit = Console.err.println)
   (implicit
-   vEmbed: ColumnMapperVerifier.Aux[VerifierContext[ColumnAtom, HNil], E, C2],
-   vRels: ColumnMapperVerifier[C2, R])
+   vRels: ColumnMapperVerifier[VerifierContext[ColumnAtom, HNil], R])
   : BuiltQueries[As[F]] = {
-    (vEmbed.errors ++ vRels.errors).foreach(p)
+    vRels.errors.foreach(p)
     new BuiltQueries[As[F]] {
       def queries: As[F] = sys.error("Only for verification")
       def ddl: Eval[List[DDLStatement]] = sys.error("Only for verification")

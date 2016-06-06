@@ -31,12 +31,10 @@ object TestCreator {
                           )
 
   val model = RelationModel(
-    embed[EmbeddedFields] :: HNil,
-    HList(
-      'institution ->> relation[Inst].key('uniqueid),
-      'users ->> relation[User].keys('firstName, 'lastName)
-    ),
-    HList(
+      embed[EmbeddedFields],
+      relation[Inst]('institution).key('uniqueid),
+      relation[User]('users).keys('firstName, 'lastName)
+    ).queries[Queries](
       queryFullKey('institution),
       queryWrites('institution),
       queryPartialKey('users, 'firstName),
@@ -44,7 +42,6 @@ object TestCreator {
       queryPartialKey('users, 'lastName),
       queryFullKey('users)
     )
-  ).as[Queries]
 
   val orig = Inst(1L, EmbeddedFields("pass", enabled = true))
   val updated = Inst(2L, EmbeddedFields("pass", enabled = false))

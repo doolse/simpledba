@@ -67,13 +67,11 @@ trait ColumnMapperBuilderLP {
    ev: VCM <:< ColumnMapper[V, C0, CV0],
    composer: ColumnsComposed.Aux[C0, CM, V, FieldType[K, V], COut]
   )
-  = new ColumnMapperBuilder.Aux[FieldType[K, V], CA, CM, E, COut, CV0] {
-    def apply(t: ColumnMapperContext[CA, CM, E]) = {
-      val otherMapper = ev(selectMapping(t.embeddedMappings))
-      new ColumnMapper(composer(otherMapper.columns, t.ops.composer(identity)),
-        cv => field[K](otherMapper.fromColumns(cv)),
-        fld => otherMapper.toColumns(fld: V))
-    }
+  = ColumnMapperBuilder.mapper[FieldType[K, V], ColumnMapperContext[CA, CM, E], COut, CV0] { t =>
+    val otherMapper = ev(selectMapping(t.embeddedMappings))
+    new ColumnMapper(composer(otherMapper.columns, t.ops.composer(identity)),
+      cv => field[K](otherMapper.fromColumns(cv)),
+      fld => otherMapper.toColumns(fld: V))
   }
 
   implicit def singleIsoColumn[CA[_], CM[_, _], E <: HList, K <: Symbol, V, A,
@@ -83,58 +81,62 @@ trait ColumnMapperBuilderLP {
    cname: Witness.Aux[K],
    ev: VCM <:< CustomAtom[V, A],
    atom: CA[A]
-  ) = new ColumnMapperBuilder.Aux[FieldType[K, V], CA, CM, E, FieldType[K, CM[FieldType[K, V], V]] :: HNil, V :: HNil] {
-    def apply(t: ColumnMapperContext[CA, CM, E]) = {
-      val ca = ev(selectMapping(t.embeddedMappings))
-      new ColumnMapper(field[K](t.ops.makeMapping(cname.value.name, t.ops.wrapAtom(atom, ca.to, ca.from), (f:FieldType[K, V]) => f: V)) :: HNil,
-        cv => field[K](cv.head),
-        fld => (fld: V) :: HNil)
-    }
+  ) = ColumnMapperBuilder.mapper[FieldType[K, V], ColumnMapperContext[CA, CM, E], FieldType[K, CM[FieldType[K, V], V]] :: HNil, V :: HNil] { t =>
+    val ca = ev(selectMapping(t.embeddedMappings))
+    new ColumnMapper(field[K](t.ops.makeMapping(cname.value.name, t.ops.wrapAtom(atom, ca.to, ca.from), (f: FieldType[K, V]) => f: V)) :: HNil,
+      cv => field[K](cv.head),
+      fld => (fld: V) :: HNil)
   }
 }
 
 object ColumnMapperBuilder extends ColumnMapperBuilderLP {
 
-  trait Aux[A, CA[_], CM[_, _], E <: HList, Columns <: HList, ColumnsValues <: HList]
-    extends ColumnMapperBuilder[A, ColumnMapperContext[CA, CM, E]] {
+  type Aux[A, C, Columns <: HList, ColumnsValues <: HList] = ColumnMapperBuilder[A, C] {
     type Out = ColumnMapper[A, Columns, ColumnsValues]
   }
 
-  implicit def hnilMapper[CA[_], CM[_, _], E <: HList] = new Aux[HNil, CA, CM, E, HNil, HNil] {
-    def apply(c: ColumnMapperContext[CA, CM, E]) = new ColumnMapper(HNil: HNil, identity, identity)
+  def mapper[A, C, Columns <: HList, ColumnsValues <: HList]
+  (cm: C => ColumnMapper[A, Columns, ColumnsValues]): Aux[A, C, Columns, ColumnsValues] = new ColumnMapperBuilder[A, C] {
+    type Out = ColumnMapper[A, Columns, ColumnsValues]
+
+    def apply(t: C) = cm(t)
   }
+
+  implicit def hnilMapper[C, L <: HNil] = mapper[L, C, HNil, HNil](_ => new ColumnMapper(HNil, v => v.asInstanceOf[L], identity))
 
   implicit def singleColumn[CA[_], CM[_, _], E <: HList, K <: Symbol, V]
   (implicit atom: CA[V], key: Witness.Aux[K]) =
-    new Aux[FieldType[K, V], CA, CM, E, FieldType[K, CM[FieldType[K, V], V]] :: HNil, V :: HNil] {
-      def apply(c: ColumnMapperContext[CA, CM, E]) = new ColumnMapper(field[K](c.ops.makeMapping(key.value.name, atom,
+    mapper[FieldType[K, V], ColumnMapperContext[CA, CM, E], FieldType[K, CM[FieldType[K, V], V]] :: HNil, V :: HNil] { c =>
+      new ColumnMapper(field[K](c.ops.makeMapping(key.value.name, atom,
         (f: FieldType[K, V]) => f: V)) :: HNil,
         v => field[K](v.head),
         fv => (fv: V) :: HNil)
     }
 
 
-  implicit def hconsMapper[CA[_], CM[_, _], E <: HList,
+  implicit def hconsMapper[C, CA[_], CM[_, _],
   H, T <: HList,
   HC <: HList, HCZ <: HList, HCM <: HList,
   TC <: HList, TCZ <: HList, TCM <: HList,
   HV <: HList, TV <: HList,
   OutV <: HList, LenHV <: Nat]
-  (implicit headMapper: ColumnMapperBuilder.Aux[H, CA, CM, E, HC, HV], tailMapper: ColumnMapperBuilder.Aux[T, CA, CM, E, TC, TV],
+  (implicit
+   ev: C <:< ColumnMapperContext[CA, CM, _],
+   headMapper: ColumnMapperBuilder.Aux[H, C, HC, HV], tailMapper: ColumnMapperBuilder.Aux[T, C, TC, TV],
    headComposer: ColumnsComposed.Aux[HC, CM, H, H :: T, HCM], tailComposer: ColumnsComposed.Aux[TC, CM, T, H :: T, TCM],
    prependC: Prepend[HCM, TCM], prependV: Prepend.Aux[HV, TV, OutV],
    lenH: Length.Aux[HV, LenHV], headVals: Take.Aux[OutV, LenHV, HV], tailVals: Drop.Aux[OutV, LenHV, TV]) =
-    new Aux[H :: T, CA, CM, E, prependC.Out, OutV] {
-      def apply(c: ColumnMapperContext[CA, CM, E]) = {
-        val hm = headMapper(c)
-        val tm = tailMapper(c)
-        new ColumnMapper(
-          prependC(headComposer(hm.columns, c.ops.composer((_: H :: T).head)),
-            tailComposer(tm.columns, c.ops.composer((_: H :: T).tail))),
-          v => hm.fromColumns(headVals(v)) :: tm.fromColumns(tailVals(v)),
-          v => prependV(hm.toColumns(v.head), tm.toColumns(v.tail)))
-      }
+    mapper[H :: T, C, prependC.Out, OutV] { c =>
+      val ops = ev(c).ops
+      val hm = headMapper(c)
+      val tm = tailMapper(c)
+      new ColumnMapper(
+        prependC(headComposer(hm.columns, ops.composer((_: H :: T).head)),
+          tailComposer(tm.columns, ops.composer((_: H :: T).tail))),
+        v => hm.fromColumns(headVals(v)) :: tm.fromColumns(tailVals(v)),
+        v => prependV(hm.toColumns(v.head), tm.toColumns(v.tail)))
     }
+
 }
 
 trait GenericMapping[A, CA[_], CM[_, _], E <: HList] {
@@ -155,7 +157,7 @@ object GenericMapping {
 
   implicit def genMapping[A, CA[_], CM[_, _], E <: HList, Repr, C0 <: HList, CV0 <: HList, CC <: HList]
   (implicit lgen: LabelledGeneric.Aux[A, Repr],
-   b: ColumnMapperBuilder.Aux[Repr, CA, CM, E, C0, CV0],
+   b: ColumnMapperBuilder.Aux[Repr, ColumnMapperContext[CA, CM, E], C0, CV0],
    compose: ColumnsComposed.Aux[C0, CM, Repr, A, CC]) = new Aux[A, CA, CM, E, CC, CV0] {
 
     def lookup(context: ColumnMapperContext[CA, CM, E]) = {

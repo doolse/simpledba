@@ -58,7 +58,7 @@ these types of databases up as if they are SQL-like (looking at you CQL!), you'r
 to think of them being the equivalent of an SQL database in which you can:
 
 * Find a row by primary key
-* Find a bunch of rows by part of the primary key and filtered and ordered by the rest of it.
+* Find multiple rows by part of the primary key and filtered/ordered by the rest of it.
 
 That's a bit of a simplification but still that's a ridiculously limited subset of functionality right? 
 What happens if I want to query by another column in the table, do I have to duplicate the data? 

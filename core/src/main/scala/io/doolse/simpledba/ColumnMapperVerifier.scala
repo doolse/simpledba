@@ -36,7 +36,7 @@ trait ColumnMapperVerifierLP {
   implicit def relation[C, C2, S, Keys <: HList, Repr <: HList, WC <: HList, K <: Symbol]
   (implicit lg: LabelledGeneric.Aux[S, Repr], zipWith: ZipConst.Aux[S, Repr, WC],
    verified: ColumnMapperVerifier.Aux[C, WC, C2])
-  = ColumnMapperVerifier[C, FieldType[K, Relation[S, Keys]], C2](verified.errors)
+  = ColumnMapperVerifier[C, Relation[K, S, Keys], C2](verified.errors)
 
   implicit def noAtomFound[CA[_], E, S, K <: Symbol, A](implicit tt: ClassTag[S], vc: ClassTag[A], k: Witness.Aux[K])
   = verError[CA, E, (FieldType[K, A], S)](
