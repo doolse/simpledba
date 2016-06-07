@@ -4,12 +4,13 @@ import cats.data.Xor
 import cats.{Eval, Monad}
 import shapeless._
 import shapeless.labelled._
-import shapeless.ops.hlist.{At, Comapped, ConstMapper, Length, Mapper, Reverse, RightFolder, ToList, Zip, ZipConst, ZipWith}
-import shapeless.ops.nat.ToInt
+import shapeless.ops.hlist.{At, Comapped, ConstMapper, Length, Mapper, Reify, Reverse, RightFolder, Split, Take, ToList, Zip, ZipConst, ZipWith, ZipWithKeys}
+import shapeless.ops.nat.{Min, ToInt}
 import shapeless.ops.record._
 import shapeless.tag.@@
 
 import scala.reflect.ClassTag
+import scala.reflect.runtime.universe.TypeTag
 
 /**
   * Created by jolz on 10/05/16.
@@ -53,7 +54,7 @@ abstract class RelationMapper[F[_] : Monad] {
 
   type KeyMapperT
 
-  trait KeyMapper[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList] {
+  trait KeyMapper[T, CR <: HList, KL <: HList, CVL <: HList, Query] {
     type PartitionKey
     type SortKey
     type PartitionKeyNames
@@ -63,8 +64,14 @@ abstract class RelationMapper[F[_] : Monad] {
   }
 
   object KeyMapper {
-    type Aux[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList, PKN0, PartitionKey0, SKN0, SortKey0]
-    = KeyMapperT with KeyMapper[T, CR, KL, CVL, PKL] {
+    type Aux[T, CR <: HList, KL <: HList, CVL <: HList, Query, PKN0, PartitionKey0, SKN0, SortKey0]
+    = KeyMapperT with KeyMapper[T, CR, KL, CVL, Query] {
+      type PartitionKey = PartitionKey0
+      type SortKey = SortKey0
+      type PartitionKeyNames = PKN0
+      type SortKeyNames = SKN0
+    }
+    trait Impl[T, CR <: HList, KL <: HList, CVL <: HList, Query, PKN0, PartitionKey0, SKN0, SortKey0] extends KeyMapper[T, CR, KL, CVL, Query] {
       type PartitionKey = PartitionKey0
       type SortKey = SortKey0
       type PartitionKeyNames = PKN0
@@ -300,7 +307,11 @@ abstract class RelationMapper[F[_] : Monad] {
   }
 
   object PhysicalValues extends LowPriorityPhysicalValues {
-    trait Aux[Column, Value0, Out0] extends PhysicalValues[Column] {type Value = Value0; type OutPhys = Out0}
+
+    trait Aux[Column, Value0, Out0] extends PhysicalValues[Column] {
+      type Value = Value0;
+      type OutPhys = Out0
+    }
 
     object physicalValue extends Poly2 {
       implicit def mapToPhysical[A, S] = at[A, ColumnMapping[S, A]] { (v, mapping) =>
@@ -397,12 +408,14 @@ abstract class RelationMapper[F[_] : Monad] {
 
   trait BuiltQueries[Q] {
     def queries: Q
+
     def ddl: Eval[List[DDLStatement]]
   }
 
   object BuiltQueries {
     def apply[Q](q: Q, _ddl: Eval[List[DDLStatement]]) = new BuiltQueries[Q] {
       def queries = q
+
       def ddl = _ddl
     }
   }
@@ -414,7 +427,6 @@ abstract class RelationMapper[F[_] : Monad] {
 
   object QueriesBuilder {
     type Aux[Queries, QOut0] = QueriesBuilder[Queries] {type QOut = QOut0}
-
 
     case class MergedRelations[Full2Builder <: HList, Part2Full <: HList](full2Builder: Full2Builder)
 
@@ -544,7 +556,7 @@ abstract class RelationMapper[F[_] : Monad] {
 
     implicit def embed[A, E <: HList, R <: HList, C <: HList, CV <: HList](implicit gm: GenericMapping.Aux[A, ColumnAtom, ColumnMapping, E, C, CV])
     = at[Embed[A], MappingContext[E, R]] {
-      case (_, MappingContext(context,r)) => MappingContext(gm.embed(context), r)
+      case (_, MappingContext(context, r)) => MappingContext(gm.embed(context), r)
     }
 
     implicit def lookupRelation[A, K <: Symbol, Keys <: HList, E <: HList, R <: HList, CR <: HList, CVL <: HList, CTX]
@@ -556,12 +568,14 @@ abstract class RelationMapper[F[_] : Monad] {
   }
 
   private object convertQueries extends Poly2 {
-    implicit def convertPartialKey[R <: HList, K, Keys <: HList, A, CR <: HList, CVL <: HList, KL <: HList, SR, PKK, PKV, SKK, SKV]
-    (implicit selRel: Selector.Aux[R, K, SR],
+    implicit def convertPartialKey[R <: HList, K, QM, A, CR <: HList, CVL <: HList, KL <: HList, SR, PKK, PKV, SKK, SKV]
+    (implicit
+     evQM: QM <:< QueryMultiple[K, _, _],
+     selRel: Selector.Aux[R, K, SR],
      ev: SR <:< RelationDef[A, CR, KL, CVL],
-     keyMapper: KeyMapper.Aux[A, CR, KL, CVL, Keys, PKK, PKV, SKK, SKV]
+     keyMapper: KeyMapper.Aux[A, CR, KL, CVL, QM, PKK, PKV, SKK, SKV]
     )
-    = at[R, PartialKey[K, Keys]]((rels, q) => {
+    = at[R, QM]((rels, q) => {
       val rb = ev(selRel(rels))
       ReadQueryBuilder[A, PKK, PKV, SKK, SKV, (A, PKK),
         PartKeyOnly.Aux[A, PKV],
@@ -572,10 +586,12 @@ abstract class RelationMapper[F[_] : Monad] {
         }))
     })
 
-    implicit def convertFullKey[R <: HList, K, A, PKK, PKV, SKK, SKV, SR, CR <: HList, KL <: HList, CVL <: HList]
-    (implicit selRel: Selector.Aux[R, K, SR],
+    implicit def convertFullKey[R <: HList, K, QU, A, PKK, PKV, SKK, SKV, SR, CR <: HList, KL <: HList, CVL <: HList]
+    (implicit
+     evSQ: QU <:< QueryUnique[K, _],
+     selRel: Selector.Aux[R, K, SR],
      ev: SR <:< RelationDef[A, CR, KL, CVL],
-     keyMapper: KeyMapper.Aux[A, CR, KL, CVL, KL, PKK, PKV, SKK, SKV]) = at[R, FullKey[K]]((rels, q) => {
+     keyMapper: KeyMapper.Aux[A, CR, KL, CVL, QU, PKK, PKV, SKK, SKV]) = at[R, QU]((rels, q) => {
       val rb = ev(selRel(rels))
       ReadQueryBuilder[A, PKK, PKV, SKK, SKV, (A, PKK, SKK),
         PhysRelationImpl[A, PKV, SKV],
@@ -598,6 +614,7 @@ abstract class RelationMapper[F[_] : Monad] {
      conv: ValueConvert[B, A]) = at[FA @@ FB] {
       ev(_).as[B]
     }
+
     implicit def mq[FA, FB, T, A, B]
     (implicit ev: FA <:< MultiQuery[F, T, A], ev2: FB <:< MultiQuery[F, T, B],
      conv: ValueConvert[B, A]) = at[FA @@ FB] {
@@ -606,38 +623,221 @@ abstract class RelationMapper[F[_] : Monad] {
   }
 
   object queriesAs extends queriesAsLP {
-    implicit def same[A, B](implicit ev: A <:< B) = at[A @@ B](a => a : B)
+    implicit def same[A, B](implicit ev: A <:< B) = at[A @@ B](a => a: B)
   }
 
-  def buildModel[R <: HList, Q <: HList, RKL <: HList, EO <: HList, CTXO,
-  ZCO <: HList, V <: HList, CRD <: HList, RDQ <: HList, QL <: HList, QOut <: HList, ER <: HList, As[_[_]], AsRepr <: HList, QOutTag <: HList]
+  trait MapAllRelations[In] extends DepFn1[In]
+
+  object MapAllRelations {
+    type Aux[In, Out0] = MapAllRelations[In] {type Out = Out0}
+
+    implicit def mapAll[R <: HList, ER <: HList, CTXO, CRD <: HList]
+    (implicit
+     rev: Reverse.Aux[R, ER], // LeftFolder caused diverging implicits
+     rf: RightFolder.Aux[ER, MappingContext[HNil, HNil], columnMapAll.type, CTXO],
+     ev: CTXO <:< MappingContext[_, CRD]): Aux[R, CRD] = new MapAllRelations[R] {
+      type Out = CRD
+
+      def apply(t: R) = ev(rf(rev(t), MappingContext(ColumnMapperContext(stdColumnMaker), HNil))).relations
+    }
+  }
+
+  trait ConvertAndBuild[In] extends DepFn1[In]
+
+  object ConvertAndBuild {
+    type Aux[In, Out0] = ConvertAndBuild[In] { type Out = BuiltQueries[Out0] }
+
+    implicit def mapAndBuild[CRD <: HList, Q <: HList, QL <: HList, RDQ <: HList, QOut]
+    (implicit relDefs: ConstMapper.Aux[CRD, Q, RDQ],
+    mapQueries: ZipWith.Aux[RDQ, Q, convertQueries.type, QL],
+    queryBuilder: QueriesBuilder.Aux[QL, QOut])
+    = new ConvertAndBuild[(CRD, Q)] {
+      type Out = BuiltQueries[QOut]
+
+      def apply(t: (CRD, Q)) = queryBuilder(mapQueries(relDefs(t._1, t._2), t._2))
+    }
+  }
+
+  def buildModel[R <: HList, Q <: HList, CRD <: HList, RDQ <: HList,
+  QL <: HList, QOut <: HList, As[_[_]], AsRepr <: HList, QOutTag <: HList]
   (rm: RelationModel[R, Q, As])
   (implicit
-   rev: Reverse.Aux[R, ER], // LeftFolder caused diverging implicits
-   rf: RightFolder.Aux[ER, MappingContext[HNil, HNil], columnMapAll.type, CTXO],
-   ev: CTXO <:< MappingContext[_, CRD],
-   relDefs: ConstMapper.Aux[CRD, Q, RDQ],
-   mapQueries: ZipWith.Aux[RDQ, Q, convertQueries.type, QL],
-   queryBuilder: QueriesBuilder.Aux[QL, QOut],
+   mapRelations: MapAllRelations.Aux[R, CRD],
+   convertAndBuild: ConvertAndBuild.Aux[(CRD, Q), QOut],
    genAs: Generic.Aux[As[F], AsRepr],
    zip: ZipWithTag.Aux[QOut, AsRepr, QOutTag],
    convert: Mapper.Aux[queriesAs.type, QOutTag, AsRepr]
   ): BuiltQueries[As[F]] = {
-    val relationRecord = ev(rf(rev(rm.relations), MappingContext(ColumnMapperContext(stdColumnMaker, HNil), HNil))).relations
-    val queryList = mapQueries(relDefs(relationRecord, rm.queryList), rm.queryList)
-    val unconverted = queryBuilder(queryList)
+    val unconverted = convertAndBuild(mapRelations(rm.relations), rm.queryList)
     BuiltQueries(genAs.from(convert(zip(unconverted.queries))), unconverted.ddl)
+  }
+
+  case class QueryBuilderVerifier[In](errors: In => List[String])
+
+  trait QueryBuilderVerifierLP {
+      implicit def failedMapping[R <: HList, Q <: HList, As[_[_]]]
+      = QueryBuilderVerifier[RelationModel[R, Q, As]](_ => List.empty)
+    implicit def missingRelation[RM <: HList, Q, K <: Symbol]
+    (implicit
+     ev: Q <:< RelationQuery[K],
+     lk: LacksKey[RM, K],
+     key: Witness.Aux[K]
+    ) = QueryBuilderVerifier[(RM, Q)](_ => List(s"No relation for ${key.value.name}"))
+
+    object errorMessage extends Poly1 {
+
+      def columns2String(cols: List[Symbol]) = cols.mkString("(", ",", ")")
+
+      def relationString(name: Symbol, allCols: List[Symbol], pk: List[Symbol]) =
+        s"${name.name} PK ${columns2String(pk)} - ${columns2String(allCols.filterNot(pk.toSet))}"
+
+      implicit def unique[K <: Symbol, Cols <: HList, ColsR <: HList]
+      (implicit
+       uniqueCols: Reify.Aux[Cols, ColsR],
+       toList: ToList[ColsR, Symbol],
+       tn: Witness.Aux[K]) = at[(QueryUnique[K, Cols], List[Symbol], List[Symbol])] {
+        case (qu, allCols, pk) =>
+          s"Failed to find unique result mapping on relation: ${relationString(tn.value, allCols, pk)}" +
+            s" - using columns ${columns2String(toList(uniqueCols()))}"
+      }
+
+      implicit def multiple[K <: Symbol, Cols <: HList, ColsR <: HList, Sort <: HList, SortR <: HList]
+      (implicit
+       uniqueCols: Reify.Aux[Cols, ColsR],
+       sortCols: Reify.Aux[Sort, SortR],
+       toList: ToList[ColsR, Symbol],
+       sortToList: ToList[SortR, Symbol],
+       tn: Witness.Aux[K]) = at[(QueryMultiple[K, Cols, Sort], List[Symbol], List[Symbol])] {
+        case (qu, allCols, pk) => s"Failed to find multi result mapping on relation: ${relationString(tn.value, allCols, pk)}" +
+          s" - using columns ${columns2String(toList(uniqueCols()))} sort ${columns2String(sortToList(sortCols()))}"
+      }
+    }
+
+    implicit def failedKeyMapper[RM <: HList, Q, K <: Symbol, RD,
+    T, CR <: HList, KL <: HList, KLL <: HList, CVL <: HList, CRK <: HList]
+    (implicit
+     ev: Q <:< RelationQuery[K],
+     selectRelation: Selector.Aux[RM, K, RD],
+     evRD: RD <:< RelationDef[T, CR, KL, _],
+     allColKeys: Keys.Aux[CR, CRK],
+     allColList: ToList[CRK, Symbol],
+     pkLRec: Reify.Aux[KL, KLL],
+     allPKNames: ToList[KLL, Symbol],
+     toError: errorMessage.Case.Aux[(Q, List[Symbol], List[Symbol]), String]
+    ) = QueryBuilderVerifier[(RM, Q)] { in =>
+      val allCols = allColList(allColKeys())
+      val pkCols = allPKNames(pkLRec())
+      List(toError(in._2, allCols, pkCols))
+    }
+  }
+
+  object QueryBuilderVerifier extends QueryBuilderVerifierLP {
+    implicit def successfulMapping[R <: HList, Q <: HList, As[_[_]], RM <: HList]
+    (implicit mr: MapAllRelations.Aux[R, RM],
+     qb: QueryBuilderVerifier[(RM, Q)])
+    = QueryBuilderVerifier[RelationModel[R, Q, As]](in => qb.errors(mr(in.relations), in.queryList))
+
+    implicit def verifyWrites[RM <: HList, Q, K]
+    (implicit
+     ev: Q <:< RelationWriter[K],
+     lk: Selector[RM, K]) = QueryBuilderVerifier[(RM, Q)](_ => List.empty)
+
+    implicit def verifyUnique[RM <: HList, K, RD, T, CR <: HList, KL <: HList, CVL <: HList,
+    Q, PKK, PKV, SKK, SKV]
+    (implicit
+     ev2: Q <:< RelationQuery[K],
+     sel: Selector.Aux[RM, K, RD],
+     ev: RD <:< RelationDef[T, CR, KL, CVL],
+     km: KeyMapper.Aux[T, CR, KL, CVL, Q, PKK, PKV, SKK, SKV]
+    ) = QueryBuilderVerifier[(RM, Q)](_ => List.empty)
+
+    implicit def hconsVerify[RM, H, T <: HList](implicit hv: QueryBuilderVerifier[(RM, H)], tv: QueryBuilderVerifier[(RM, T)])
+    = QueryBuilderVerifier[(RM, H :: T)] {
+      case (rm, h :: t) => hv.errors(rm, h) ++ tv.errors(rm, t)
+    }
+
+    implicit def hnilVerify[RM] = QueryBuilderVerifier[(RM, HNil)](_ => List.empty)
+  }
+
+  case class ConvertVerifier[In](errors: In => List[String])
+
+  object ConvertVerifier {
+
+    case class QueryName[In](name: String)
+
+    trait QueryNameLP {
+      implicit def fallback[In](implicit tt: TypeTag[In]) = QueryName[In](tt.tpe.toString)
+    }
+    object QueryName extends QueryNameLP {
+      implicit def three[O[_[_], _, _], T, A, In]
+      (implicit ev: In <:< O[F, T, A], ct: ClassTag[O[F, T, A]], ttt: TypeTag[T], tta: TypeTag[A]) = QueryName[In](
+        s"${ct.runtimeClass.getSimpleName}[F, ${ttt.tpe}, ${tta.tpe}]")
+      implicit def two[O[_[_], _], T, In]
+      (implicit ev: In <:< O[F, T], ct: ClassTag[O[F, T]], ttt: TypeTag[T]) = QueryName[In](
+        s"${ct.runtimeClass.getSimpleName}[F, ${ttt.tpe}]")
+    }
+
+    trait conversionErrorsLP2 extends Poly1 {
+      implicit def cantSQ[K <: Symbol, FA, FB]
+      (implicit w: Witness.Aux[K], fa: QueryName[FA], fb: QueryName[FB]) = at[FA @@ FieldType[K, FB]] {
+        _ => List(s"Can't convert ${fa.name} to field '${w.value.name}: ${fb.name}'")
+      }
+    }
+    trait conversionErrorsLP extends conversionErrorsLP2 {
+      implicit def sq[FA, FB, T, A, B]
+      (implicit ev: FA <:< SingleQuery[F, T, A], ev2: FB <:< SingleQuery[F, T, B],
+       conv: ValueConvert[B, A]) = at[FA @@ FB](_ => List.empty[String])
+
+      implicit def mq[FA, FB, T, A, B]
+      (implicit ev: FA <:< MultiQuery[F, T, A], ev2: FB <:< MultiQuery[F, T, B],
+       conv: ValueConvert[B, A]) = at[FA @@ FB](_ => List.empty[String])
+    }
+
+    object conversionErrors extends conversionErrorsLP {
+      implicit def same[K, A, B](implicit ev: A <:< B) = at[A @@ FieldType[K, B]](a => List.empty[String])
+    }
+
+    implicit def canBuild[R <: HList, CRD <: HList, Q <: HList, As[_[_]],
+    QLen <: Nat, QOut <: HList, QOutFirst <: HList,
+    AsRepr <: HList, AsLen <: Nat, AsFirst <: HList,
+    QOutTag <: HList, ErrL <: HList,
+    SplitAt <: Nat]
+    (implicit
+     mapRelations: MapAllRelations.Aux[R, CRD],
+     convertAndBuild: ConvertAndBuild.Aux[(CRD, Q), QOut],
+     genAs: LabelledGeneric.Aux[As[F], AsRepr],
+     lenAs: Length.Aux[AsRepr, AsLen],
+     lenQ: Length.Aux[QOut, QLen],
+     splitAt: Min.Aux[AsLen, QLen, SplitAt],
+     takeQueries: Take.Aux[QOut, SplitAt, QOutFirst],
+     takeAs: Take.Aux[AsRepr, SplitAt, AsFirst],
+     zip: ZipWithTag.Aux[QOutFirst, AsFirst, QOutTag],
+     convertErrors: Mapper.Aux[conversionErrors.type, QOutTag, ErrL],
+     toList: ToList[ErrL, List[String]],
+     asLen: ToInt[AsLen],
+     qLen: ToInt[QLen],
+     asClass: ClassTag[As[F]]
+    ) = ConvertVerifier[RelationModel[R, Q, As]] { rm =>
+      val matchedQ = takeQueries(convertAndBuild((mapRelations(rm.relations), rm.queryList)).queries)
+      val diff = qLen() - asLen()
+      val extra = if (diff < 0) List(s"Class ${asClass} contains ${Math.abs(diff)} too many entries")
+      else if (diff > 0) List(s"Class ${asClass} is missing ${diff} entries") else List.empty[String]
+      toList(convertErrors(zip(matchedQ))).flatten ++ extra
+    }
   }
 
   def verifyModel[R <: HList, Q <: HList, C2, As[_[_]]]
   (rm: RelationModel[R, Q, As], p: String => Unit = Console.err.println)
   (implicit
-   vRels: ColumnMapperVerifier[VerifierContext[ColumnAtom, HNil], R])
-  : BuiltQueries[As[F]] = {
-    vRels.errors.foreach(p)
+   vRels: ColumnMapperVerifier[VerifierContext[ColumnAtom, HNil], R],
+   verifyQueries: QueryBuilderVerifier[RelationModel[R, Q, As]],
+   verifyConvert: ConvertVerifier[RelationModel[R, Q, As]]
+  ): BuiltQueries[As[F]] = {
+    (vRels.errors ++ verifyQueries.errors(rm) ++ verifyConvert.errors(rm)).foreach(p)
     new BuiltQueries[As[F]] {
-      def queries: As[F] = sys.error("Only for verification")
-      def ddl: Eval[List[DDLStatement]] = sys.error("Only for verification")
+      def queries: As[F] = sys.error("Please read verification")
+
+      def ddl: Eval[List[DDLStatement]] = sys.error("Please read verification")
     }
   }
 }

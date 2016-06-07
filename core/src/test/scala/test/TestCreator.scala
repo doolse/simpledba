@@ -4,8 +4,7 @@ import cats.Monad
 import cats.syntax.all._
 import cats.std.option._
 import io.doolse.simpledba._
-import shapeless._
-import shapeless.syntax.singleton._
+import shapeless.HNil
 
 /**
   * Created by jolz on 26/05/16.
@@ -22,32 +21,32 @@ case class User(firstName: String, lastName: String, year: Int)
 
 object TestCreator {
 
-  case class Queries[F[_]](instByPK: SingleQuery[F, Inst, Long],
-                           writeInst: WriteQueries[F, Inst],
-                           querybyFirstName: MultiQuery[F, User, String],
+  case class Queries[F[_]](writeInst: WriteQueries[F, Inst],
                            writeUsers: WriteQueries[F, User],
+                           instByPK: SingleQuery[F, Inst, Long],
+                           querybyFirstName: MultiQuery[F, User, String],
                            queryByLastName: MultiQuery[F, User, String],
                            queryByFullName: SingleQuery[F, User, Username]
                           )
 
   val model = RelationModel(
-      embed[EmbeddedFields],
-      relation[Inst]('institution).key('uniqueid),
-      relation[User]('users).keys('firstName, 'lastName)
-    ).queries[Queries](
-      queryFullKey('institution),
-      queryWrites('institution),
-      queryPartialKey('users, 'firstName),
-      queryWrites('users),
-      queryPartialKey('users, 'lastName),
-      queryFullKey('users)
-    )
+    embed[EmbeddedFields],
+    relation[Inst]('institution).key('uniqueid),
+    relation[User]('users).keys('firstName, 'lastName)
+  ).queries[Queries](
+    writes('institution),
+    writes('users),
+    queryByPK('institution),
+    query('users).multipleByColumns('firstName),
+    query('users).multipleByColumns('lastName),
+    queryByPK('users)
+  )
 
   val orig = Inst(1L, EmbeddedFields("pass", enabled = true))
   val updated = Inst(2L, EmbeddedFields("pass", enabled = false))
   val updatedAgain = Inst(2L, EmbeddedFields("changed", enabled = true))
 
-  def doTest[F[_] : Monad](q:Queries[F]) = {
+  def doTest[F[_] : Monad](q: Queries[F]) = {
     import q._
     for {
       _ <- writeUsers.insert(User("Jolse", "Maginnis", 1980))
@@ -62,7 +61,7 @@ object TestCreator {
       res4 <- instByPK.query(2L)
       all <- queryByLastName.queryWithOrder("Maginnis", true)
       allFirst <- queryByFullName.query(Username("Jolse", "Maginnis"))
-      _ <-  res4.map(writeInst.delete).sequence
+      _ <- res4.map(writeInst.delete).sequence
     } yield (res2, res, upd1, res3, upd2, res4, all, allFirst)
   }
 }

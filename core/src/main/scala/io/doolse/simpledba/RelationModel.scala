@@ -22,13 +22,15 @@ object RelationModel {
 class Embed[A]
 class CustomAtom[S, A](val to: S => A, val from: A => S)
 class Relation[Name, A, Keys <: HList] extends SingletonProductArgs {
-  def key(w: Witness) = this.asInstanceOf[Relation[Name, A, w.T :: Keys]]
-  def keysProduct[L <: HList](keys: L)(implicit p: Prepend[L, Keys]) = this.asInstanceOf[Relation[Name, A, p.Out]]
+  def key(w: Witness) = new Relation[Name, A, w.T :: Keys]
+  def keysProduct[L <: HList](keys: L)(implicit p: Prepend[L, Keys]) = new Relation[Name, A, p.Out]
 }
 
-class FullKey[K]
-class PartialKey[K, Keys <: HList]
-class RelationWriter[K]
+trait RelationQuery[K]
+class QueryUnique[K, Columns <: HList] extends RelationQuery[K]
+class QueryMultiple[K, Columns <: HList, SortColumns <: HList] extends RelationQuery[K]
+class QueryRange[K, Columns <: HList, RangeColumns <: HList] extends RelationQuery[K]
+class RelationWriter[K] extends RelationQuery[K]
 
 case class SingleQuery[F[_], T, KeyValues](query: KeyValues => F[Option[T]]) {
   def as[K](implicit vc: ValueConvert[K, KeyValues]) = copy[F, T, K](query = query compose vc)

@@ -1,6 +1,6 @@
 package io.doolse
 
-import shapeless.{::, Generic, HNil, Witness}
+import shapeless.{::, Generic, HList, HNil, SingletonProductArgs, Witness}
 
 /**
   * Created by jolz on 2/06/16.
@@ -15,12 +15,16 @@ package object simpledba {
 
   def relation[A](w: Witness) = new Relation[w.T, A, HNil]
 
-  def queryFullKey(w: Witness) = new FullKey[w.T]
+  def query(w: Witness) = new QueryBuilder[w.T, HNil]
 
-  def queryPartialKey(w: Witness, k: Witness) = new PartialKey[w.T, k.T :: HNil]
+  def queryByPK(w: Witness) = new QueryUnique[w.T, HNil]
 
-  def queryPartialKeys(w: Witness, k1: Witness, k2: Witness) = new PartialKey[w.T, k1.T :: k2.T :: HNil]
+  def writes(w: Witness) = new RelationWriter[w.T]
 
-  def queryWrites(w: Witness) = new RelationWriter[w.T]
-
+  class QueryBuilder[K, SC <: HList] extends SingletonProductArgs {
+    def uniqueByColumns(c: Witness) = new QueryUnique[K, c.T :: HNil]
+    def uniqueByColumnsProduct[L <: HList](c: L) = new QueryUnique[K, L]
+    def multipleByColumns(c: Witness) = new QueryMultiple[K, c.T :: HNil, HNil]
+    def multipleByColumnsProduct[L <: HList](c: L) = new QueryMultiple[K, L, HNil]
+  }
 }

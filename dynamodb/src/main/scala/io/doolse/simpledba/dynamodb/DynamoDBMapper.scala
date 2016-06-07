@@ -3,7 +3,7 @@ package io.doolse.simpledba.dynamodb
 import cats.data.{Reader, Xor}
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient
 import com.amazonaws.services.dynamodbv2.model._
-import io.doolse.simpledba.{ColumnMapper, RelationMapper, WriteQueries}
+import io.doolse.simpledba._
 import io.doolse.simpledba.dynamodb.DynamoDBMapper.Effect
 import shapeless._
 import shapeless.ops.hlist
@@ -177,9 +177,9 @@ class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect] {
   trait DynamoDBKeyMapper
 
   object DynamoDBKeyMapper {
-    def apply[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList, PKV, SKV, PKK, SKKL]
-    (relMaker: DynamoDBPhysicalRelations[T, CR, CVL, PKK, SKKL, PKV, SKV]): KeyMapper.Aux[T, CR, KL, CVL, PKL, PKK, PKV, SKKL, SKV]
-    = new DynamoDBKeyMapper with KeyMapper[T, CR, KL, CVL, PKL] {
+    def apply[T, CR <: HList, KL <: HList, CVL <: HList, Q, PKV, SKV, PKK, SKKL]
+    (relMaker: DynamoDBPhysicalRelations[T, CR, CVL, PKK, SKKL, PKV, SKV]): KeyMapper.Aux[T, CR, KL, CVL, Q, PKK, PKV, SKKL, SKV]
+    = new DynamoDBKeyMapper with KeyMapper[T, CR, KL, CVL, Q] {
       type PartitionKey = PKV
       type SortKey = SKV
       type PartitionKeyNames = PKK
@@ -188,29 +188,48 @@ class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect] {
       def keysMapped(cm: ColumnMapper[T, CR, CVL])(name: String): PhysRelationImpl[T, PKV, SKV] = relMaker(cm, name)
     }
 
-    implicit def noSortKeyMapper[T, CR <: HList, KL <: HList, CVL <: HList, PKK, PKL <: HList, PKV]
+    implicit def primaryKey[K, T, CR <: HList, CVL <: HList, PKK, PKV]
     (implicit
-     pkk: IsHCons.Aux[PKL, PKK, HNil],
-     ev: IsHCons.Aux[KL, PKK, HNil],
      relMaker: DynamoDBPhysicalRelations[T, CR, CVL, PKK, HNil, PKV, HNil]
-    ): KeyMapper.Aux[T, CR, KL, CVL, PKL, PKK, PKV, HNil, HNil] = DynamoDBKeyMapper(relMaker)
+    ) : KeyMapper.Aux[T, CR, PKK :: HNil, CVL, QueryUnique[K, HNil], PKK, PKV, HNil, HNil]
+    = DynamoDBKeyMapper(relMaker)
 
-    implicit def dynamoDBRemainingSortKeyMapper[T, CR <: HList, KL <: HList, CVL <: HList,
-    PKK, SKK, PKL <: HList, RemainingSK <: HList, PKV, SKV]
+    implicit def twoKeys[K, T, CR <: HList, CVL <: HList, PKK, PKV, SKK, SKV]
     (implicit
-     pkk: IsHCons.Aux[PKL, PKK, HNil],
-     removePK: hlist.Remove.Aux[KL, PKK, (PKK, RemainingSK)],
-     skk: IsHCons.Aux[RemainingSK, SKK, HNil],
      relMaker: DynamoDBPhysicalRelations[T, CR, CVL, PKK, SKK :: HNil, PKV, SKV]
-    ): KeyMapper.Aux[T, CR, KL, CVL, PKL, PKK, PKV, SKK :: HNil, SKV] = DynamoDBKeyMapper(relMaker)
+    ) : KeyMapper.Aux[T, CR, PKK :: SKK :: HNil, CVL, QueryUnique[K, HNil], PKK, PKV, SKK :: HNil, SKV]
+    = DynamoDBKeyMapper(relMaker)
 
-    implicit def dynamoDBAutoSortKeyMapper[T, CR <: HList, KL <: HList, CVL <: HList,
-    PKL <: HList, PKLT <: HList, PKK, SKK, PKV, SKV]
+    implicit def multiNoSort[K, T, CR <: HList, CVL <: HList, KL <: HList, PKK, PKV, SKL, SKV]
     (implicit
-     pkk: IsHCons.Aux[PKL, PKK, PKLT],
-     skk: IsHCons.Aux[PKLT, SKK, HNil],
-     relMaker: DynamoDBPhysicalRelations[T, CR, CVL, PKK, SKK :: HNil, PKV, SKV]
-    ): KeyMapper.Aux[T, CR, KL, CVL, PKL, PKK, PKV, SKK :: HNil, SKV] = DynamoDBKeyMapper(relMaker)
+     remPK: hlist.Remove.Aux[KL, PKK, (PKK, SKL)],
+     relMaker: DynamoDBPhysicalRelations[T, CR, CVL, PKK, SKL, PKV, SKV]
+    ) : KeyMapper.Aux[T, CR, KL, CVL, QueryMultiple[K, PKK :: HNil, HNil], PKK, PKV, SKL, SKV]
+    = DynamoDBKeyMapper(relMaker)
+
+    //    implicit def noSortKeyMapper[T, CR <: HList, KL <: HList, CVL <: HList, K, PKL <: HList, PKK, PKV]
+//    (implicit
+//     pkk: IsHCons.Aux[PKL, PKK, HNil],
+//     ev: IsHCons.Aux[KL, PKK, HNil],
+//     relMaker: DynamoDBPhysicalRelations[T, CR, CVL, PKK, HNil, PKV, HNil]
+//    ): KeyMapper.Aux[T, CR, KL, CVL, QueryUnique[K, PKL], PKK, PKV, HNil, HNil] = DynamoDBKeyMapper(relMaker)
+//
+//    implicit def dynamoDBRemainingSortKeyMapper[T, CR <: HList, KL <: HList, CVL <: HList,
+//    PKK, SKK, K, PKL <: HList, RemainingSK <: HList, PKV, SKV]
+//    (implicit
+//     pkk: IsHCons.Aux[PKL, PKK, HNil],
+//     removePK: hlist.Remove.Aux[KL, PKK, (PKK, RemainingSK)],
+//     skk: IsHCons.Aux[RemainingSK, SKK, HNil],
+//     relMaker: DynamoDBPhysicalRelations[T, CR, CVL, PKK, SKK :: HNil, PKV, SKV]
+//    ): KeyMapper.Aux[T, CR, KL, CVL, QueryMultiple[K, PKL, HNil], PKK, PKV, SKK :: HNil, SKV] = DynamoDBKeyMapper(relMaker)
+//
+//    implicit def dynamoDBAutoSortKeyMapper[T, CR <: HList, KL <: HList, CVL <: HList, K,
+//    PKL <: HList, PKLT <: HList, PKK, SKK, PKV, SKV]
+//    (implicit
+//     pkk: IsHCons.Aux[PKL, PKK, PKLT],
+//     skk: IsHCons.Aux[PKLT, SKK, HNil],
+//     relMaker: DynamoDBPhysicalRelations[T, CR, CVL, PKK, SKK :: HNil, PKV, SKV]
+//    ): KeyMapper.Aux[T, CR, KL, CVL, QueryMultiple[K, PKL, HNil], PKK, PKV, SKK :: HNil, SKV] = DynamoDBKeyMapper(relMaker)
   }
 
   def doWrapAtom[S, A](atom: DynamoDBColumn[A], to: (S) => A, from: (A) => S): DynamoDBColumn[S] = DynamoDBColumn[S](

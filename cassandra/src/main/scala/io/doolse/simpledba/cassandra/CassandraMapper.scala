@@ -8,9 +8,9 @@ import com.datastax.driver.core.schemabuilder.{Create, SchemaBuilder}
 import fs2.util.Task
 import fs2.interop.cats._
 import io.doolse.simpledba.cassandra.CassandraMapper.Effect
-import io.doolse.simpledba.{ColumnMapper, RelationMapper, WriteQueries}
+import io.doolse.simpledba.{QueryBuilder => _, _}
 import shapeless._
-import shapeless.ops.hlist.{RemoveAll, ToList}
+import shapeless.ops.hlist.{Intersection, IsHCons, RemoveAll, ToList}
 import shapeless.ops.record.{SelectAll, Values}
 import cats.syntax.all._
 
@@ -179,18 +179,34 @@ class CassandraMapper extends RelationMapper[Effect] {
 
 
   object CassandraKeyMapper {
-    implicit def cassandraKeyMapper[T, CR <: HList, KL <: HList, CVL <: HList, PKL <: HList, SKLR, SKL <: HList, PKV, SKV]
+    implicit def uniquePK[K, T, CR <: HList, KL <: HList, CVL <: HList, PKV, SKV]
     (implicit
-     sortKeys: RemoveAll.Aux[KL, PKL, SKLR],
-     ev: SKLR <:< (_, SKL),
-     tableCreator: CassandraTables[T, CR, CVL, PKL, SKL, PKV, SKV]
+     tableCreator: CassandraTables[T, CR, CVL, KL, HNil, PKV, SKV]
     )
-    = new CassandraKeyMapper with KeyMapper[T, CR, KL, CVL, PKL] {
-      type PartitionKey = PKV
-      type SortKey = SKV
-      type PartitionKeyNames = PKL
-      type SortKeyNames = SKL
+    = new CassandraKeyMapper with KeyMapper.Impl[T, CR, KL, CVL, QueryUnique[K, HNil], KL, PKV, HNil, SKV] {
+      def keysMapped(cm: ColumnMapper[T, CR, CVL])(name: String): PhysRelationImpl[T, PKV, SKV] = tableCreator(cm, name)
+    }
 
+    implicit def uniqueResultMapper[K, T, CR <: HList, KL <: HList, CVL <: HList, UCL <: HList, SKLR, SKL <: HList, PKV, SKV]
+    (implicit
+     mustHaveOne: IsHCons[UCL],
+     sortKeys: RemoveAll.Aux[KL, UCL, SKLR],
+     ev: SKLR <:< (_, SKL),
+     tableCreator: CassandraTables[T, CR, CVL, UCL, SKL, PKV, SKV]
+    )
+    = new CassandraKeyMapper with KeyMapper.Impl[T, CR, KL, CVL, QueryUnique[K, UCL], UCL, PKV, SKL, SKV] {
+      def keysMapped(cm: ColumnMapper[T, CR, CVL])(name: String): PhysRelationImpl[T, PKV, SKV] = tableCreator(cm, name)
+    }
+
+    implicit def multipleResultMapper[K, T, CR <: HList, KL <: HList, CVL <: HList, UCL <: HList, SKLR,
+    SKL <: HList, PKV, SKV, ICL <: HList]
+    (implicit
+     intersect: Intersection.Aux[KL, UCL, ICL],
+     sortKeys: RemoveAll.Aux[KL, ICL, SKLR],
+     ev: SKLR <:< (_, SKL),
+     tableCreator: CassandraTables[T, CR, CVL, UCL, SKL, PKV, SKV]
+    )
+    = new CassandraKeyMapper with KeyMapper.Impl[T, CR, KL, CVL, QueryMultiple[K, UCL, HNil], UCL, PKV, SKL, SKV] {
       def keysMapped(cm: ColumnMapper[T, CR, CVL])(name: String): PhysRelationImpl[T, PKV, SKV] = tableCreator(cm, name)
     }
   }

@@ -10,7 +10,7 @@ import io.doolse.simpledba.cassandra._
 object TestCassandra extends App {
   val mapper = new CassandraMapper()
 
-  val built = mapper.buildModel(TestCreator.model)
+  val built = mapper.verifyModel(TestCreator.model)
   val queries = built.queries
 
   val session = CassandraSession.simpleSession("localhost", Some("eps"))
@@ -26,5 +26,4 @@ object TestCassandra extends App {
   val q = TestCreator.doTest(queries)
   val res = q.run(SessionConfig(session, s => println(s()))).unsafeRun
   println(res)
-
 }
