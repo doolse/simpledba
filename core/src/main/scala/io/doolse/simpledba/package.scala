@@ -1,6 +1,6 @@
 package io.doolse
 
-import shapeless.{::, Generic, HList, HNil, SingletonProductArgs, Witness}
+import shapeless.{::, DepFn0, DepFn1, Generic, HList, HNil, SingletonProductArgs, Witness}
 
 /**
   * Created by jolz on 2/06/16.
@@ -15,16 +15,44 @@ package object simpledba {
 
   def relation[A](w: Witness) = new Relation[w.T, A, HNil]
 
-  def query(w: Witness) = new QueryBuilder[w.T, HNil]
+  def query(w: Witness) = new QueryBuilder[w.T]
 
   def queryByPK(w: Witness) = new QueryUnique[w.T, HNil]
 
   def writes(w: Witness) = new RelationWriter[w.T]
 
-  class QueryBuilder[K, SC <: HList] extends SingletonProductArgs {
-    def uniqueByColumns(c: Witness) = new QueryUnique[K, c.T :: HNil]
-    def uniqueByColumnsProduct[L <: HList](c: L) = new QueryUnique[K, L]
-    def multipleByColumns(c: Witness) = new QueryMultiple[K, c.T :: HNil, HNil]
-    def multipleByColumnsProduct[L <: HList](c: L) = new QueryMultiple[K, L, HNil]
+  class QueryBuilder[K] {
+    // SingletonProductArgs didn't work when used outside of the library
+    def uniqueByColumns = new WitnessList[QueryBuilder[K], QU](this)
+    def multipleByColumns = new WitnessList[QueryBuilder[K], QM](this)
+  }
+
+  trait QU[L, A] extends DepFn1[A]
+  object QU {
+    implicit def qu[L <: HList, K] = new QU[L, QueryBuilder[K]] {
+      type Out = QueryUnique[K, L]
+
+      def apply(t: QueryBuilder[K]) = new QueryUnique[K, L]
+    }
+  }
+  trait QM[L, A] extends DepFn1[A]
+  object QM {
+    implicit def qm[L <: HList, K] = new QM[L, QueryBuilder[K]] {
+      type Out = QueryMultiple[K, L, HNil]
+
+      def apply(t: QueryBuilder[K]) = new QueryMultiple[K, L, HNil]
+    }
+  }
+  trait SB[L, A] extends DepFn1[A]
+  object SB {
+    implicit def sb[L <: HList, CL <: HList, K] = new SB[L, QueryMultiple[K, CL, HNil]] {
+      type Out = QueryMultiple[K, CL, L]
+
+      def apply(t: QueryMultiple[K, CL, HNil]) = new QueryMultiple[K, CL, L]
+    }
+  }
+
+  implicit class QueryMultipleOps[K, CL <: HList](qm: QueryMultiple[K, CL, HNil]) {
+    def sortBy = new WitnessList[QueryMultiple[K, CL, HNil], SB](qm)
   }
 }

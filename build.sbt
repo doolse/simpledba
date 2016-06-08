@@ -12,7 +12,8 @@ val commonSettings = Seq(
 )
 val subSettings = Seq(
   name := "simpledba-" + baseDirectory.value.getName,
-  addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.7.1")
+  addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.7.1"),
+  addCompilerPlugin("com.milessabin" % "si2712fix-plugin" % "1.2.0" cross CrossVersion.full)
 ) ++ commonSettings
 
 lazy val dynamodb = project.settings(subSettings: _*).dependsOn(core)

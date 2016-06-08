@@ -9,7 +9,6 @@ import shapeless.HNil
 /**
   * Created by jolz on 26/05/16.
   */
-
 case class EmbeddedFields(adminpassword: String, enabled: Boolean)
 
 case class Inst(uniqueid: Long, embedded: EmbeddedFields)
@@ -37,7 +36,7 @@ object TestCreator {
     writes('institution),
     writes('users),
     queryByPK('institution),
-    query('users).multipleByColumns('firstName),
+    query('users).multipleByColumns('firstName), //.sortBy('lastname),
     query('users).multipleByColumns('lastName),
     queryByPK('users)
   )

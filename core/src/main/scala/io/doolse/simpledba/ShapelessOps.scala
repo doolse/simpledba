@@ -1,5 +1,6 @@
 package io.doolse.simpledba
 
+import shapeless.PolyDefns.Case
 import shapeless._
 import shapeless.labelled.FieldType
 import shapeless.labelled.field
@@ -7,6 +8,7 @@ import shapeless.ops.hlist.ZipWithKeys
 import shapeless.ops.record.SelectAll
 import shapeless.tag.@@
 import shapeless.{DepFn1, DepFn2, HList, HNil, Nat, Succ}
+import poly._
 
 /**
   * Zip a HList with another HList, tagging the left with the right.
@@ -114,4 +116,10 @@ object Values2 {
       type Out = V :: vt.Out
       def apply(l: FieldType[(K, K2, K3), V] :: T): Out = (l.head: V) :: vt(l.tail)
     }
+}
+
+class WitnessList[A, MT[_, A] <: DepFn1[A]](a: A) {
+  def apply(w: Witness)(implicit f: MT[w.T :: HNil, A]) = f(a)
+  def apply(w1: Witness, w2: Witness)(implicit f: MT[w1.T :: w2.T :: HNil, A]) = f(a)
+  def apply(w1: Witness, w2: Witness, w3: Witness)(implicit f: MT[w1.T :: w2.T :: w3.T :: HNil, A]) = f(a)
 }

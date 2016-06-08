@@ -30,7 +30,7 @@ trait RelationQuery[K]
 class QueryUnique[K, Columns <: HList] extends RelationQuery[K]
 class QueryMultiple[K, Columns <: HList, SortColumns <: HList] extends RelationQuery[K]
 class QueryRange[K, Columns <: HList, RangeColumns <: HList] extends RelationQuery[K]
-class RelationWriter[K] extends RelationQuery[K]
+class RelationWriter[K]
 
 case class SingleQuery[F[_], T, KeyValues](query: KeyValues => F[Option[T]]) {
   def as[K](implicit vc: ValueConvert[K, KeyValues]) = copy[F, T, K](query = query compose vc)
