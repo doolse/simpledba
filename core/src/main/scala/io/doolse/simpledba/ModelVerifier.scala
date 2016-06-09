@@ -18,10 +18,10 @@ trait ModelVerifierLP2 {
 
 trait ModelVerifierLP extends ModelVerifierLP2 {
   implicit def mappedOnly[F[_], DDL, R <: HList, Q <: HList, As[_[_]], CA[_], KMT, CMC, RelDefs <: HList]
-  (implicit mappedRelations: MapAllRelations.Aux[(R, CMC), RelDefs],
+  (implicit mappedRelations: MapAllRelations.Aux[CMC, RelDefs],
    verifyQueries: QueryBuilderVerifier[(QueryBuilderVerifierContext[RelDefs, KMT], Q)])
   = ModelVerifier[ModelVerifierContext[F, DDL, KMT, R, Q, As, CA, CMC]] { ctx =>
-    val relDefs = mappedRelations(ctx.rm.relations, ctx.context)
+    val relDefs = mappedRelations(ctx.context)
     verifyQueries.errors(QueryBuilderVerifierContext[RelDefs, KMT](relDefs), ctx.rm.queryList)
   }
 }

@@ -36,7 +36,7 @@ object TestCreator {
     writes('institution),
     writes('users),
     queryByPK('institution),
-    query('users).multipleByColumns('firstName), //.sortBy('lastname),
+    query('users).multipleByColumns('firstName).sortBy('year),
     query('users).multipleByColumns('lastName),
     queryByPK('users)
   )
@@ -50,17 +50,30 @@ object TestCreator {
     for {
       _ <- writeUsers.insert(User("Jolse", "Maginnis", 1980))
       _ <- writeUsers.insert(User("Emma", "Maginnis", 1982))
-      _ <- writeUsers.insert(User("Jolse", "Fuckstick", 1980))
+      _ <- writeUsers.insert(User("Jolse", "Fuckstick", 1985))
       _ <- writeInst.insert(orig)
       res2 <- instByPK.query(1L)
       res <- instByPK.query(517573426L)
-      upd1 <- writeInst.update(orig, updated)
+      _ <- writeInst.update(orig, updated)
       res3 <- instByPK.query(2L)
-      upd2 <- writeInst.update(updated, updatedAgain)
+      _ <- writeInst.update(updated, updatedAgain)
       res4 <- instByPK.query(2L)
       all <- queryByLastName.queryWithOrder("Maginnis", true)
-      allFirst <- queryByFullName.query(Username("Jolse", "Maginnis"))
+      allFirst <- querybyFirstName.queryWithOrder("Jolse", false)
+      fullPK <- queryByFullName.query(Username("Jolse", "Maginnis"))
       _ <- res4.map(writeInst.delete).sequence
-    } yield (res2, res, upd1, res3, upd2, res4, all, allFirst)
+    } yield {
+      s"""
+        |Query for known PK 1 - $res2
+        |Query for missing key - $res
+        |Query for update1 $res3
+        |Query for update2 $res4
+        |Query by last name ordered arbitrarily -
+        |${all.mkString(" ", "\n ", "")}
+        |Query by first name ordered by year descending -
+        |${allFirst.mkString(" ", "\n ", "")}
+        |Query by case class pk - $fullPK
+      """.stripMargin
+    }
   }
 }
