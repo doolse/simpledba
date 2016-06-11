@@ -12,7 +12,7 @@ import scala.reflect.runtime.universe.TypeTag
 /**
   * Created by jolz on 8/06/16.
   */
-class ConvertVerifierContext[F[_], As[_[_]]]
+trait ConvertVerifierContext[F[_], As[_[_]]]
 case class ConvertVerifier[In, CTX](errors: In => List[String])
 
 object ConvertVerifier {
@@ -23,6 +23,9 @@ object ConvertVerifier {
     implicit def fallback[In](implicit tt: TypeTag[In]) = QueryName[In](tt.tpe.toString)
   }
   object QueryName extends QueryNameLP {
+    implicit def four[F[_], O[_[_], _, _, _], T, A, B, In]
+    (implicit ev: In <:< O[F, T, A, B], ct: ClassTag[O[F, T, A, B]], ttt: TypeTag[T], tta: TypeTag[A], ttb: TypeTag[B]) = QueryName[In](
+      s"${ct.runtimeClass.getSimpleName}[F, ${ttt.tpe}, ${tta.tpe}, ${ttb.tpe}]")
     implicit def three[F[_], O[_[_], _, _], T, A, In]
     (implicit ev: In <:< O[F, T, A], ct: ClassTag[O[F, T, A]], ttt: TypeTag[T], tta: TypeTag[A]) = QueryName[In](
       s"${ct.runtimeClass.getSimpleName}[F, ${ttt.tpe}, ${tta.tpe}]")
@@ -31,24 +34,15 @@ object ConvertVerifier {
       s"${ct.runtimeClass.getSimpleName}[F, ${ttt.tpe}]")
   }
 
-  trait conversionErrorsLP2 extends Poly1 {
+  trait conversionErrorsLP extends Poly1 {
     implicit def cantSQ[K <: Symbol, FA, FB]
     (implicit w: Witness.Aux[K], fa: QueryName[FA], fb: QueryName[FB]) = at[FA @@ FieldType[K, FB]] {
       _ => List(s"Can't convert ${fa.name} to field '${w.value.name}: ${fb.name}'")
     }
   }
-  trait conversionErrorsLP extends conversionErrorsLP2 {
-    implicit def sq[F[_], FA, FB, T, A, B]
-    (implicit ev: FA <:< SingleQuery[F, T, A], ev2: FB <:< SingleQuery[F, T, B],
-     conv: ValueConvert[B, A]) = at[FA @@ FB](_ => List.empty[String])
-
-    implicit def mq[F[_], FA, FB, T, A, B]
-    (implicit ev: FA <:< MultiQuery[F, T, A], ev2: FB <:< MultiQuery[F, T, B],
-     conv: ValueConvert[B, A]) = at[FA @@ FB](_ => List.empty[String])
-  }
 
   object conversionErrors extends conversionErrorsLP {
-    implicit def same[K, A, B](implicit ev: A <:< B) = at[A @@ FieldType[K, B]](a => List.empty[String])
+    implicit def convertible[K, A, B](implicit ev: queriesAs.Case[A @@ B]) = at[A @@ FieldType[K, B]](a => List.empty[String])
   }
 
   implicit def canBuild[As[_[_]], F[_],

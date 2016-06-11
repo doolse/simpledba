@@ -10,7 +10,7 @@ import scala.reflect.ClassTag
   * Created by jolz on 2/06/16.
   */
 
-class VerifierContext[CA[_], E]
+trait ColumnMapperVerifierContext[CA[_], E]
 
 trait ColumnMapperVerifier[Context, In] {
   type OutContext
@@ -28,8 +28,8 @@ import ColumnMapperVerifier._
 trait ColumnMapperVerifierLP {
   implicit def embedded[CA[_], C, CO, E, E2 <: HList, S, Repr <: HList, WC <: HList]
   (implicit lg: LabelledGeneric.Aux[S, Repr], zipWith: ZipConst.Aux[S, Repr, WC],
-   verified: ColumnMapperVerifier.Aux[VerifierContext[CA, E], WC, CO]
-   ,ev: CO <:< VerifierContext[CA, E2]
+   verified: ColumnMapperVerifier.Aux[ColumnMapperVerifierContext[CA, E], WC, CO]
+   ,ev: CO <:< ColumnMapperVerifierContext[CA, E2]
   )
   = successWithErrors[CA, E, S :: E2, Embed[S]](verified.errors)
 
@@ -59,13 +59,13 @@ object ColumnMapperVerifier extends ColumnMapperVerifierLP {
     def errors: List[String] = _errors
   }
 
-  def verError[CA[_], E, A](str: String) = ColumnMapperVerifier[VerifierContext[CA, E], A, VerifierContext[CA, E]](List(str))
+  def verError[CA[_], E, A](str: String) = ColumnMapperVerifier[ColumnMapperVerifierContext[CA, E], A, ColumnMapperVerifierContext[CA, E]](List(str))
 
   def simpleSuccess[C, A] = ColumnMapperVerifier[C, A, C](List.empty)
 
-  def success[CA[_], E1, E2, A] = ColumnMapperVerifier[VerifierContext[CA, E1], A, VerifierContext[CA, E2]](List.empty)
+  def success[CA[_], E1, E2, A] = ColumnMapperVerifier[ColumnMapperVerifierContext[CA, E1], A, ColumnMapperVerifierContext[CA, E2]](List.empty)
 
-  def successWithErrors[CA[_], E1, E2, A](errors: List[String]) = ColumnMapperVerifier[VerifierContext[CA, E1], A, VerifierContext[CA, E2]](errors)
+  def successWithErrors[CA[_], E1, E2, A](errors: List[String]) = ColumnMapperVerifier[ColumnMapperVerifierContext[CA, E1], A, ColumnMapperVerifierContext[CA, E2]](errors)
 
   implicit def hnilVerify[C, L <: HNil] = simpleSuccess[C, L]
 
@@ -92,7 +92,7 @@ object ClassNames {
   implicit def field[K, V](implicit ct: ClassTag[K]) = new ClassNames[FieldType[K, V]] {
     def names: List[String] = List(ct.runtimeClass.getName)
   }
-  implicit def vc[CA[_], E](implicit cn: ClassNames[E]) = new ClassNames[VerifierContext[CA, E]] {
+  implicit def vc[CA[_], E](implicit cn: ClassNames[E]) = new ClassNames[ColumnMapperVerifierContext[CA, E]] {
     def names: List[String] = cn.names
   }
 }

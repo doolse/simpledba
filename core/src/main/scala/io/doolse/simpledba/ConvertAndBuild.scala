@@ -18,7 +18,7 @@ trait BuiltQueries[Q] {
 
   def queries: Q
 
-  def ddl: Eval[List[DDL]]
+  def ddl: List[DDL]
 }
 
 object BuiltQueries {
@@ -29,13 +29,21 @@ object BuiltQueries {
 
     def queries = q
 
-    def ddl = _ddl
+    def ddl = _ddl.value
   }
 }
 
-class BuilderContext[F[_], DDL, KMT]
+trait BuilderContext[F[_], DDL, KMT, Q] {
+  val M: Applicative[F]
+  val queries: Q
+}
 
 object BuilderContext {
+  def apply[F[_], DDL, KMT, Q](_M: Applicative[F], q: Q) = new BuilderContext[F, DDL, KMT, Q] {
+    val M = _M
+    val queries = q
+  }
+
   type PhysRelationOnly[F[_], DDLStatement, T] = PhysRelation[F, DDLStatement, T]
   type PhysRelationAux[F[_], DDLStatement, T, PartKey0, SortKey0] = PhysRelation[F, DDLStatement, T] {
     type PartitionKey = PartKey0
@@ -59,8 +67,9 @@ case class ReadQueryBuilder[F[_], DDL, T, PKK, PKV, SKK, SKV, Key, RelRequired, 
 (physical: PhysicalBuilder[F, DDL, T, PKK, PKV, SKK, SKV],
  creatQuery: RelRequired => Out)
 
-class WriteQueryBuilder[F[_], DDL, T](implicit ap: Applicative[F]) {
+class WriteQueryBuilder[F[_], DDL, T](ap: Applicative[F]) {
   def create(tables: List[PhysRelation[F, DDL, T]]): WriteQueries[F, T] = {
+    implicit val M = ap
     tables.map(_.createWriteQueries).reduce(WriteQueries.combine[F, T])
   }
 }
@@ -192,36 +201,36 @@ object QueriesBuilder {
 
 
 private object convertQueries extends Poly2 {
-  implicit def convertPartialKey[KMT, F[_], DDL, R <: HList, K, QM, A, CR <: HList, CVL <: HList, KL <: HList, SR, PKK, PKV, SKK, SKV]
+  implicit def convertPartialKey[KMT, F[_], DDL, Q, R <: HList, K, QM, A, CR <: HList, CVL <: HList, KL <: HList, SR, PKK, PKV, SKK, SKV]
   (implicit
    evQM: QM <:< QueryMultiple[K, _, _],
    selRel: Selector.Aux[R, K, SR],
    ev: SR <:< RelationDef[A, CR, KL, CVL],
    keyMapper: KeyMapperAux[KMT, F, DDL, A, CR, KL, CVL, QM, PKK, PKV, SKK, SKV]
   )
-  = at[(R, BuilderContext[F, DDL, KMT]), QM] { case ((rels, _), q) =>
+  = at[(R, BuilderContext[F, DDL, KMT, Q]), QM] { case ((rels, _), q) =>
     val rb = ev(selRel(rels))
-    ReadQueryBuilder[F, DDL, A, PKK, PKV, SKK, SKV, (A, PKK), PartKeyOnly.Aux[F, A, PKV], MultiQuery[F, A, PKV]](
+    ReadQueryBuilder[F, DDL, A, PKK, PKV, SKK, SKV, (A, PKK), PhysRelationAux[F, DDL, A, PKV, SKV], RangeQuery[F, A, PKV, SKV]](
       PhysicalBuilder[F, DDL, A, PKK, PKV, SKK, SKV](rb.baseName, keyMapper.keysMapped(rb.mapper)),
-      table => MultiQuery(None, { (pk, asc) =>
+      table => RangeQuery(None, { (pk, l, h, asc) =>
         val rq = table.createReadQueries
-        rq.selectMany(table.selectAll, table.wherePK(pk), asc)
+        rq.selectMany(table.selectAll, table.whereRange(pk, l, h), asc)
       }))
   }
 
-  implicit def convertFullKey[F[_], DDL, KMT, R <: HList, K, QU, A, PKK, PKV, SKK, SKV, SR, CR <: HList, KL <: HList, CVL <: HList]
+  implicit def convertFullKey[F[_], DDL, KMT, Q, R <: HList, K, QU, A, PKK, PKV, SKK, SKV, SR, CR <: HList, KL <: HList, CVL <: HList]
   (implicit
    evSQ: QU <:< QueryUnique[K, _],
    selRel: Selector.Aux[R, K, SR],
    ev: SR <:< RelationDef[A, CR, KL, CVL],
    keyMapper: KeyMapperAux[KMT, F, DDL, A, CR, KL, CVL, QU, PKK, PKV, SKK, SKV])
-  = at[(R, BuilderContext[F, DDL, KMT]), QU] {
+  = at[(R, BuilderContext[F, DDL, KMT, Q]), QU] {
     case ((rels, _), q) =>
       val rb = ev(selRel(rels))
       ReadQueryBuilder[F, DDL, A, PKK, PKV, SKK, SKV, (A, PKK, SKK), PhysRelationAux[F, DDL, A, PKV, SKV],
-        SingleQuery[F, A, PKV :: SKV :: HNil]](
+        UniqueQuery[F, A, PKV :: SKV :: HNil]](
         PhysicalBuilder[F, DDL, A, PKK, PKV, SKK, SKV](rb.baseName, keyMapper.keysMapped(rb.mapper)),
-        table => SingleQuery {
+        table => UniqueQuery {
           (fk: PKV :: SKV :: HNil) =>
             val w = table.whereFullKey(fk)
             val rq = table.createReadQueries
@@ -229,26 +238,53 @@ private object convertQueries extends Poly2 {
         })
   }
 
-  implicit def convertWrites[F[_], DDL, KMT, R <: HList, K, A, SR]
+  implicit def convertWrites[F[_], DDL, KMT, Q, R <: HList, K, A, SR]
   (implicit selRel: Selector.Aux[R, K, SR],
-   M: Applicative[F],
    ev: SR <:< RelationDef[A, _, _, _])
-  = at[(R,BuilderContext[F, DDL, KMT]), RelationWriter[K]] { case _ => new WriteQueryBuilder[F, DDL, A] }
+  = at[(R,BuilderContext[F, DDL, KMT, Q]), RelationWriter[K]] { case ((_,bc),_) => new WriteQueryBuilder[F, DDL, A](bc.M) }
 
 }
 
-trait ConvertAndBuild[In, F[_], DDL, KMT] extends DepFn1[In]
+trait ConvertAndBuild[In] extends DepFn1[In]
 
 object ConvertAndBuild {
-  type Aux[In, F[_], DDL, KMT, Out0] = ConvertAndBuild[In, F, DDL, KMT] {type Out = BuiltQueries.Aux[Out0, DDL]}
+  type Aux[In, Out0] = ConvertAndBuild[In] {type Out = Out0 }
 
   implicit def mapAndBuild[F[_], DDL, KMT, CRD <: HList, Q <: HList, QL <: HList, RDQ <: HList, QOut]
-  (implicit relDefs: ConstMapper.Aux[(CRD, BuilderContext[F, DDL, KMT]), Q, RDQ],
+  (implicit
+   relDefs: ConstMapper.Aux[(CRD, BuilderContext[F, DDL, KMT, Q]), Q, RDQ],
    mapQueries: ZipWith.Aux[RDQ, Q, convertQueries.type, QL],
    queryBuilder: QueriesBuilder.Aux[QL, F, DDL, QOut])
-  = new ConvertAndBuild[(CRD, Q), F, DDL, KMT] {
+  = new ConvertAndBuild[(BuilderContext[F, DDL, KMT, Q], CRD)] {
     type Out = BuiltQueries.Aux[QOut, DDL]
 
-    def apply(t: (CRD, Q)) = queryBuilder(mapQueries(relDefs((t._1, new BuilderContext[F, DDL, KMT]), t._2), t._2))
+    def apply(t: (BuilderContext[F, DDL, KMT, Q], CRD)) = t match {
+      case (ctx, mappedRels) => queryBuilder(mapQueries(relDefs((mappedRels, ctx), ctx.queries), ctx.queries))
+    }
   }
+}
+
+trait queriesAsLP extends Poly1 {
+  implicit def sq[F[_], FA, FB, T, A, B]
+  (implicit ev: FA <:< UniqueQuery[F, T, A], ev2: FB <:< UniqueQuery[F, T, B],
+   conv: ValueConvert[B, A]) = at[FA @@ FB] {
+    ev(_).as[B]
+  }
+
+  implicit def rq[F[_], FA, FB, T, SA, SB, A, B]
+  (implicit ev: FA <:< RangeQuery[F, T, A, SA], ev2: FB <:< RangeQuery[F, T, B, SB],
+   cv: ValueConvert[B, A], cv2: ValueConvert[SB, SA]) = at[FA @@ FB] {
+    ev(_).as[B, SB]
+  }
+
+  implicit def mq[F[_], FA, FB, T, A, B, SA]
+  (implicit ev: FA <:< RangeQuery[F, T, A, SA], ev2: FB <:< SortableQuery[F, T, B],
+   conv: ValueConvert[B, A]) = at[FA @@ FB] { fa =>
+    val rq = ev(fa)
+    SortableQuery[F, T, B](None, (b, ascO) => rq._q(conv(b), NoRange, NoRange, ascO))
+  }
+}
+
+object queriesAs extends queriesAsLP {
+  implicit def same[A, B](implicit ev: A <:< B) = at[A @@ B](a => a: B)
 }

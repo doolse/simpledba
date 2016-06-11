@@ -22,10 +22,10 @@ object TestCreator {
 
   case class Queries[F[_]](writeInst: WriteQueries[F, Inst],
                            writeUsers: WriteQueries[F, User],
-                           instByPK: SingleQuery[F, Inst, Long],
-                           querybyFirstName: MultiQuery[F, User, String],
-                           queryByLastName: MultiQuery[F, User, String],
-                           queryByFullName: SingleQuery[F, User, Username]
+                           instByPK: UniqueQuery[F, Inst, Long],
+                           querybyFirstName: SortableQuery[F, User, String],
+                           queryByLastName: SortableQuery[F, User, String],
+                           queryByFullName: UniqueQuery[F, User, Username]
                           )
 
   val model = RelationModel(
@@ -50,9 +50,9 @@ object TestCreator {
     for {
       _ <- writeUsers.insert(User("Jolse", "Maginnis", 1980))
       _ <- writeUsers.insert(User("Emma", "Maginnis", 1982))
-      _ <- writeUsers.insert(User("Jolse", "Fuckstick", 1985))
+      _ <- writeUsers.insert(User("Jolse", "Mahinnis", 1985))
       _ <- writeInst.insert(orig)
-      res2 <- instByPK.query(1L)
+      res2 <- instByPK(1L)
       res <- instByPK.query(517573426L)
       _ <- writeInst.update(orig, updated)
       res3 <- instByPK.query(2L)

@@ -1,5 +1,6 @@
 package io.doolse.simpledba.dynamodb
 
+import cats.Applicative
 import cats.data.{Reader, Xor}
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient
 import com.amazonaws.services.dynamodbv2.model._
@@ -69,6 +70,8 @@ class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect] {
     atom.from andThen from,
     atom.to compose to,
     atom.attributeType, (ex, nv) => atom.diff(to(ex), to(nv)))
+
+  def M = Applicative[Effect]
 }
 
 trait DynamoDBPhysicalRelations[T, CR <: HList, CVL <: HList, PKN0, SKN0, PKV, SKV] extends DepFn2[ColumnMapper[T, CR, CVL], String] {
@@ -127,7 +130,7 @@ object DynamoDBPhysicalRelations {
 
       def wherePK(pk: PartitionKey): DynamoWhere = KeyMatch(pkVals(pk), None)
 
-      def whereRange(pk: PKV, lower: SortKey, upper: SortKey): DynamoWhere = ???
+      def whereRange(pk: PKV, lower: RangeValue[SortKey], upper: RangeValue[SortKey]): DynamoWhere = ???
 
       def createReadQueries: ReadQueries = new ReadQueries {
         def selectOne[A](projection: DynamoProjection[A], where: DynamoWhere): Effect[Option[A]] = Reader { s =>

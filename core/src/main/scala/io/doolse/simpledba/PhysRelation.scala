@@ -25,7 +25,9 @@ object KeyMapper {
   }
 }
 
-trait PartKeyOnly[F[_], T] {
+trait PhysRelation[F[_], DDLStatement, T] {
+  type SortKey
+  type FullKey = PartitionKey :: SortKey :: HNil
   type Projection[A]
   type Where
   type PartitionKey
@@ -36,22 +38,9 @@ trait PartKeyOnly[F[_], T] {
     def selectMany[A](projection: Projection[A], where: Where, asc: Option[Boolean]): F[List[A]]
   }
 
-  def wherePK(pk: PartitionKey): Where
-
   def selectAll: Projection[T]
 
   def createReadQueries: ReadQueries
-}
-
-object PartKeyOnly {
-  type Aux[F[_], T, PK0] = PartKeyOnly[F, T] {
-    type PartitionKey = PK0
-  }
-}
-
-trait PhysRelation[F[_], DDLStatement, T] extends PartKeyOnly[F, T] {
-  type SortKey
-  type FullKey = PartitionKey :: SortKey :: HNil
 
   def createWriteQueries: WriteQueries[F, T]
 
@@ -59,7 +48,7 @@ trait PhysRelation[F[_], DDLStatement, T] extends PartKeyOnly[F, T] {
 
   def whereFullKey(pk: FullKey): Where
 
-  def whereRange(pk: PartitionKey, lower: SortKey, upper: SortKey): Where
+  def whereRange(pk: PartitionKey, lower: RangeValue[SortKey], upper: RangeValue[SortKey]): Where
 }
 
 object PhysRelation {

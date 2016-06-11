@@ -23,7 +23,7 @@ object TestDynamo extends App {
   val built = mapper.verifyModel(TestCreator.model)
 
   val queries = built.queries
-  val creation = built.ddl.value
+  val creation = built.ddl
 
   val existingTables = client.listTables().getTableNames.asScala.toSet
   creation.foreach(ct => Try {

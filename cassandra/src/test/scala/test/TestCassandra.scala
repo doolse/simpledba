@@ -13,17 +13,11 @@ object TestCassandra extends App {
   val built = mapper.buildModel(TestCreator.model)
   val queries = built.queries
 
-  val session = CassandraSession.simpleSession("localhost", Some("eps"))
-  val creation = built.ddl.value
-  creation.foreach {
-    case (name, c) => {
-      session.execute(SchemaBuilder.dropTable(name).ifExists())
-      println(c.getQueryString())
-      session.execute(c)
-    }
-  }
+  val session = CassandraSession.simpleSession("localhost")
+  val sessionConfig = SessionConfig(session, s => println(s()))
+  CassandraUtils.initKeyspaceAndSchema(sessionConfig, "test", built.ddl, dropKeyspace = true).unsafeRun
 
   val q = TestCreator.doTest(queries)
-  val res = q.run(SessionConfig(session, s => println(s()))).unsafeRun
+  val res = q.run(sessionConfig).unsafeRun
   println(res)
 }

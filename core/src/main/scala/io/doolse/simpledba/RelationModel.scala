@@ -1,6 +1,6 @@
 package io.doolse.simpledba
 
-import cats.{Applicative, Monad}
+import cats.{Applicative, Functor, Monad}
 import cats.syntax.all._
 import shapeless.ops.hlist.Prepend
 import shapeless._
@@ -32,16 +32,42 @@ class QueryMultiple[K, Columns <: HList, SortColumns <: HList] extends RelationQ
 class QueryRange[K, Columns <: HList, RangeColumns <: HList] extends RelationQuery[K]
 class RelationWriter[K]
 
-case class SingleQuery[F[_], T, KeyValues](query: KeyValues => F[Option[T]]) {
-  def as[K](implicit vc: ValueConvert[K, KeyValues]) = copy[F, T, K](query = query compose vc)
+trait RangeValue[+A]
+
+object RangeValue {
+  implicit val functor = new Functor[RangeValue] {
+    def map[A, B](fa: RangeValue[A])(f: (A) => B): RangeValue[B] = fa match {
+      case NoRange => NoRange
+      case Inclusive(a) => Inclusive(f(a))
+      case Exclusive(a) => Exclusive(f(a))
+    }
+  }
+  implicit def autoInclusive[A](a: A) : Inclusive[A] = Inclusive(a)
+}
+case object NoRange extends RangeValue[Nothing]
+case class Inclusive[A](a: A) extends RangeValue[A]
+case class Exclusive[A](a: A) extends RangeValue[A]
+
+case class UniqueQuery[F[_], T, Key](query: Key => F[Option[T]]) {
+  def apply(kv: Key) = query(kv)
+  def as[K](implicit vc: ValueConvert[K, Key]) = copy[F, T, K](query = query compose vc)
 }
 
-case class MultiQuery[F[_], T, KeyValues](ascending: Option[Boolean], _q: (KeyValues, Option[Boolean]) => F[List[T]]) {
-  def query(k: KeyValues) = _q(k, ascending)
+case class SortableQuery[F[_], T, Key](ascending: Option[Boolean], _q: (Key, Option[Boolean]) => F[List[T]]) {
+  def apply(k: Key) = _q(k, ascending)
 
-  def queryWithOrder(k: KeyValues, asc: Boolean) = _q(k, Some(asc))
+  def queryWithOrder(k: Key, asc: Boolean) = _q(k, Some(asc))
 
-  def as[K](implicit vc: ValueConvert[K, KeyValues]) = copy[F, T, K](_q = (k, asc) => _q(vc(k), asc))
+  def as[K](implicit vc: ValueConvert[K, Key]) = copy[F, T, K](_q = (k, asc) => _q(vc(k), asc))
+}
+
+case class RangeQuery[F[_], T, Key, Sort](ascending: Option[Boolean], _q: (Key, RangeValue[Sort], RangeValue[Sort], Option[Boolean]) => F[List[T]]) {
+  def apply(k: Key, lower: RangeValue[Sort] = NoRange, higher: RangeValue[Sort] = NoRange) = _q(k, lower, higher, ascending)
+
+  def queryWithOrder(k: Key, lower: RangeValue[Sort] = NoRange, higher: RangeValue[Sort] = NoRange, asc: Boolean) = _q(k, lower, higher, Some(asc))
+
+  def as[K, SK](implicit vc: ValueConvert[K, Key], vc2: ValueConvert[SK, Sort])
+  = copy[F, T, K, SK](_q = (k, l, h, asc) => _q(vc(k), l.map(vc2), h.map(vc2), asc))
 }
 
 trait WriteQueries[F[_], T] {

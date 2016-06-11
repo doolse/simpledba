@@ -18,7 +18,7 @@ object CassandraSession {
 
   implicit val strat = Strategy.fromExecutionContext(Implicits.global)
 
-  def simpleSession(hosts: String, ks: Option[String]) = {
+  def simpleSession(hosts: String, ks: Option[String] = None) = {
     val cluster = Cluster.builder()
       .addContactPoints(hosts)
       .withLoadBalancingPolicy(new TokenAwarePolicy(new DCAwareRoundRobinPolicy.Builder().build()))
