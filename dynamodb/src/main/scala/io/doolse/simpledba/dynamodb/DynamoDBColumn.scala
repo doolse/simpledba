@@ -23,4 +23,9 @@ object DynamoDBColumn {
   implicit val stringColumn = create[String](_.getS, new AttributeValue(_), identity, ("A", "Z"), ScalarAttributeType.S)
   implicit val uuidColumn = create[UUID](v => UUID.fromString(v.getS), u => new AttributeValue(u.toString), _.toString(),
     (new UUID(0L, 0L), new UUID(0xFFFFFFFFFFFFFFFFL, 0xFFFFFFFFFFFFFFFFL)), ScalarAttributeType.S)
+
+  implicit def optionColumn[A](implicit wrapped: DynamoDBColumn[A]) = create[Option[A]](av => Option(av).map(wrapped.from),
+    oA => oA.map(wrapped.to).getOrElse(new AttributeValue().withNULL(true)), oA => oA.map(wrapped.compositePart).getOrElse(""), wrapped.range match {
+      case (a,b) => (Some(a), Some(b))
+    }, wrapped.attributeType)
 }
