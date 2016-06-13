@@ -32,7 +32,7 @@ class QueryMultiple[K, Columns <: HList, SortColumns <: HList] extends RelationQ
 class QueryRange[K, Columns <: HList, RangeColumns <: HList] extends RelationQuery[K]
 class RelationWriter[K]
 
-trait RangeValue[+A]
+sealed trait RangeValue[+A]
 
 object RangeValue {
   implicit val functor = new Functor[RangeValue] {

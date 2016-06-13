@@ -3,13 +3,14 @@ package io.doolse.simpledba.dynamodb
 import cats.Applicative
 import cats.data.{Reader, Xor}
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient
-import com.amazonaws.services.dynamodbv2.model._
+import com.amazonaws.services.dynamodbv2.model.{Record => _, _}
 import io.doolse.simpledba._
 import io.doolse.simpledba.dynamodb.DynamoDBMapper._
 import shapeless._
+import shapeless.labelled._
 import shapeless.ops.hlist
-import shapeless.ops.hlist.{IsHCons, ToList}
-import shapeless.ops.record._
+import shapeless.ops.hlist.{Intersection, Prepend, RemoveAll, ToList}
+import shapeless.ops.record.{SelectAll, Selector}
 
 import scala.collection.JavaConverters._
 
@@ -17,21 +18,36 @@ import scala.collection.JavaConverters._
   * Created by jolz on 12/05/16.
   */
 
+case class DynamoDBSession(client: AmazonDynamoDBClient)
+
 object DynamoDBMapper {
   type Effect[A] = Reader[DynamoDBSession, A]
 
-  case class DynamoDBSession(client: AmazonDynamoDBClient)
 
   def asAttrMap(l: List[PhysicalValue[DynamoDBColumn]]) = l.map(physical2Attribute).toMap.asJava
 
   def physical2Attribute(pc: PhysicalValue[DynamoDBColumn]) = pc.name -> pc.atom.to(pc.v)
 }
 
-case class QueryParam(name: String, v: PhysicalValue[DynamoDBColumn], op: String) {
-  val colName = s"#$name" -> v.name
+trait QueryParam {
+  def columnName: (String, String)
+  def values: Iterable[(String, AttributeValue)]
+  def expr: String
+}
+case class SimpleParam(name: String, v: PhysicalValue[DynamoDBColumn], op: String) extends QueryParam {
+  val columnName = s"#$name" -> v.name
   val value = s":$name" -> v.atom.to(v.v)
+  val values = Iterable(value)
 
-  def expr = s"${colName._1} $op ${value._1}"
+  def expr = s"${columnName._1} $op ${value._1}"
+}
+
+case class BetweenParam(name: String, v: PhysicalValue[DynamoDBColumn], v2: PhysicalValue[DynamoDBColumn]) extends QueryParam {
+  val columnName = s"#$name" -> v.name
+  val value1 = s":${name}1" -> v.atom.to(v.v)
+  val value2 = s":${name}2" -> v2.atom.to(v2.v)
+  val values = Iterable(value1, value2)
+  def expr = s"${columnName._1} BETWEEN ${value1._1} AND ${value2._1}"
 }
 
 sealed trait DynamoProjection[T] {
@@ -46,18 +62,23 @@ sealed trait DynamoWhere {
   def asMap: java.util.Map[String, AttributeValue]
 }
 
-case class KeyMatch(pk: PhysicalValue[DynamoDBColumn], sk: Option[PhysicalValue[DynamoDBColumn]]) extends DynamoWhere {
+case class KeyMatch(pk: PhysicalValue[DynamoDBColumn], sk1: Option[(PhysicalValue[DynamoDBColumn], String)],
+                    sk2: Option[(PhysicalValue[DynamoDBColumn], String)]) extends DynamoWhere {
   def forRequest = qr => {
-    val params = List(QueryParam("PK", pk, "=")) ++ sk.map(skv => QueryParam("SK", skv, "="))
+    val opSK = (sk1, sk2) match {
+      case (Some((pv, op1)), Some((pv2, op2))) => Option(BetweenParam("SK1", pv, pv2))
+      case _ => sk1.orElse(sk2) map { s => SimpleParam("SK1", s._1, s._2) }
+    }
+    val params = List(SimpleParam("PK", pk, "=")) ++ opSK
     val expr = params.map(_.expr).mkString(" AND ")
-    val nameMap = params.map(_.colName).toMap.asJava
-    val valMap = params.map(_.value).toMap.asJava
+    val nameMap = params.map(_.columnName).toMap.asJava
+    val valMap = params.map(_.values).flatten.toMap.asJava
     qr.withKeyConditionExpression(expr)
       .withExpressionAttributeNames(nameMap)
       .withExpressionAttributeValues(valMap)
   }
 
-  def asMap = asAttrMap(List(pk) ++ sk)
+  def asMap = asAttrMap(List(pk) ++ sk1.map(_._1) ++ sk2.map(_._1))
 }
 
 class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect] {
@@ -66,34 +87,50 @@ class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect] {
   type DDLStatement = CreateTableRequest
   type KeyMapperT = DynamoDBKeyMapper
 
-  def doWrapAtom[S, A](atom: DynamoDBColumn[A], to: (S) => A, from: (A) => S): DynamoDBColumn[S] = DynamoDBColumn[S](
-    atom.from andThen from,
-    atom.to compose to,
-    atom.attributeType, (ex, nv) => atom.diff(to(ex), to(nv)))
+  def doWrapAtom[S, A](atom: DynamoDBColumn[A], to: (S) => A, from: (A) => S): DynamoDBColumn[S] = {
+    val (lr, hr) = atom.range
+    DynamoDBColumn[S](
+      atom.from andThen from,
+      atom.to compose to,
+      atom.attributeType, (ex, nv) => atom.diff(to(ex), to(nv)), atom.compositePart compose to, (from(lr), from(hr)))
+
+  }
 
   def M = Applicative[Effect]
 }
 
-trait DynamoDBPhysicalRelations[T, CR <: HList, CVL <: HList, PKN0, SKN0, PKV, SKV] extends DepFn2[ColumnMapper[T, CR, CVL], String] {
-  type Out = PhysRelation.Aux[DynamoDBMapper.Effect, CreateTableRequest, T, PKV, SKV]
+trait DynamoDBPhysicalRelations[T, CR <: HList, CVL <: HList, PKN, SKN, PKVO, SKVO] {
+  type PKVRaw
+  type SKVRaw
+
+  def apply(colMapper: ColumnMapper[T, CR, CVL], tableName: String, convPK: PKVO => PKVRaw, convSK: (SKVO, Boolean) => SKVRaw)
+  : PhysRelation.Aux[DynamoDBMapper.Effect, CreateTableRequest, T, PKVO, SKVO]
 }
 
 object DynamoDBPhysicalRelations {
 
-  implicit def dynamoDBTable[T, CR <: HList, CVL <: HList, PKK, SKKL <: HList, PKV, SKV,
-  SKCL <: HList, PKC]
+  type Aux[T, CR <: HList, CVL <: HList, PKN, SKN, PKVO, SKVO, PKVRaw0, SKVRaw0] = DynamoDBPhysicalRelations[T, CR, CVL, PKN, SKN, PKVO, SKVO] {
+    type PKVRaw = PKVRaw0
+    type SKVRaw = SKVRaw0
+  }
+
+  implicit def dynamoDBTable[T, CR <: HList, CVL <: HList, PKK, SKKL <: HList,
+  PKV0, SKV0, SKCL <: HList, PKC, PKV, SKV]
   (implicit
    selectPkCol: Selector.Aux[CR, PKK, PKC],
    skSel: SelectAll.Aux[CR, SKKL, SKCL],
-   pkValB: PhysicalValues.Aux[DynamoDBColumn, PKC, PKV, PhysicalValue[DynamoDBColumn]],
+   pkValB: PhysicalValues.Aux[DynamoDBColumn, PKC, PKV0, PhysicalValue[DynamoDBColumn]],
    skToList: ToList[SKCL, ColumnMapping[DynamoDBColumn, T, _]],
-   evCol: PKC =:= ColumnMapping[DynamoDBColumn, T, PKV],
-   skValB: PhysicalValues.Aux[DynamoDBColumn, SKCL, SKV, List[PhysicalValue[DynamoDBColumn]]],
-   helperB: ColumnListHelperBuilder[DynamoDBColumn, T, CR, CVL, PKV :: SKV :: HNil],
-   extractVals: ValueExtractor.Aux[CR, CVL, PKK :: SKKL :: HNil, PKV :: SKV :: HNil]
+   evCol: PKC =:= ColumnMapping[DynamoDBColumn, T, PKV0],
+   skValB: PhysicalValues.Aux[DynamoDBColumn, SKCL, SKV0, List[PhysicalValue[DynamoDBColumn]]],
+   helperB: ColumnListHelperBuilder[DynamoDBColumn, T, CR, CVL, PKV0 :: SKV0 :: HNil],
+   extractVals: ValueExtractor.Aux[CR, CVL, PKK :: SKKL :: HNil, PKV0 :: SKV0 :: HNil]
   ) = new DynamoDBPhysicalRelations[T, CR, CVL, PKK, SKKL, PKV, SKV] {
+    type PKVRaw = PKV0
+    type SKVRaw = SKV0
 
-    def apply(colMapper: ColumnMapper[T, CR, CVL], tableName: String): PhysRelation.Aux[DynamoDBMapper.Effect, CreateTableRequest, T, PKV, SKV]
+    def apply(colMapper: ColumnMapper[T, CR, CVL], tableName: String,
+              convPK: PKV => PKVRaw, convSK: (SKV, Boolean) => SKVRaw): PhysRelation.Aux[DynamoDBMapper.Effect, CreateTableRequest, T, PKV, SKV]
     = new PhysRelation[Effect, CreateTableRequest, T] {
       self =>
       type PartitionKey = PKV
@@ -107,14 +144,14 @@ object DynamoDBPhysicalRelations {
       val pkVals = pkValB(pkCol)
       val skVals = skValB(skColL)
 
-      def keysAsAttributes(keys: FullKey) =
+      def keysAsAttributes(keys: PKVRaw :: SKVRaw :: HNil) =
         keyMatchFromList(keys).asMap
 
-      def keyMatchFromList(keys: FullKey) =
-        createKeyMatch(keys.head, keys.tail.head)
+      def keyMatchFromList(keys: PKVRaw :: SKVRaw :: HNil) =
+        KeyMatch(pkVals(keys.head), skVals(keys.tail.head).headOption.map((_, "=")), None)
 
       def createKeyMatch(pk: PartitionKey, sk: SortKey): DynamoWhere
-      = KeyMatch(pkVals(pk), skVals(sk).headOption)
+      = KeyMatch(pkVals(convPK(pk)), skVals(convSK(sk, true)).headOption.map((_, "=")), None)
 
       def asValueUpdate(d: ValueDifference[DynamoDBColumn]) = {
         d.name -> d.atom.diff(d.existing, d.newValue)
@@ -126,11 +163,20 @@ object DynamoDBPhysicalRelations {
         }
       }
 
-      def whereFullKey(fk: PartitionKey :: SortKey :: HNil): DynamoWhere = keyMatchFromList(fk)
+      def whereFullKey(fk: PartitionKey :: SortKey :: HNil): DynamoWhere = createKeyMatch(fk.head, fk.tail.head)
 
-      def wherePK(pk: PartitionKey): DynamoWhere = KeyMatch(pkVals(pk), None)
+      def wherePK(pk: PartitionKey): DynamoWhere = KeyMatch(pkVals(convPK(pk)), None, None)
 
-      def whereRange(pk: PKV, lower: RangeValue[SortKey], upper: RangeValue[SortKey]): DynamoWhere = ???
+      def rangeToSK(opInc: String, opExc: String, lower: Boolean, rv: RangeValue[SortKey]): Option[(PhysicalValue[DynamoDBColumn], String)] = (rv match {
+        case NoRange => None
+        case Inclusive(a) => Some((a, opInc, lower))
+        case Exclusive(a) => Some((a, opExc, !lower))
+      }).flatMap {
+        case (a, op, l) => skVals(convSK(a, l)).headOption.map((_, op))
+      }
+
+      def whereRange(pk: PartitionKey, lower: RangeValue[SortKey], upper: RangeValue[SortKey]): DynamoWhere =
+        KeyMatch(pkVals(convPK(pk)), rangeToSK(">=", ">", true, lower), rangeToSK("<=", "<", false, upper))
 
       def createReadQueries: ReadQueries = new ReadQueries {
         def selectOne[A](projection: DynamoProjection[A], where: DynamoWhere): Effect[Option[A]] = Reader { s =>
@@ -183,9 +229,74 @@ object DynamoDBPhysicalRelations {
 
 trait DynamoDBKeyMapper
 
-object DynamoDBKeyMapper {
+trait DynamoDBKeyMapperLP {
+  val PKComposite: Witness = 'PK_composite
+  val SKComposite: Witness = 'SK_composite
 
-  type Aux[T, CR <: HList, KL <: HList, CVL <: HList, Q, PKK, PKV, SKKL, SKV] = DynamoDBKeyMapper with KeyMapper[T, CR, KL, CVL, Q] {
+  implicit def compositeKeys[K, T, CR <: HList, CVL <: HList, PKL <: HList,
+  UCL <: HList, SKL <: HList, UPCR1 <: HList, UPCR2 <: HList, PKV, SKV,
+  UCLL <: HList, SKLL <: HList,
+  ICL <: HList, PKWithoutUCL <: HList, ISKL <: HList,
+  XSKL <: HList, XSKLCL <: HList, XSKV]
+  (implicit
+   selUCL: SelectAll.Aux[CR, UCL, UCLL],
+   selSKL: SelectAll.Aux[CR, SKL, SKLL],
+   uclVals: PhysicalValues.Aux[DynamoDBColumn, UCLL, PKV, List[PhysicalValue[DynamoDBColumn]]],
+   sklVals: PhysicalValues.Aux[DynamoDBColumn, SKLL, SKV, List[PhysicalValue[DynamoDBColumn]]],
+   extractUCL: ValueExtractor.Aux[CR, CVL, UCL, PKV],
+   intersect: Intersection.Aux[PKL, UCL, ICL],
+   pkWithOutSC: RemoveAll.Aux[PKL, ICL, (ICL, PKWithoutUCL)],
+   intersectSort: Intersection.Aux[PKWithoutUCL, SKL, ISKL],
+   pkWithOutSK: RemoveAll.Aux[PKWithoutUCL, ISKL, (ISKL, XSKL)],
+   selXSKL: SelectAll.Aux[CR, XSKL, XSKLCL],
+   xskList: ToList[XSKLCL, ColumnMapping[DynamoDBColumn, T, _]],
+   xskVals: PhysicalValues.Aux[DynamoDBColumn, XSKLCL, XSKV, List[PhysicalValue[DynamoDBColumn]]],
+   extractSKL: ValueExtractor.Aux[CR, CVL, SKL :: XSKL :: HNil, SKV :: XSKV :: HNil],
+   update1: Prepend.Aux[FieldType[PKComposite.T, ColumnMapping[DynamoDBColumn, T, String]] ::
+     FieldType[SKComposite.T, ColumnMapping[DynamoDBColumn, T, String]] :: HNil, CR, UPCR1],
+   relMaker: DynamoDBPhysicalRelations.Aux[T, UPCR1, String :: String :: CVL, PKComposite.T, SKComposite.T :: HNil,
+     PKV, SKV, String, String :: HNil]
+  )
+  : DynamoDBKeyMapper.Aux[T, CR, PKL, CVL, QueryMultiple[K, UCL, SKL], UCL, SKL, PKV, SKV]
+  = new DynamoDBKeyMapper with KeyMapper.Impl[T, CR, PKL, CVL, QueryMultiple[K, UCL, SKL], UCL,
+    PKV, SKL, SKV, PhysRelation.Aux[Effect, CreateTableRequest, T, PKV, SKV]] {
+
+    def keysMapped(cm: ColumnMapper[T, CR, CVL])(name: String) = {
+      val asString: PhysicalValue[DynamoDBColumn] => String = db => db.atom.compositePart(db.v)
+      def combine(l: List[PhysicalValue[DynamoDBColumn]]) = l.map(asString).mkString(",")
+
+      val columns = cm.columns
+      def xskOK(lower: Boolean) = xskList(selXSKL(columns)).map { cm =>
+        PhysicalValue(cm.name, cm.atom, if (lower) cm.atom.range._1 else cm.atom.range._2)
+      }
+      val getPKV = extractUCL()
+      val getAllSKV = extractSKL()
+      val pkvToString = uclVals(selUCL(columns)) andThen combine
+      def skvToString(v: SKV :: XSKV :: HNil) =
+        combine(sklVals(selSKL(columns)).apply(v.head) ++ xskVals(selXSKL(columns)).apply(v.tail.head))
+      def skvOnlyToString(v: SKV, lower: Boolean) =
+        combine(sklVals(selSKL(columns))(v) ++ xskOK(lower))
+
+      val pkField = field[PKComposite.T](ColumnMapping[DynamoDBColumn, T, String]("PK_composite", DynamoDBColumn.stringColumn,
+        cm.toColumns andThen getPKV andThen pkvToString))
+      val skField = field[SKComposite.T](ColumnMapping[DynamoDBColumn, T, String]("SK_composite", DynamoDBColumn.stringColumn,
+        cm.toColumns andThen getAllSKV andThen skvToString))
+
+      val cm2 = ColumnMapper[T, UPCR1, String :: String :: CVL](update1(pkField :: skField :: HNil, columns),
+        cvl => cm.fromColumns(cvl.tail.tail), { t =>
+          val cvl = cm.toColumns(t)
+          pkvToString(getPKV(cvl)) :: skvToString(getAllSKV(cvl)) :: cvl
+        }
+      )
+      relMaker(cm2, name, pkvToString, (skv, l) => skvOnlyToString(skv, l) :: HNil)
+    }
+  }
+
+}
+
+object DynamoDBKeyMapper extends DynamoDBKeyMapperLP {
+
+  type Aux[T, CR <: HList, KL <: HList, CVL <: HList, Q, PKK, SKKL, PKV, SKV] = DynamoDBKeyMapper with KeyMapper[T, CR, KL, CVL, Q] {
     type Out = PhysRelation.Aux[Effect, CreateTableRequest, T, PKV, SKV]
     type PartitionKey = PKV
     type SortKey = SKV
@@ -193,31 +304,37 @@ object DynamoDBKeyMapper {
     type SortKeyNames = SKKL
   }
 
-  def apply[T, CR <: HList, KL <: HList, CVL <: HList, Q, PKV, SKV, PKK, SKKL]
-  (relMaker: DynamoDBPhysicalRelations[T, CR, CVL, PKK, SKKL, PKV, SKV])
-  : Aux[T, CR, KL, CVL, Q, PKK, PKV, SKKL, SKV]
+  def apply[T, CR <: HList, KL <: HList, CVL <: HList, Q, PKK, SKKL, PKV, SKV]
+  (relMaker: DynamoDBPhysicalRelations.Aux[T, CR, CVL, PKK, SKKL, PKV, SKV, PKV, SKV])
+  : Aux[T, CR, KL, CVL, Q, PKK, SKKL, PKV, SKV]
   = new DynamoDBKeyMapper with KeyMapper.Impl[T, CR, KL, CVL, Q, PKK,
     PKV, SKKL, SKV, PhysRelation.Aux[Effect, CreateTableRequest, T, PKV, SKV]] {
 
-    def keysMapped(cm: ColumnMapper[T, CR, CVL])(name: String) = relMaker(cm, name)
+    def keysMapped(cm: ColumnMapper[T, CR, CVL])(name: String) = relMaker(cm, name, identity, (a,b) => a)
   }
 
-  implicit def primaryKey[K, T, CR <: HList, CVL <: HList, PKK, PKV]
+  implicit def primaryKey[K, T, CR <: HList, CVL <: HList, PKK, PKV, PKC]
   (implicit
-   relMaker: DynamoDBPhysicalRelations[T, CR, CVL, PKK, HNil, PKV, HNil]
-  ) : Aux[T, CR, PKK :: HNil, CVL, QueryUnique[K, HNil], PKK, PKV, HNil, HNil]
+   selPK: Selector.Aux[CR, PKK, PKC],
+   cv: ColumnValues.Aux[PKC, PKV],
+   relMaker: DynamoDBPhysicalRelations.Aux[T, CR, CVL, PKK, HNil, PKV, HNil, PKV, HNil]
+  ): Aux[T, CR, PKK :: HNil, CVL, QueryUnique[K, HNil], PKK, HNil, PKV, HNil]
   = DynamoDBKeyMapper(relMaker)
 
-  implicit def twoKeys[K, T, CR <: HList, CVL <: HList, PKK, PKV, SKK, SKV]
+  implicit def twoKeys[K, T, CR <: HList, CVL <: HList, PKK, PKV, SKK, SKV, PKC, SKC]
   (implicit
-   relMaker: DynamoDBPhysicalRelations[T, CR, CVL, PKK, SKK :: HNil, PKV, SKV]
-  ) : Aux[T, CR, PKK :: SKK :: HNil, CVL, QueryUnique[K, HNil], PKK, PKV, SKK :: HNil, SKV]
+   selPK: Selector.Aux[CR, PKK, PKC],
+   cv: ColumnValues.Aux[PKC, PKV],
+   selSK: Selector.Aux[CR, SKK, SKC],
+   cvSK: ColumnValues.Aux[SKC, SKV],
+   relMaker: DynamoDBPhysicalRelations.Aux[T, CR, CVL, PKK, SKK :: HNil, PKV, SKV :: HNil, PKV, SKV :: HNil]
+  ): Aux[T, CR, PKK :: SKK :: HNil, CVL, QueryUnique[K, HNil], PKK, SKK :: HNil, PKV, SKV :: HNil]
   = DynamoDBKeyMapper(relMaker)
 
   implicit def multiNoSort[K, T, CR <: HList, CVL <: HList, KL <: HList, PKK, PKV, SKL, SKV]
   (implicit
    remPK: hlist.Remove.Aux[KL, PKK, (PKK, SKL)],
-   relMaker: DynamoDBPhysicalRelations[T, CR, CVL, PKK, SKL, PKV, SKV]
-  ) : Aux[T, CR, KL, CVL, QueryMultiple[K, PKK :: HNil, HNil], PKK, PKV, SKL, SKV]
+   relMaker: DynamoDBPhysicalRelations.Aux[T, CR, CVL, PKK, SKL, PKV, SKV, PKV, SKV]
+  ): Aux[T, CR, KL, CVL, QueryMultiple[K, PKK :: HNil, HNil], PKK, SKL, PKV, SKV]
   = DynamoDBKeyMapper(relMaker)
 }
