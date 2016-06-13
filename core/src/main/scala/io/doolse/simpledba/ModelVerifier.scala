@@ -19,27 +19,27 @@ class ModelVerifierContext[R <: HList, E <: HList, CA[_], F[_], DDL, KMT, Q <: H
   val M: Applicative[F] = _M
   val queries = rm.queryList
 }
-case class ModelVerifier[In](errors: In => List[String])
+case class ModelVerifier[In](name: String, errors: In => List[String])
 
 trait ModelVerifierLP2 {
   implicit def noMapping[CTX, R <: HList, As[_[_]], CA[_]]
   (implicit
    ev: CTX <:< MapAllContext[_, R, CA],
    verifyMapping: ColumnMapperVerifier[ColumnMapperVerifierContext[CA, HNil], R])
-  = ModelVerifier[CTX] { ctx => verifyMapping.errors }
+  = ModelVerifier[CTX]("Mapping verification", ctx => verifyMapping.errors)
 }
 
 trait ModelVerifierLP extends ModelVerifierLP2 {
-  implicit def mappedOnly[CTX, CA[_], R <: HList, KMT, RelDefs <: HList, E <: HList, Q <: HList, F[_]]
+  implicit def mappedOnly[CTX, CA[_], R <: HList, KMT, RelDefs <: HList, E <: HList, Q <: HList, F[_], DDL]
   (implicit
    ev: CTX <:< MapAllContext[E, R, CA],
    mappedRelations: MapAllRelations.Aux[MapAllContext[E, R, CA], RelDefs],
-   ev3: CTX <:< BuilderContext[F, _, KMT, Q],
-   verifyQueries: QueryBuilderVerifier[(QueryBuilderVerifierContext[RelDefs, KMT], Q)])
-  = ModelVerifier[CTX] { ctx =>
+   ev3: CTX <:< BuilderContext[F, DDL, KMT, Q],
+   verifyQueries: QueryBuilderVerifier[(QueryBuilderVerifierContext[F, DDL, RelDefs, KMT], Q)])
+  = ModelVerifier[CTX]("Mapping OK, Query Builder verification", { ctx =>
     val relDefs = mappedRelations(ctx)
     verifyQueries.errors((QueryBuilderVerifierContext(mappedRelations(ctx)), ev3(ctx).queries))
-  }
+  })
 }
 
 object ModelVerifier extends ModelVerifierLP {
@@ -52,9 +52,9 @@ object ModelVerifier extends ModelVerifierLP {
    mappedRelations: MapAllRelations.Aux[MapAllContext[E, R, CA], RelDefs],
    convertAndBuild: ConvertAndBuild.Aux[(BuilderContext[F, DDL, KMT, Q], RelDefs), BuiltQueries.Aux[QOut, DDL]],
    verifyConversion: ConvertVerifier[QOut, ConvertVerifierContext[F, As]])
-  = ModelVerifier[CTX] { ctx =>
+  = ModelVerifier[CTX]("Mapping OK, Query Builder OK, Conversion verification", { ctx =>
     val relDefs = mappedRelations(ctx)
     verifyConversion.errors(convertAndBuild((ctx, relDefs)).queries)
-  }
+  })
 
 }

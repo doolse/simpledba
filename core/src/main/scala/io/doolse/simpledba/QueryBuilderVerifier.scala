@@ -8,18 +8,18 @@ import shapeless.ops.record.{Keys, LacksKey, Selector}
   * Created by jolz on 8/06/16.
   */
 
-case class QueryBuilderVerifierContext[RM <: HList, KeyMapperT](relations: RM)
+case class QueryBuilderVerifierContext[F[_], DDL, RM <: HList, KeyMapperT](relations: RM)
 
 case class QueryBuilderVerifier[In](errors: In => List[String])
 
 trait QueryBuilderVerifierLP {
 
-  implicit def missingRelation[RM <: HList, Q, K <: Symbol, KMT]
+  implicit def missingRelation[F[_], DDL, RM <: HList, Q, K <: Symbol, KMT]
   (implicit
    ev: Q <:< RelationQuery[K],
    lk: LacksKey[RM, K],
    key: Witness.Aux[K]
-  ) = QueryBuilderVerifier[(QueryBuilderVerifierContext[RM, KMT], Q)](_ => List(s"No relation for ${key.value.name}"))
+  ) = QueryBuilderVerifier[(QueryBuilderVerifierContext[F, DDL, RM, KMT], Q)](_ => List(s"No relation for ${key.value.name}"))
 
   object errorMessage extends Poly1 {
 
@@ -50,7 +50,7 @@ trait QueryBuilderVerifierLP {
     }
   }
 
-  implicit def failedKeyMapper[RM <: HList, Q, K <: Symbol, RD,
+  implicit def failedKeyMapper[F[_], DDL, RM <: HList, Q, K <: Symbol, RD,
   T, CR <: HList, KL <: HList, KLL <: HList, CVL <: HList, CRK <: HList, KMT]
   (implicit
    ev: Q <:< RelationQuery[K],
@@ -61,7 +61,7 @@ trait QueryBuilderVerifierLP {
    pkLRec: Reify.Aux[KL, KLL],
    allPKNames: ToList[KLL, Symbol],
    toError: errorMessage.Case.Aux[(Q, List[Symbol], List[Symbol]), String]
-  ) = QueryBuilderVerifier[(QueryBuilderVerifierContext[RM, KMT], Q)] { in =>
+  ) = QueryBuilderVerifier[(QueryBuilderVerifierContext[F, DDL, RM, KMT], Q)] { in =>
     val allCols = allColList(allColKeys())
     val pkCols = allPKNames(pkLRec())
     List(toError(in._2, allCols, pkCols))
@@ -73,18 +73,19 @@ object QueryBuilderVerifier extends QueryBuilderVerifierLP {
   type KeyMapperLookup[KMT, T, CR <: HList, KL <: HList, CVL <: HList, Query]
   = KMT with KeyMapper[T, CR, KL, CVL, Query]
 
-  implicit def verifyWrites[RM <: HList, Q, K, KMT]
+  implicit def verifyWrites[F[_], DDL, RM <: HList, Q, K, KMT]
   (implicit
    ev: Q <:< RelationWriter[K],
-   lk: Selector[RM, K]) = QueryBuilderVerifier[(QueryBuilderVerifierContext[RM, KMT], Q)](_ => List.empty)
+   lk: Selector[RM, K]) = QueryBuilderVerifier[(QueryBuilderVerifierContext[F, DDL, RM, KMT], Q)](_ => List.empty)
 
-  implicit def verifyQuery[RM <: HList, K, RD, T, CR <: HList, KL <: HList, CVL <: HList, Q, KMT]
+  implicit def verifyQuery[F[_], DDL, RM <: HList, K, RD, T, CR <: HList, KL <: HList, CVL <: HList, Q, KMT]
   (implicit
    ev2: Q <:< RelationQuery[K],
    sel: Selector.Aux[RM, K, RD],
    ev: RD <:< RelationDef[T, CR, KL, CVL],
-   km: KeyMapperLookup[KMT, T, CR, KL, CVL, Q]
-  ) = QueryBuilderVerifier[(QueryBuilderVerifierContext[RM, KMT],  Q)](_ => List.empty)
+   km: KeyMapperLookup[KMT, T, CR, KL, CVL, Q],
+   c: convertQueries.Case[(RM, BuilderContext[F, DDL, KMT, HNil]), Q]
+  ) = QueryBuilderVerifier[(QueryBuilderVerifierContext[F, DDL, RM, KMT], Q)](_ => List.empty)
 
   implicit def hconsVerify[CTX, H, T <: HList](implicit hv: QueryBuilderVerifier[(CTX, H)], tv: QueryBuilderVerifier[(CTX, T)])
   = QueryBuilderVerifier[(CTX, H :: T)] {

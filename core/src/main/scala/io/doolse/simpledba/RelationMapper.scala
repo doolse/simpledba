@@ -48,6 +48,7 @@ abstract class RelationMapper[F[_]] {
     val errors = verify.errors(
       new ModelVerifierContext(rm, ColumnMapperContext(stdColumnMaker), M)
     )
+    p(verify.name)
     errors.foreach(p)
     new BuiltQueries[As[F]] {
       type DDL = DDLStatement
