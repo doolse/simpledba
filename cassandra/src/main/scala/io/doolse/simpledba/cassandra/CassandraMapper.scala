@@ -10,7 +10,7 @@ import fs2.interop.cats._
 import io.doolse.simpledba.cassandra.CassandraMapper._
 import io.doolse.simpledba.{QueryBuilder => _, _}
 import shapeless._
-import shapeless.ops.hlist.{Intersection, IsHCons, Prepend, RemoveAll, ToList}
+import shapeless.ops.hlist.{Intersection, IsHCons, Prepend, Reify, RemoveAll, ToList}
 import shapeless.ops.record.{SelectAll, Values}
 import cats.syntax.all._
 import io.doolse.simpledba.PhysRelation.Aux
@@ -98,6 +98,7 @@ object CassandraTables {
       val skVals = skValB(allSKC(columns))
       val xskVals = xskValB(allXSKC(columns))
       val skNames = skNL(allSKC(columns))
+      val xskNames = xskNL(allXSKC(columns))
       val pkNames = pkNL(allPKC(columns))
       val allColumns = colList(allCols(columns))
 
@@ -156,9 +157,10 @@ object CassandraTables {
         val create = SchemaBuilder.createTable(tableName)
         val dts = allColumns.map(cm => cm.name -> cm.atom.dataType).toMap
         def addCol(f: (String, DataType) => Create)(name: String) = f(CassandraSession.escapeReserved(name), dts(name))
+        val rskNames = skNames ++ xskNames
         pkNames.map(addCol(create.addPartitionKey))
-        skNames.map(addCol(create.addClusteringColumn))
-        (dts.keySet -- (pkNames ++ skNames)).toList.map(addCol(create.addColumn))
+        rskNames.map(addCol(create.addClusteringColumn))
+        (dts.keySet -- (pkNames ++ rskNames)).toList.map(addCol(create.addColumn))
         (tableName, create)
       }
 
@@ -235,25 +237,22 @@ object CassandraKeyMapper {
   ): Aux[T, CR, KL, CVL, QueryUnique[K, HNil], KL, PKV, HNil, SKV]
   = CassandraKeyMapper(tableCreator)
 
-  implicit def uniqueResultMapper[K, T, CR <: HList, KL <: HList, CVL <: HList, UCL <: HList, SKLR, SKL <: HList, PKV, SKV]
+  implicit def uniqueResultMapper[K, T, CR <: HList, KL <: HList, CVL <: HList, UCL <: HList, SKL <: HList, PKV, SKV]
   (implicit
    mustHaveOne: IsHCons[UCL],
-   sortKeys: RemoveAll.Aux[KL, UCL, SKLR],
-   ev: SKLR <:< (_, SKL),
+   sortKeys: RemoveAll.Aux[KL, UCL, (UCL, SKL)],
    tableCreator: CassandraTables[T, CR, CVL, UCL, SKL, HNil, PKV, SKV]
   ): Aux[T, CR, KL, CVL, QueryUnique[K, UCL], UCL, PKV, SKL, SKV]
   = CassandraKeyMapper(tableCreator)
 
   implicit def multipleResultMapper[K, T, CR <: HList, PKL <: HList, CVL <: HList, UCL <: HList,
   SKL <: HList, PKV, SKV, ICL <: HList, PKLeftOver <: HList,
-  RemICL, PKWithoutUCL <: HList, FullSKL <: HList, ISKL <: HList, RemPKL, PKWithoutSK <: HList]
+  PKWithoutUCL <: HList, FullSKL <: HList, ISKL <: HList, PKWithoutSK <: HList]
   (implicit
    intersect: Intersection.Aux[PKL, UCL, ICL],
-   pkWithOutSC: RemoveAll.Aux[PKL, ICL, RemICL],
-   ev: RemICL <:< (_, PKWithoutUCL),
+   pkWithOutSC: RemoveAll.Aux[PKL, ICL, (ICL, PKWithoutUCL)],
    intersectSort: Intersection.Aux[PKWithoutUCL, SKL, ISKL],
-   pkWithOutSK: RemoveAll.Aux[PKWithoutUCL, ISKL, RemPKL],
-   ev2: RemICL <:< (_, PKWithoutSK),
+   pkWithOutSK: RemoveAll.Aux[PKWithoutUCL, ISKL, (ISKL, PKWithoutSK)],
    tableCreator: CassandraTables[T, CR, CVL, UCL, SKL, PKWithoutSK, PKV, SKV]
   ): Aux[T, CR, PKL, CVL, QueryMultiple[K, UCL, SKL], UCL, PKV, SKL, SKV]
   = CassandraKeyMapper(tableCreator)
