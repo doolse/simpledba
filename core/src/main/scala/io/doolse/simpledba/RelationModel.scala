@@ -4,6 +4,9 @@ import cats.{Applicative, Functor, Monad}
 import cats.syntax.all._
 import shapeless.ops.hlist.Prepend
 import shapeless._
+import fs2.Stream
+import fs2.util.Catchable
+
 /**
   * Created by jolz on 21/05/16.
   */
@@ -53,18 +56,19 @@ case class UniqueQuery[F[_], T, Key](query: Key => F[Option[T]]) {
   def as[K](implicit vc: ValueConvert[K, Key]) = copy[F, T, K](query = query compose vc)
 }
 
-case class SortableQuery[F[_], T, Key](ascending: Option[Boolean], _q: (Key, Option[Boolean]) => F[List[T]]) {
-  def apply(k: Key) = _q(k, ascending)
+case class SortableQuery[F[_], T, Key](ascending: Option[Boolean], _q: (Key, Option[Boolean]) => Stream[F, T])(implicit cb: Catchable[F]) {
+  def apply(k: Key) = _q(k, ascending).runLog
 
-  def queryWithOrder(k: Key, asc: Boolean) = _q(k, Some(asc))
+  def queryWithOrder(k: Key, asc: Boolean) = _q(k, Some(asc)).runLog
 
   def as[K](implicit vc: ValueConvert[K, Key]) = copy[F, T, K](_q = (k, asc) => _q(vc(k), asc))
 }
 
-case class RangeQuery[F[_], T, Key, Sort](ascending: Option[Boolean], _q: (Key, RangeValue[Sort], RangeValue[Sort], Option[Boolean]) => F[List[T]]) {
-  def apply(k: Key, lower: RangeValue[Sort] = NoRange, higher: RangeValue[Sort] = NoRange) = _q(k, lower, higher, ascending)
+case class RangeQuery[F[_], T, Key, Sort](ascending: Option[Boolean], _q: (Key, RangeValue[Sort], RangeValue[Sort], Option[Boolean]) => Stream[F, T])
+                                         (implicit val cb: Catchable[F]) {
+  def apply(k: Key, lower: RangeValue[Sort] = NoRange, higher: RangeValue[Sort] = NoRange) = _q(k, lower, higher, ascending).runLog
 
-  def queryWithOrder(k: Key, lower: RangeValue[Sort] = NoRange, higher: RangeValue[Sort] = NoRange, asc: Boolean) = _q(k, lower, higher, Some(asc))
+  def queryWithOrder(k: Key, lower: RangeValue[Sort] = NoRange, higher: RangeValue[Sort] = NoRange, asc: Boolean) = _q(k, lower, higher, Some(asc)).runLog
 
   def as[K, SK](implicit vc: ValueConvert[K, Key], vc2: ValueConvert[SK, Sort])
   = copy[F, T, K, SK](_q = (k, l, h, asc) => _q(vc(k), l.map(vc2), h.map(vc2), asc))

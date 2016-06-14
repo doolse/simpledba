@@ -8,6 +8,7 @@ import shapeless.ops.nat.ToInt
 import shapeless.ops.record.{Modifier, Selector, _}
 import shapeless.tag._
 import BuilderContext._
+import fs2.util.Catchable
 
 /**
   * Created by jolz on 8/06/16.
@@ -35,12 +36,14 @@ object BuiltQueries {
 
 trait BuilderContext[F[_], DDL, KMT, Q] {
   val M: Applicative[F]
+  val C: Catchable[F]
   val queries: Q
 }
 
 object BuilderContext {
-  def apply[F[_], DDL, KMT, Q](_M: Applicative[F], q: Q) = new BuilderContext[F, DDL, KMT, Q] {
+  def apply[F[_], DDL, KMT, Q](_M: Applicative[F], _C: Catchable[F], q: Q) = new BuilderContext[F, DDL, KMT, Q] {
     val M = _M
+    val C = _C
     val queries = q
   }
 
@@ -208,8 +211,9 @@ private object convertQueries extends Poly2 {
    ev: SR <:< RelationDef[A, CR, KL, CVL],
    keyMapper: KeyMapperAux[KMT, F, DDL, A, CR, KL, CVL, QM, PKK, PKV, SKK, SKV]
   )
-  = at[(R, BuilderContext[F, DDL, KMT, Q]), QM] { case ((rels, _), q) =>
+  = at[(R, BuilderContext[F, DDL, KMT, Q]), QM] { case ((rels, bc), q) =>
     val rb = ev(selRel(rels))
+    implicit val C = bc.C
     ReadQueryBuilder[F, DDL, A, PKK, PKV, SKK, SKV, (A, PKK), PhysRelationAux[F, DDL, A, PKV, SKV], RangeQuery[F, A, PKV, SKV]](
       PhysicalBuilder[F, DDL, A, PKK, PKV, SKK, SKV](rb.baseName, keyMapper.keysMapped(rb.mapper)),
       table => RangeQuery(None, { (pk, l, h, asc) =>
@@ -281,6 +285,7 @@ trait queriesAsLP extends Poly1 {
   (implicit ev: FA <:< RangeQuery[F, T, A, SA], ev2: FB <:< SortableQuery[F, T, B],
    conv: ValueConvert[B, A]) = at[FA @@ FB] { fa =>
     val rq = ev(fa)
+    implicit val C = rq.cb
     SortableQuery[F, T, B](None, (b, ascO) => rq._q(conv(b), NoRange, NoRange, ascO))
   }
 }

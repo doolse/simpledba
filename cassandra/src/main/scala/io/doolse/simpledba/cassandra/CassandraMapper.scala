@@ -1,21 +1,21 @@
 package io.doolse.simpledba.cassandra
 
-import cats.{Applicative, Monad}
+import cats.Applicative
 import cats.data.{ReaderT, Xor}
-import com.datastax.driver.core.{DataType, Row}
+import cats.syntax.all._
 import com.datastax.driver.core.querybuilder.{Select, _}
 import com.datastax.driver.core.schemabuilder.{Create, SchemaBuilder}
-import fs2.util.Task
+import com.datastax.driver.core.{DataType, ResultSet, Row, Statement}
+import fs2._
 import fs2.interop.cats._
+import fs2.util.{Catchable, Task}
 import io.doolse.simpledba.cassandra.CassandraMapper._
+import io.doolse.simpledba.cassandra.CassandraSession._
 import io.doolse.simpledba.{QueryBuilder => _, _}
 import shapeless._
-import shapeless.ops.hlist.{Intersection, IsHCons, Prepend, Reify, RemoveAll, ToList}
+import shapeless.ops.hlist.{Intersection, IsHCons, RemoveAll, ToList}
 import shapeless.ops.record.{SelectAll, Values}
-import cats.syntax.all._
-import io.doolse.simpledba.PhysRelation.Aux
 
-import scala.collection.JavaConverters._
 
 /**
   * Created by jolz on 8/05/16.
@@ -34,15 +34,18 @@ case class CassandraProjection[A](materializer: ColumnMaterialzer[CassandraColum
 
 case class CassandraWhere(clauses: List[Clause]) {
   def addToSelect(q: Select) = {
-    clauses.foreach(q.where); q
+    clauses.foreach(q.where);
+    q
   }
 
   def addToUpdate(q: Update) = {
-    clauses.foreach(q.where); q
+    clauses.foreach(q.where);
+    q
   }
 
   def addToDelete(q: Delete) = {
-    clauses.foreach(q.where); q
+    clauses.foreach(q.where);
+    q
   }
 }
 
@@ -52,9 +55,12 @@ class CassandraMapper extends RelationMapper[Effect] {
   type DDLStatement = (String, Create)
   type KeyMapperT = CassandraKeyMapper
 
-  def doWrapAtom[S, A](atom: CassandraColumn[A], to: (S) => A, from: (A) => S): CassandraColumn[S] = WrappedColumn[S, A](atom, to, from)
+  val M = Applicative[Effect]
+  val C = implicitly[Catchable[Effect]]
 
-  def M = Applicative[Effect]
+  val stdColumnMaker = new MappingCreator[CassandraColumn] {
+    def wrapAtom[S, A](atom: CassandraColumn[A], to: (S) => A, from: (A) => S): CassandraColumn[S] = WrappedColumn[S, A](atom, to, from)
+  }
 }
 
 trait CassandraKeyMapper
@@ -75,7 +81,7 @@ object CassandraTables {
    allCols: Values.Aux[CR, CL],
    colList: ToList[CL, ColumnMapping[CassandraColumn, T, _]],
    skNL: ColumnNames[SKCL],
-   xskNL : ColumnNames[XSKCL],
+   xskNL: ColumnNames[XSKCL],
    pkNL: ColumnNames[PKCL],
    helperB: ColumnListHelperBuilder[CassandraColumn, T, CR, CVL, PKV :: SKV :: XSKV :: HNil],
    extractFullKey: ValueExtractor.Aux[CR, CVL, PKL :: SKL :: XSKL :: HNil, PKV :: SKV :: XSKV :: HNil]
@@ -190,15 +196,18 @@ object CassandraTables {
         def createSelect[A](p: CassandraProjection[A], where: CassandraWhere) =
           where.addToSelect(QueryBuilder.select().all().from(tableName))
 
-        def selectMany[A](projection: CassandraProjection[A], where: CassandraWhere, ascO: Option[Boolean]): Effect[List[A]] = ReaderT { s =>
+        def resultSetStream(stmt: Statement): Stream[Effect, ResultSet] = Stream.eval[Effect, ResultSet] {
+          ReaderT { s => s.executeLater(stmt) }
+        }
+
+        def selectMany[A](projection: CassandraProjection[A], where: CassandraWhere, ascO: Option[Boolean]): Stream[Effect, A] = {
           val _select = createSelect(projection, where)
-          val of = ascO.map(asc => _select.orderBy(skNames.map(if (asc) QueryBuilder.asc else QueryBuilder.desc): _*))
+          val of = ascO.filter(_ => skNames.nonEmpty).map(asc => _select.orderBy(
+            skNames.map(if (asc) QueryBuilder.asc else QueryBuilder.desc): _*)
+          )
           val select = of.getOrElse(_select)
-          s.executeLater(select).map {
-            rs => rs.iterator().asScala.map {
-              r => projection.materializer(rowMaterializer(r))
-            }.flatten.toList
-          }
+          resultSetStream(select).flatMap(rs => CassandraSession.rowsStream(rs).translate(effect2Task))
+            .map(r => projection.materializer(rowMaterializer(r))).collect { case Some(e) => e }
         }
 
         def selectOne[A](projection: CassandraProjection[A], where: CassandraWhere): Effect[Option[A]] = ReaderT { s =>

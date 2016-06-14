@@ -2,12 +2,16 @@ package io.doolse.simpledba.cassandra
 
 import java.util.concurrent.ExecutionException
 
+import cats.data.Kleisli
 import com.datastax.driver.core._
 import com.datastax.driver.core.policies.{DCAwareRoundRobinPolicy, DowngradingConsistencyRetryPolicy, LoggingRetryPolicy, TokenAwarePolicy}
 import com.google.common.util.concurrent.ListenableFuture
-import fs2.Strategy
-import fs2.util.Task
+import fs2.{Chunk, Strategy, Stream}
+import fs2.util.{Task, ~>}
+import io.doolse.simpledba.cassandra.CassandraMapper.Effect
 
+import scala.collection.mutable
+import scala.concurrent.ExecutionContext
 import scala.concurrent.ExecutionContext.Implicits
 import scala.util.{Failure, Success, Try}
 
@@ -16,7 +20,7 @@ import scala.util.{Failure, Success, Try}
   */
 object CassandraSession {
 
-  implicit val strat = Strategy.fromExecutionContext(Implicits.global)
+  implicit val strat = Strategy.fromExecutionContext(ExecutionContext.global)
 
   def simpleSession(hosts: String, ks: Option[String] = None) = {
     val cluster = Cluster.builder()
@@ -28,18 +32,38 @@ object CassandraSession {
   }
 
   def executeLater(stmt: Statement, session: Session) = Task.suspend(executeAsync(stmt, session))
-  def executeAsync(stmt: Statement, session: Session) = async(session.executeAsync(stmt), stmt.toString)
+  def executeAsync(stmt: Statement, session: Session) = asyncStmt(session.executeAsync(stmt), stmt.toString)
 
-  def async[A](lf: ListenableFuture[A], stmt: => String) = Task.async[A] { k =>
+  def async[A](lf: ListenableFuture[A], fromEE: ExecutionException => Throwable) = Task.async[A] { k =>
     lf.addListener(new Runnable {
       override def run(): Unit = k {
         Try(lf.get()) match {
           case Success(a) ⇒ Right(a)
-          case Failure(ee: ExecutionException) ⇒ Left(new CassandraIOException(s"Failed executing - $stmt", ee.getCause))
+          case Failure(ee: ExecutionException) ⇒ Left(fromEE(ee))
           case Failure(x) ⇒ Left(x)
         }
       }
     }, Implicits.global)
+  }
+
+  def asyncStmt[A](lf: ListenableFuture[A], stmt: => String) =
+    async[A](lf, ee => new CassandraIOException(s"Failed executing - $stmt", ee.getCause))
+
+  val effect2Task = new (Task ~> Effect) {
+    def apply[A](f: Task[A]): Effect[A] = Kleisli(_ => f)
+  }
+  def rowsStream(rs: ResultSet)(implicit strat: fs2.Strategy): Stream[Task, Row] = {
+    if (rs.isExhausted) Stream.empty[Task, Row]
+    else {
+      val left = rs.getAvailableWithoutFetching
+      if (left > 0) {
+        val buf = mutable.Buffer[Row]()
+        Range(0, left).foreach(_ => buf += rs.one)
+        Stream.chunk[Task, Row](Chunk.seq(buf)) ++ rowsStream(rs)
+      } else {
+        Stream.eval(async(rs.fetchMoreResults(), identity)).flatMap(rowsStream(_))
+      }
+    }
   }
 
   class CassandraIOException(msg: String, t: Throwable) extends RuntimeException(msg, t)

@@ -1,6 +1,7 @@
 package io.doolse.simpledba
 
 import shapeless.{::, HList, HNil}
+import fs2.Stream
 
 /**
   * Created by jolz on 8/06/16.
@@ -35,7 +36,7 @@ trait PhysRelation[F[_], DDLStatement, T] {
   trait ReadQueries {
     def selectOne[A](projection: Projection[A], where: Where): F[Option[A]]
 
-    def selectMany[A](projection: Projection[A], where: Where, asc: Option[Boolean]): F[List[A]]
+    def selectMany[A](projection: Projection[A], where: Where, asc: Option[Boolean]): Stream[F, A]
   }
 
   def selectAll: Projection[T]

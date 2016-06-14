@@ -1,6 +1,7 @@
 package io.doolse.simpledba
 
 import cats.Applicative
+import fs2.util.Catchable
 import shapeless.{HList, HNil, tag}
 import shapeless.tag.@@
 
@@ -8,7 +9,7 @@ import shapeless.tag.@@
   * Created by jolz on 8/06/16.
   */
 class ModelVerifierContext[R <: HList, E <: HList, CA[_], F[_], DDL, KMT, Q <: HList, As[_[_]]]
-(rm: RelationModel[R, Q, As], cmc: ColumnMapperContext[CA, E], _M: Applicative[F]) extends MapAllContext[E, R, CA]
+(rm: RelationModel[R, Q, As], cmc: ColumnMapperContext[CA, E], _M: Applicative[F], _C: Catchable[F]) extends MapAllContext[E, R, CA]
   with BuilderContext[F, DDL, KMT, Q]
   with ConvertVerifierContext[F, As]
 {
@@ -16,8 +17,9 @@ class ModelVerifierContext[R <: HList, E <: HList, CA[_], F[_], DDL, KMT, Q <: H
 
   def relations = rm.relations
 
-  val M: Applicative[F] = _M
+  val M = _M
   val queries = rm.queryList
+  val C = _C
 }
 case class ModelVerifier[In](name: String, errors: In => List[String])
 

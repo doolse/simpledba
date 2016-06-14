@@ -6,7 +6,7 @@ package test
 import java.util.UUID
 
 import com.amazonaws.ClientConfiguration
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient
+import com.amazonaws.services.dynamodbv2.{AmazonDynamoDBAsync, AmazonDynamoDBAsyncClient}
 import fs2.interop.cats._
 import io.doolse.simpledba._
 import io.doolse.simpledba.dynamodb.{DynamoDBMapper, DynamoDBSession, DynamoDBUtils}
@@ -39,7 +39,7 @@ object QuickstartExampleDynamo extends App {
   val queries = built.queries
 
   val config = new ClientConfiguration().withProxyHost("localhost").withProxyPort(8888)
-  val client: AmazonDynamoDBClient = new AmazonDynamoDBClient(config).withEndpoint("http://localhost:8000")
+  val client: AmazonDynamoDBAsync = new AmazonDynamoDBAsyncClient(config).withEndpoint("http://localhost:8000")
 
   DynamoDBUtils.createSchema(client, built.ddl)
   private val magId = UUID.randomUUID()
