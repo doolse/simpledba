@@ -14,12 +14,14 @@ import fs2.util.Catchable
 class RelationModel[Relations <: HList, QL <: HList, As[_[_]]](val relations: Relations, val queryList: QL) {
   class QueriesPartial[As0[_[_]]] {
     def apply[QP <: Product, QL <: HList](qp: QP)(implicit gen: Generic.Aux[QP, QL]) = new RelationModel[Relations, QL, As0](relations, gen.to(qp))
+    def apply[Q](q: Q) = new RelationModel[Relations, Q :: HNil, As0](relations, q :: HNil)
   }
   def queries[As0[_[_]]] = new QueriesPartial[As0]
 }
 
 object RelationModel {
   def apply[RP <: Product, R <: HList](relations: RP)(implicit gen: Generic.Aux[RP, R]) = new RelationModel[R, HNil, Nothing](gen.to(relations), HNil)
+  def apply[R](singleRelation: R) = new RelationModel[R :: HNil, HNil, Nothing](singleRelation :: HNil, HNil)
 }
 
 class Embed[A]

@@ -12,7 +12,8 @@ val commonSettings = Seq(
 )
 val subSettings = Seq(
   name := "simpledba-" + baseDirectory.value.getName,
-  addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.7.1"),
+  libraryDependencies += "com.github.alexarchambault" %% "scalacheck-shapeless_1.13" % "1.1.0-RC3" % Test,
+    addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.7.1"),
   addCompilerPlugin("com.milessabin" % "si2712fix-plugin" % "1.2.0" cross CrossVersion.full)
 ) ++ commonSettings
 

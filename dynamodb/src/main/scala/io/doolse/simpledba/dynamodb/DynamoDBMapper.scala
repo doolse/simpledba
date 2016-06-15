@@ -104,7 +104,7 @@ class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect] {
       DynamoDBColumn[S](
         atom.from andThen from,
         atom.to compose to,
-        atom.attributeType, (ex, nv) => atom.diff(to(ex), to(nv)), atom.compositePart compose to, (from(lr), from(hr)))
+        atom.attributeType, (ex, nv) => atom.diff(to(ex), to(nv)), atom.sortablePart compose to, (from(lr), from(hr)))
     }
   }
 
@@ -166,7 +166,7 @@ object DynamoDBPhysicalRelations {
         KeyMatch(pkVals(keys.head), skVals(keys.tail.head).headOption.map((_, "=")), None)
 
       def createKeyMatch(pk: PartitionKey, sk: SortKey): DynamoWhere
-      = KeyMatch(pkVals(convPK(pk)), skVals(convSK(sk, true)).headOption.map((_, "=")), None)
+      = keyMatchFromList(convPK(pk) :: convSK(sk, true) :: HNil)
 
       def asValueUpdate(d: ValueDifference[DynamoDBColumn]) = {
         d.name -> d.atom.diff(d.existing, d.newValue)
@@ -301,7 +301,7 @@ trait DynamoDBKeyMapperLP {
     PKV, SKL, SKV, PhysRelation.Aux[Effect, CreateTableRequest, T, PKV, SKV]] {
 
     def keysMapped(cm: ColumnMapper[T, CR, CVL])(name: String) = {
-      val asString: PhysicalValue[DynamoDBColumn] => String = db => db.atom.compositePart(db.v)
+      val asString: PhysicalValue[DynamoDBColumn] => String = db => db.atom.sortablePart(db.v)
       def combine(l: List[PhysicalValue[DynamoDBColumn]]) = l.map(asString).mkString(",")
 
       val columns = cm.columns
