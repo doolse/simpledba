@@ -4,6 +4,7 @@ import com.amazonaws.ClientConfiguration
 import com.amazonaws.services.dynamodbv2.{AmazonDynamoDBAsync, AmazonDynamoDBAsyncClient}
 import fs2.interop.cats._
 import io.doolse.simpledba.dynamodb.{DynamoDBMapper, DynamoDBSession, DynamoDBUtils}
+import io.doolse.simpledba.test.TestCreator
 /**
   * Created by jolz on 10/05/16.
   */

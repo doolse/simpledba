@@ -3,6 +3,7 @@ package test
 import com.datastax.driver.core.schemabuilder.SchemaBuilder
 import fs2.interop.cats._
 import io.doolse.simpledba.cassandra._
+import io.doolse.simpledba.test.TestCreator
 
 /**
   * Created by jolz on 5/05/16.

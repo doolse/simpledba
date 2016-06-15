@@ -1,10 +1,10 @@
-package test
+package io.doolse.simpledba.test
 
 import cats.Monad
 import cats.syntax.all._
-import cats.std.option._
 import io.doolse.simpledba._
-import shapeless.HNil
+import cats.std.list._
+import cats.std.option._
 
 /**
   * Created by jolz on 26/05/16.

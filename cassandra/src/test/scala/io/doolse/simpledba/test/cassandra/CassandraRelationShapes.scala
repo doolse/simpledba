@@ -11,7 +11,7 @@ import fs2.interop.cats._
 /**
   * Created by jolz on 15/06/16.
   */
-object CassandraRelationShapes extends RelationShapes[Effect]("DynamoDB") {
+object CassandraRelationShapes extends RelationShapes[Effect]("Cassandra") {
 
   lazy val sessionConfig = SessionConfig(CassandraSession.simpleSession("localhost"))
   lazy val initKS = CassandraUtils.initKeyspaceAndSchema(sessionConfig, "test", List.empty, dropKeyspace = true).unsafeRun
