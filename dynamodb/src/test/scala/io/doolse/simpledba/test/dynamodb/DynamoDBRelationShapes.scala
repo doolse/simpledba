@@ -14,7 +14,7 @@ import io.doolse.simpledba.test.RelationShapes
   * Created by jolz on 15/06/16.
   */
 object DynamoDBRelationShapes extends RelationShapes[Effect]("DynamoDB") {
-  lazy val config = new ClientConfiguration().withProxyHost("localhost").withProxyPort(8888)
+  lazy val config = new ClientConfiguration()
   lazy val client: AmazonDynamoDBAsync = new AmazonDynamoDBAsyncClient(config).withEndpoint("http://localhost:8000")
 
   lazy val mapper = new DynamoDBMapper()

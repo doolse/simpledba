@@ -71,7 +71,7 @@ abstract class RelationShapes[F[_]](name: String)(implicit M: Monad[F]) extends 
     }
 
 
-    property("update") = forAll(genUpdate) { case (a1: A, a2: A) =>
+    property("update") = forAll(genUpdate) { case (a1, a2) =>
       for {
         _ <- writes.insert(a1)
         changed <- writes.update(a1, a2)
