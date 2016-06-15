@@ -9,4 +9,4 @@ services:
   - docker
 
 before_install:
-- docker run -d --name cassandra -p 9043:9043 -p 7000:7000 -p 7001:7001 -p 9042:9042 -p 7199:7199 -p 9160:9160 pokle/cassandra:2.2.3
+- docker run -d --name cassandra -p 9043:9043 -p 7000:7000 -p 7001:7001 -p 9042:9042 -p 7199:7199 -p 9160:9160 cassandra
