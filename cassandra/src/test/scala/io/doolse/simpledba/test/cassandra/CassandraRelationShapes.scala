@@ -13,7 +13,7 @@ import fs2.interop.cats._
   */
 object CassandraRelationShapes extends RelationShapes[Effect]("Cassandra") {
 
-  lazy val sessionConfig = SessionConfig(CassandraSession.simpleSession("localhost"))
+  lazy val sessionConfig = SessionConfig(CassandraSession.initSimpleSession())
   lazy val initKS = CassandraUtils.initKeyspaceAndSchema(sessionConfig, "test", List.empty, dropKeyspace = true).unsafeRun
 
   lazy val mapper = new CassandraMapper()

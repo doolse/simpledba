@@ -6,6 +6,7 @@ import cats.data.Kleisli
 import com.datastax.driver.core._
 import com.datastax.driver.core.policies.{DCAwareRoundRobinPolicy, DowngradingConsistencyRetryPolicy, LoggingRetryPolicy, TokenAwarePolicy}
 import com.google.common.util.concurrent.ListenableFuture
+import com.typesafe.config.{Config, ConfigFactory}
 import fs2.{Chunk, Strategy, Stream}
 import fs2.util.{Task, ~>}
 import io.doolse.simpledba.cassandra.CassandraMapper.Effect
@@ -14,6 +15,7 @@ import scala.collection.mutable
 import scala.concurrent.ExecutionContext
 import scala.concurrent.ExecutionContext.Implicits
 import scala.util.{Failure, Success, Try}
+import scala.collection.JavaConverters._
 
 /**
   * Created by jolz on 5/05/16.
@@ -21,6 +23,13 @@ import scala.util.{Failure, Success, Try}
 object CassandraSession {
 
   implicit val strat = Strategy.fromExecutionContext(ExecutionContext.global)
+
+  def initSimpleSession(config: Config = ConfigFactory.load()) = {
+    val cassConfig = config.getConfig("simpledba.cassandra")
+    val hosts = cassConfig.getStringList("hosts").asScala
+    val ks = if (cassConfig.hasPath("keyspace")) Some(cassConfig.getString("keyspace")) else None
+    simpleSession(hosts.mkString(","), ks)
+  }
 
   def simpleSession(hosts: String, ks: Option[String] = None) = {
     val cluster = Cluster.builder()

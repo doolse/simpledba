@@ -7,6 +7,7 @@ import cats.std.list._
 import cats.syntax.traverse._
 import com.datastax.driver.core._
 import com.datastax.driver.core.schemabuilder.{Create, SchemaBuilder}
+import com.typesafe.config.{Config, ConfigFactory}
 import fs2.interop.cats._
 import fs2.util.Task
 /**
@@ -15,6 +16,7 @@ import fs2.util.Task
 object CassandraUtils {
 
   implicit def str2Statement(s: String) = new SimpleStatement(s)
+
   def whenM[F[_], A](b: Boolean, fa: => F[A])(implicit M: Applicative[F]): F[Unit] = if (b) M.map(fa)(_ => ()) else M.pure()
 
   def initKeyspaceAndSchema(session: SessionConfig, keyspace: String, creation: List[(String, Create)],
