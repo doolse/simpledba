@@ -1,8 +1,9 @@
 package io.doolse.simpledba
 
 import shapeless.labelled.FieldType
-import shapeless.ops.hlist.{Selector, ZipConst}
+import shapeless.ops.hlist.{Diff, Intersection, Reify, Selector, ToList, ZipConst}
 import shapeless._
+import shapeless.ops.record.Keys
 
 import scala.reflect.ClassTag
 
@@ -33,10 +34,17 @@ trait ColumnMapperVerifierLP {
   )
   = successWithErrors[CA, E, S :: E2, Embed[S]](verified.errors)
 
-  implicit def relation[C, C2, S, Keys <: HList, Repr <: HList, WC <: HList, K <: Symbol]
+  implicit def relation[C, C2, S, KL <: HList, Repr <: HList, ReprKL <: HList, MissingKL <: HList, WC <: HList, K <: Symbol]
   (implicit lg: LabelledGeneric.Aux[S, Repr], zipWith: ZipConst.Aux[S, Repr, WC],
-   verified: ColumnMapperVerifier.Aux[C, WC, C2])
-  = ColumnMapperVerifier[C, Relation[K, S, Keys], C2](verified.errors)
+   verified: ColumnMapperVerifier.Aux[C, WC, C2],
+   genKeys: Keys.Aux[Repr, ReprKL], reify: Reify.Aux[KL, KL],
+   diffKeys: Diff.Aux[KL, ReprKL, MissingKL], keysToList: ToList[MissingKL, Symbol],
+   relName: Witness.Aux[K])
+  = {
+    val missingKeys = keysToList(diffKeys(reify()))
+    val missingO = missingKeys.headOption.map(_ => s"Relation ${relName.value} does not contain keys - ${missingKeys.mkString(",")}").toList
+    ColumnMapperVerifier[C, Relation[K, S, KL], C2](missingO ++ verified.errors)
+  }
 
   implicit def noAtomFound[CA[_], E, S, K <: Symbol, A](implicit tt: ClassTag[S], vc: ClassTag[A], k: Witness.Aux[K])
   = verError[CA, E, (FieldType[K, A], S)](

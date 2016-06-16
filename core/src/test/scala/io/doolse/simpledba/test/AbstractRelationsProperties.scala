@@ -1,0 +1,32 @@
+package io.doolse.simpledba.test
+
+import cats._
+import io.doolse.simpledba.WriteQueries
+import org.scalacheck.Arbitrary._
+import org.scalacheck.{Arbitrary, Gen, Prop, Properties}
+
+/**
+  * Created by jolz on 16/06/16.
+  */
+abstract class AbstractRelationsProperties[F[_]](name: String)(implicit M: Monad[F]) extends Properties(name) {
+  implicit val arbUUID = Arbitrary(Gen.uuid)
+
+  implicit def runProp(fa: F[Prop]): Prop = run(fa)
+
+  def crudProps[A : Arbitrary, K](wq: WriteQueries[F, A], f: A => F[Iterable[A]], expected: Int, genUpdate: Gen[(A, A)]) =
+    new CrudProperties[F, A, K](interpret, wq, f, expected, genUpdate)
+
+  val interpret = new (F ~> Id) {
+    def apply[A](fa: F[A]): Id[A] = run(fa)
+  }
+
+  def run[A](fa: F[A]): A
+
+  def genUpdate[A: Arbitrary](copyKey: (A, A) => A) = for {
+    a <- arbitrary[A]
+    b <- arbitrary[A]
+    t <- Gen.frequency(75 -> true, 25 -> false)
+  } yield {
+    (a, if (t) copyKey(a, b) else b)
+  }
+}

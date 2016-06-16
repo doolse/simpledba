@@ -4,19 +4,20 @@ import sbt.Resolver
 
 name := "simpledba"
 
-lazy val config = ConfigFactory.parseFile(file(".") / "project/reference.conf")
+lazy val prjDir = file("project")
+lazy val config = ConfigFactory.parseFile(prjDir / "application.conf")
+  .withFallback(ConfigFactory.parseFile(prjDir / "reference.conf"))
 
 val commonSettings = Seq(
   organization := "io.doolse",
   version := "0.1.0-SNAPSHOT",
   scalaVersion := "2.11.8",
-  scalacOptions ++= Option("-Xlog-implicits").filter(_ => config.getBoolean("debug.implicits")).toSeq,
   resolvers += Resolver.sonatypeRepo("snapshots")
 )
 
 val subSettings = Seq(
   name := "simpledba-" + baseDirectory.value.getName,
-  libraryDependencies += "com.github.alexarchambault" %% "scalacheck-shapeless_1.13" % "1.1.0-RC3" % Test,
+  scalacOptions ++= Option("-Xlog-implicits").filter(_ => config.getBoolean("debug.implicits")).toSeq,
   addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.7.1"),
   addCompilerPlugin("com.milessabin" % "si2712fix-plugin" % "1.2.0" cross CrossVersion.full)
 ) ++ commonSettings

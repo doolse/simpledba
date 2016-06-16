@@ -110,7 +110,7 @@ Don't take my word for it :
 * Easy to define your own custom column types
 * Integration with circe for easy custom JSON columns
 * Multiple results are returned as functional streams (fs2)
-* Optomized collection update operations when supported by backend DB
+* Optimised collection update operations when supported by backend DB
 
 ### Dependencies
 

@@ -41,10 +41,10 @@ abstract class RelationMapper[F[_]] {
    verify: ModelVerifier[ModelVerifierContext[R, HNil, ColumnAtom, F, DDLStatement, KeyMapperT, Q, As]]
   ): BuiltQueries.Aux[As[F], DDLStatement] = {
 
-    val errors = verify.errors(
+    val (name, errors) = verify.errors(
       new ModelVerifierContext(rm, ColumnMapperContext(stdColumnMaker), M, C)
     )
-    p(verify.name)
+    p(name)
     errors.foreach(p)
     new BuiltQueries[As[F]] {
       type DDL = DDLStatement

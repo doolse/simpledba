@@ -37,7 +37,23 @@ class QueryMultiple[K, Columns <: HList, SortColumns <: HList] extends RelationQ
 class QueryRange[K, Columns <: HList, RangeColumns <: HList] extends RelationQuery[K]
 class RelationWriter[K]
 
-sealed trait RangeValue[+A]
+sealed trait RangeValue[+A] {
+  def value: Option[A]
+}
+case class FilterRange[A](lower: RangeValue[A], upper: RangeValue[A]) {
+  def contains(v: A)(implicit o: Ordering[A]): Boolean = {
+    val inLeft = lower match {
+      case NoRange => true
+      case Inclusive(a) => o.gteq(v, a)
+      case Exclusive(a) => o.gt(v, a)
+    }
+    inLeft && (upper match {
+      case NoRange => true
+      case Inclusive(a) => o.lteq(v, a)
+      case Exclusive(a) => o.lt(v, a)
+    })
+  }
+}
 
 object RangeValue {
   implicit val functor = new Functor[RangeValue] {
@@ -49,9 +65,9 @@ object RangeValue {
   }
   implicit def autoInclusive[A](a: A) : Inclusive[A] = Inclusive(a)
 }
-case object NoRange extends RangeValue[Nothing]
-case class Inclusive[A](a: A) extends RangeValue[A]
-case class Exclusive[A](a: A) extends RangeValue[A]
+case object NoRange extends RangeValue[Nothing] { def value = None }
+case class Inclusive[A](a: A) extends RangeValue[A] { def value = Some(a) }
+case class Exclusive[A](a: A) extends RangeValue[A] { def value = Some(a) }
 
 case class UniqueQuery[F[_], T, Key](query: Key => F[Option[T]]) {
   def apply(kv: Key) = query(kv)

@@ -10,6 +10,7 @@ import fs2._
 import com.amazonaws.services.dynamodbv2.{AmazonDynamoDBAsync, AmazonDynamoDBClient}
 import com.amazonaws.services.dynamodbv2.model.{Stream => _, _}
 import fs2.util.{Catchable, Task}
+import io.doolse.simpledba.PhysRelation.Aux
 import io.doolse.simpledba._
 import io.doolse.simpledba.dynamodb.DynamoDBMapper._
 import shapeless._
@@ -272,6 +273,39 @@ trait DynamoDBKeyMapperLP {
   val PKComposite: Witness = 'PK_composite
   val SKComposite: Witness = 'SK_composite
 
+  val asString: PhysicalValue[DynamoDBColumn] => String = db => db.atom.sortablePart(db.v)
+  def combine(l: List[PhysicalValue[DynamoDBColumn]]) = l.map(asString).mkString(",")
+
+  implicit def compositePrimaryKey[K, T, CR <: HList, CVL <: HList, PKL <: HList, PKV, PKLCL <: HList, UPCR <: HList]
+  (implicit
+   selPKL: SelectAll.Aux[CR, PKL, PKLCL],
+   pkVals: PhysicalValues.Aux[DynamoDBColumn, PKLCL, PKV, List[PhysicalValue[DynamoDBColumn]]],
+   extractPKL: ValueExtractor.Aux[CR, CVL, PKL, PKV],
+   prependComposite: Prepend.Aux[FieldType[PKComposite.T, ColumnMapping[DynamoDBColumn, T, String]] :: HNil, CR, UPCR],
+   relMaker: DynamoDBPhysicalRelations.Aux[T, UPCR, String :: CVL, PKComposite.T, HNil, PKV, HNil, String, HNil]
+  ): DynamoDBKeyMapper.Aux[T, CR, PKL, CVL, QueryUnique[K, HNil], PKL, HNil, PKV, HNil]
+  = new DynamoDBKeyMapper with KeyMapper.Impl[T, CR, PKL, CVL, QueryUnique[K, HNil], PKL,
+    PKV, HNil, HNil, PhysRelation.Aux[Effect, CreateTableRequest, T, PKV, HNil]] {
+    def keysMapped(cm: ColumnMapper[T, CR, CVL])(name: String) = {
+
+      val columns = cm.columns
+      val getPKV = extractPKL()
+      val pkvToString = pkVals(selPKL(columns)) andThen combine
+
+      val pkField = field[PKComposite.T](ColumnMapping[DynamoDBColumn, T, String]("PK_composite", DynamoDBColumn.stringColumn,
+        cm.toColumns andThen getPKV andThen pkvToString))
+
+      val cm2 = ColumnMapper[T, UPCR, String :: CVL](prependComposite(pkField :: HNil, columns),
+        cvlWithComp => cm.fromColumns(cvlWithComp.tail), { t =>
+          val cvl = cm.toColumns(t)
+          pkvToString(getPKV(cvl)) :: cvl
+        }
+      )
+      relMaker(cm2, name, pkvToString, (skv, l) => HNil)
+    }
+  }
+
+
   implicit def compositeKeys[K, T, CR <: HList, CVL <: HList, PKL <: HList,
   UCL <: HList, SKL <: HList, UPCR1 <: HList, UPCR2 <: HList, PKV, SKV,
   UCLL <: HList, SKLL <: HList,
@@ -301,8 +335,6 @@ trait DynamoDBKeyMapperLP {
     PKV, SKL, SKV, PhysRelation.Aux[Effect, CreateTableRequest, T, PKV, SKV]] {
 
     def keysMapped(cm: ColumnMapper[T, CR, CVL])(name: String) = {
-      val asString: PhysicalValue[DynamoDBColumn] => String = db => db.atom.sortablePart(db.v)
-      def combine(l: List[PhysicalValue[DynamoDBColumn]]) = l.map(asString).mkString(",")
 
       val columns = cm.columns
       def xskOK(lower: Boolean) = xskList(selXSKL(columns)).map { cm =>

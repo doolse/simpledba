@@ -5,6 +5,6 @@ libraryDependencies ++= Seq(
   "co.fs2" %% "fs2-cats" % "0.1.0-M2",
   "com.typesafe" % "config" % "1.3.0")
 
-libraryDependencies += "org.scala-lang.modules" %% "scala-parser-combinators" % "1.0.4" % Test
-
-libraryDependencies += "org.slf4j" % "slf4j-simple" % "1.7.21" % Test
+libraryDependencies ++= Seq("org.scala-lang.modules" %% "scala-parser-combinators" % "1.0.4" % Test,
+  "com.github.alexarchambault" %% "scalacheck-shapeless_1.13" % "1.1.0-RC3" % Test,
+  "org.slf4j" % "slf4j-simple" % "1.7.21" % Test)

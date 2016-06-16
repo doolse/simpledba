@@ -2,6 +2,7 @@ package io.doolse.simpledba
 
 import shapeless.labelled._
 import shapeless.ops.hlist.{Reverse, RightFolder}
+import shapeless.ops.record.SelectAll
 import shapeless.{DepFn1, HList, HNil, Poly2, Witness}
 
 /**
@@ -38,7 +39,8 @@ object MapAllRelations {
 
     implicit def lookupRelation[A, K <: Symbol, Keys <: HList, E <: HList, R <: HList, CR <: HList, CVL <: HList, CTX, CA[_]]
     (implicit
-     gm: GenericMapping.Aux[A, CA, E, CR, CVL], w: Witness.Aux[K])
+     gm: GenericMapping.Aux[A, CA, E, CR, CVL], w: Witness.Aux[K],
+     ev: SelectAll[CR, Keys])
     = at[Relation[K, A, Keys], MapAllContext[E, R, CA]] {
       case (_, context) => MapAllContext(context.ctx, field[K](RelationDef[A, CR, Keys, CVL](w.value.name, gm.lookup(context.ctx))) :: context.relations)
     }

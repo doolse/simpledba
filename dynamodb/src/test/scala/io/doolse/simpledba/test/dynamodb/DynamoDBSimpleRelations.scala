@@ -8,32 +8,22 @@ import com.amazonaws.services.dynamodbv2.{AmazonDynamoDBAsync, AmazonDynamoDBAsy
 import io.doolse.simpledba.BuiltQueries
 import io.doolse.simpledba.dynamodb.{DynamoDBMapper, DynamoDBSession, DynamoDBUtils}
 import io.doolse.simpledba.dynamodb.DynamoDBMapper.Effect
-import io.doolse.simpledba.test.RelationShapes._
-import io.doolse.simpledba.test.RelationShapes
+import io.doolse.simpledba.test.SimpleRelations._
+import io.doolse.simpledba.test.SimpleRelations
 /**
   * Created by jolz on 15/06/16.
   */
-object DynamoDBRelationShapes extends RelationShapes[Effect]("DynamoDB") {
-  lazy val client = DynamoDBUtils.createClient()
+object DynamoDBSimpleRelations extends SimpleRelations[Effect]("DynamoDB") with DynamoDBProperties {
 
-  lazy val mapper = new DynamoDBMapper()
-
-  def setup[Q](bq: BuiltQueries.Aux[Q, CreateTableRequest]) = {
-    DynamoDBUtils.createSchema(client, bq.ddl)
-    bq.queries
-  }
-
-  def run[A](fa: Effect[A]): A = fa.run(DynamoDBSession(client)).unsafeRun
-
-  lazy val gen1: Fields1Queries[Effect] = {
+  lazy val queries1: Fields1Queries[Effect] = {
     setup(mapper.buildModel(fields1Model))
   }
 
-  lazy val gen2: Fields2Queries[Effect] = {
+  lazy val queries2: Fields2Queries[Effect] = {
     setup(mapper.buildModel(fields2Model))
   }
 
-  lazy val gen3: Fields3Queries[Effect] = {
+  lazy val queries3: Fields3Queries[Effect] = {
     setup(mapper.buildModel(fields3Model))
   }
 }
