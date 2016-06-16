@@ -1,5 +1,7 @@
 # simpledba - Simple Database Access for Scala
 
+[![Build Status](https://api.travis-ci.org/doolse/simpledba.svg)](https://travis-ci.org/doolse/simpledba)
+
 AKA principled column family access for Scala (highly inspired by [Doobie](https://github.com/tpolecat/doobie))
   
 A database access library designed for easy access to Column Family based 
