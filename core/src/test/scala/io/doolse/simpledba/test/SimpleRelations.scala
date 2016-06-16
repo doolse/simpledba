@@ -21,25 +21,25 @@ object SimpleRelations {
 
   case class Fields1(uuid: UUID)
 
-  case class Fields2(uuid: UUID, name: String)
+  case class Fields2(uuid: UUID, name: NonEmptyString)
 
-  case class Fields3(uuid: UUID, name: String, year: Int)
+  case class Fields3(uuid: UUID, name: NonEmptyString, year: Int)
 
   case class Fields1Queries[F[_]](updates: WriteQueries[F, Fields1], byPK: UniqueQuery[F, Fields1, UUID])
 
   case class Fields2Queries[F[_]](updates: WriteQueries[F, Fields2], byPK: UniqueQuery[F, Fields2, UUID],
-                                  byName: SortableQuery[F, Fields2, String])
+                                  byName: SortableQuery[F, Fields2, NonEmptyString])
 
   case class Fields3Queries[F[_]](updates: WriteQueries[F, Fields3], byPK: UniqueQuery[F, Fields3, UUID],
-                                  byName: RangeQuery[F, Fields3, String, Int], byYear: SortableQuery[F, Fields3, Int])
+                                  byName: RangeQuery[F, Fields3, NonEmptyString, Int], byYear: SortableQuery[F, Fields3, Int])
 
   lazy val fields1Model = RelationModel(relation[Fields1]('fields1).key('uuid))
     .queries[Fields1Queries](writes('fields1), queryByPK('fields1))
 
-  lazy val fields2Model = RelationModel(relation[Fields2]('fields2).key('uuid))
+  lazy val fields2Model = RelationModel(atom(Generic[NonEmptyString]), relation[Fields2]('fields2).key('uuid))
     .queries[Fields2Queries](writes('fields2), queryByPK('fields2), query('fields2).multipleByColumns('name))
 
-  lazy val fields3Model = RelationModel(relation[Fields3]('fields3).key('uuid))
+  lazy val fields3Model = RelationModel(atom(Generic[NonEmptyString]), relation[Fields3]('fields3).key('uuid))
     .queries[Fields3Queries](writes('fields3), queryByPK('fields3), query('fields3).multipleByColumns('name).sortBy('year),
     query('fields3).multipleByColumns('year).sortBy('name))
 }

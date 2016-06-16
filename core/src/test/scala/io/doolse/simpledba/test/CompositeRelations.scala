@@ -42,6 +42,6 @@ abstract class CompositeRelations[F[_]](name: String)(implicit M: Monad[F]) exte
 
   include(crudProps[Composite3, UUID](queries3.updates,
     a => queries3.byPK((a.pkInt, a.pkString, a.pkBool)).map(_.toIterable), 1,
-    genUpdate[Composite3]((a, b) => b.copy(pkInt = a.pkInt, pkBool = a.pkBool))), "Composite3")
+    genUpdate[Composite3]((a, b) => b.copy(pkInt = a.pkInt, pkString = a.pkString, pkBool = a.pkBool))), "Composite3")
 
 }

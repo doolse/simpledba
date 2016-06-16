@@ -8,10 +8,14 @@ import io.doolse.simpledba.cassandra.{CassandraMapper, CassandraSession, Cassand
 /**
   * Created by jolz on 16/06/16.
   */
-trait CassandraProperties {
 
+object CassandraProperties {
   lazy val sessionConfig = SessionConfig(CassandraSession.initSimpleSession())
   lazy val initKS = CassandraUtils.initKeyspaceAndSchema(sessionConfig, "test", List.empty, dropKeyspace = true).unsafeRun
+}
+
+trait CassandraProperties {
+  import CassandraProperties._
 
   lazy val mapper = new CassandraMapper()
 

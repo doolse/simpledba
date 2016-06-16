@@ -56,7 +56,7 @@ object CassandraSession {
   }
 
   def asyncStmt[A](lf: ListenableFuture[A], stmt: => String) =
-    async[A](lf, ee => new CassandraIOException(s"Failed executing - $stmt", ee.getCause))
+    async[A](lf, ee => new CassandraIOException(s"Failed executing - $stmt - cause ${ee.getMessage}", ee.getCause))
 
   val effect2Task = new (Task ~> Effect) {
     def apply[A](f: Task[A]): Effect[A] = Kleisli(_ => f)

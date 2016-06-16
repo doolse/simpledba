@@ -14,7 +14,7 @@ abstract class AbstractRelationsProperties[F[_]](name: String)(implicit M: Monad
   implicit def runProp(fa: F[Prop]): Prop = run(fa)
 
   def crudProps[A : Arbitrary, K](wq: WriteQueries[F, A], f: A => F[Iterable[A]], expected: Int, genUpdate: Gen[(A, A)]) =
-    new CrudProperties[F, A, K](interpret, wq, f, expected, genUpdate)
+    CrudProperties[F, A, K](interpret, wq, f, expected, genUpdate)
 
   val interpret = new (F ~> Id) {
     def apply[A](fa: F[A]): Id[A] = run(fa)
