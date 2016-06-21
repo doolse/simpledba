@@ -28,14 +28,11 @@ trait QueryBuilderVerifierLP {
     def relationString(name: Symbol, allCols: List[Symbol], pk: List[Symbol]) =
       s"${name.name} PK ${columns2String(pk)} - ${columns2String(allCols.filterNot(pk.toSet))}"
 
-    implicit def unique[K <: Symbol, Cols <: HList, ColsR <: HList]
+    implicit def unique[K <: Symbol]
     (implicit
-     uniqueCols: Reify.Aux[Cols, ColsR],
-     toList: ToList[ColsR, Symbol],
-     tn: Witness.Aux[K]) = at[(QueryUnique[K, Cols], List[Symbol], List[Symbol])] {
+     tn: Witness.Aux[K]) = at[(QueryPK[K], List[Symbol], List[Symbol])] {
       case (qu, allCols, pk) =>
-        s"Failed to find unique result mapping on relation: ${relationString(tn.value, allCols, pk)}" +
-          s" - using columns ${columns2String(toList(uniqueCols()))}"
+        s"Failed to create primary key result mapping on relation: ${relationString(tn.value, allCols, pk)}"
     }
 
     implicit def multiple[K <: Symbol, Cols <: HList, ColsR <: HList, Sort <: HList, SortR <: HList]

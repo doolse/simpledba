@@ -8,5 +8,5 @@ import fs2.interop.cats._
   * Created by jolz on 21/06/16.
   */
 object CassandraSortedQueries extends SortedQueryProperties[Effect]("Cassandra") with CassandraProperties {
-  def queries: Queries[Effect] = setup(mapper.verifyModel(model))
+  def queries: Queries[Effect] = setup(mapper.buildModelTest(model))
 }

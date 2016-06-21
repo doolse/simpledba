@@ -55,6 +55,19 @@ abstract class RelationMapper[F[_]] {
       def ddl = throwError
     }
   }
+
+  def buildModelTest[R <: HList, Q <: HList, CRD <: HList, RDQ <: HList,
+  QL <: HList, QOut <: HList, As[_[_]], AsRepr <: HList, QOutTag <: HList]
+  (rm: RelationModel[R, Q, As])
+  (implicit
+   mapRelations: MapAllRelations.Aux[MapAllContext[HNil, R, ColumnAtom], CRD]
+  ): BuiltQueries.Aux[As[F], DDLStatement] = {
+//    val relations = mapRelations(MapAllContext(ColumnMapperContext(stdColumnMaker, HNil), rm.relations))
+//    val rawQueries = convertAndBuild(BuilderContext(M, C, rm.queryList), relations)
+//    BuiltQueries(genAs.from(convert(zip(rawQueries.queries))), Eval.later(rawQueries.ddl))
+    ???
+  }
+
 }
 
 

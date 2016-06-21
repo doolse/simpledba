@@ -17,24 +17,15 @@ package object simpledba {
 
   def query(w: Witness) = new QueryBuilder[w.T]
 
-  def queryByPK(w: Witness) = new QueryUnique[w.T, HNil]
+  def queryByPK(w: Witness) = new QueryPK[w.T]
 
   def writes(w: Witness) = new RelationWriter[w.T]
 
   class QueryBuilder[K] {
     // SingletonProductArgs didn't work when used outside of the library
-    def uniqueByColumns = new WitnessList[QueryBuilder[K], QU](this)
     def multipleByColumns = new WitnessList[QueryBuilder[K], QM](this)
   }
 
-  trait QU[L, A] extends DepFn1[A]
-  object QU {
-    implicit def qu[L <: HList, K] = new QU[L, QueryBuilder[K]] {
-      type Out = QueryUnique[K, L]
-
-      def apply(t: QueryBuilder[K]) = new QueryUnique[K, L]
-    }
-  }
   trait QM[L, A] extends DepFn1[A]
   object QM {
     implicit def qm[L <: HList, K] = new QM[L, QueryBuilder[K]] {

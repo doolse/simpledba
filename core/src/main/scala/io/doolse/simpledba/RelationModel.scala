@@ -32,9 +32,8 @@ class Relation[Name, A, Keys <: HList] extends SingletonProductArgs {
 }
 
 trait RelationQuery[K]
-class QueryUnique[K, Columns <: HList] extends RelationQuery[K]
+class QueryPK[K] extends RelationQuery[K]
 class QueryMultiple[K, Columns <: HList, SortColumns <: HList] extends RelationQuery[K]
-class QueryRange[K, Columns <: HList, RangeColumns <: HList] extends RelationQuery[K]
 class RelationWriter[K]
 
 sealed trait RangeValue[+A] {

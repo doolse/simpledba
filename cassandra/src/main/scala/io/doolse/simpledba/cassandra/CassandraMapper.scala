@@ -243,7 +243,7 @@ object CassandraKeyMapper {
   implicit def uniquePK[K, T, CR <: HList, KL <: HList, CVL <: HList, PKV, SKV]
   (implicit
    tableCreator: CassandraTables[T, CR, CVL, KL, HNil, HNil, PKV, SKV]
-  ): Aux[T, CR, KL, CVL, QueryUnique[K, HNil], KL, PKV, HNil, SKV]
+  ): Aux[T, CR, KL, CVL, QueryPK[K], KL, PKV, HNil, SKV]
   = CassandraKeyMapper(tableCreator)
 
   implicit def uniqueResultMapper[K, T, CR <: HList, KL <: HList, CVL <: HList, UCL <: HList, SKL <: HList, PKV, SKV]
@@ -251,7 +251,7 @@ object CassandraKeyMapper {
    mustHaveOne: IsHCons[UCL],
    sortKeys: RemoveAll.Aux[KL, UCL, (UCL, SKL)],
    tableCreator: CassandraTables[T, CR, CVL, UCL, SKL, HNil, PKV, SKV]
-  ): Aux[T, CR, KL, CVL, QueryUnique[K, UCL], UCL, PKV, SKL, SKV]
+  ): Aux[T, CR, KL, CVL, QueryPK[K], UCL, PKV, SKL, SKV]
   = CassandraKeyMapper(tableCreator)
 
   implicit def multipleResultMapper[K, T, CR <: HList, PKL <: HList, CVL <: HList, UCL <: HList,

@@ -224,7 +224,7 @@ private object convertQueries extends Poly2 {
 
   implicit def convertFullKey[F[_], DDL, KMT, Q, R <: HList, K, QU, A, PKK, PKV, SKK, SKV, SR, CR <: HList, KL <: HList, CVL <: HList]
   (implicit
-   evSQ: QU <:< QueryUnique[K, _],
+   evSQ: QU <:< QueryPK[K],
    selRel: Selector.Aux[R, K, SR],
    ev: SR <:< RelationDef[A, CR, KL, CVL],
    keyMapper: KeyMapperAux[KMT, F, DDL, A, CR, KL, CVL, QU, PKK, PKV, SKK, SKV])

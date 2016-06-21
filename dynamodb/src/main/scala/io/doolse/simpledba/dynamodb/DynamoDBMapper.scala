@@ -283,8 +283,8 @@ trait DynamoDBKeyMapperLP {
    extractPKL: ValueExtractor.Aux[CR, CVL, PKL, PKV],
    prependComposite: Prepend.Aux[FieldType[PKComposite.T, ColumnMapping[DynamoDBColumn, T, String]] :: HNil, CR, UPCR],
    relMaker: DynamoDBPhysicalRelations.Aux[T, UPCR, String :: CVL, PKComposite.T, HNil, PKV, HNil, String, HNil]
-  ): DynamoDBKeyMapper.Aux[T, CR, PKL, CVL, QueryUnique[K, HNil], PKL, HNil, PKV, HNil]
-  = new DynamoDBKeyMapper with KeyMapper.Impl[T, CR, PKL, CVL, QueryUnique[K, HNil], PKL,
+  ): DynamoDBKeyMapper.Aux[T, CR, PKL, CVL, QueryPK[K], PKL, HNil, PKV, HNil]
+  = new DynamoDBKeyMapper with KeyMapper.Impl[T, CR, PKL, CVL, QueryPK[K], PKL,
     PKV, HNil, HNil, PhysRelation.Aux[Effect, CreateTableRequest, T, PKV, HNil]] {
     def keysMapped(cm: ColumnMapper[T, CR, CVL])(name: String) = {
 
@@ -389,7 +389,7 @@ object DynamoDBKeyMapper extends DynamoDBKeyMapperLP {
    selPK: Selector.Aux[CR, PKK, PKC],
    cv: ColumnValues.Aux[PKC, PKV],
    relMaker: DynamoDBPhysicalRelations.Aux[T, CR, CVL, PKK, HNil, PKV, HNil, PKV, HNil]
-  ): Aux[T, CR, PKK :: HNil, CVL, QueryUnique[K, HNil], PKK, HNil, PKV, HNil]
+  ): Aux[T, CR, PKK :: HNil, CVL, QueryPK[K], PKK, HNil, PKV, HNil]
   = DynamoDBKeyMapper(relMaker)
 
   implicit def twoKeys[K, T, CR <: HList, CVL <: HList, PKK, PKV, SKK, SKV, PKC, SKC]
@@ -399,7 +399,7 @@ object DynamoDBKeyMapper extends DynamoDBKeyMapperLP {
    selSK: Selector.Aux[CR, SKK, SKC],
    cvSK: ColumnValues.Aux[SKC, SKV],
    relMaker: DynamoDBPhysicalRelations.Aux[T, CR, CVL, PKK, SKK :: HNil, PKV, SKV :: HNil, PKV, SKV :: HNil]
-  ): Aux[T, CR, PKK :: SKK :: HNil, CVL, QueryUnique[K, HNil], PKK, SKK :: HNil, PKV, SKV :: HNil]
+  ): Aux[T, CR, PKK :: SKK :: HNil, CVL, QueryPK[K], PKK, SKK :: HNil, PKV, SKV :: HNil]
   = DynamoDBKeyMapper(relMaker)
 
   implicit def multiNoSort[K, T, CR <: HList, CVL <: HList, KL <: HList, PKK, PKV, SKL, SKV]
