@@ -10,8 +10,11 @@ import com.datastax.driver.core.{DataType, Row, TypeCodec}
   */
 sealed trait CassandraColumn[A] {
   def byName(r: Row, n: String): Option[A]
+
   val binding: A => AnyRef
+
   def dataType: DataType
+
   def assignment(name: String, ex: A, v: A): Assignment = {
     QueryBuilder.set(name, binding(v))
   }
@@ -42,17 +45,21 @@ case class OptionalColumn[T](inner: CassandraColumn[T]) extends CassandraColumn[
   }
 }
 
-object CassandraCodecColumn {
-  def direct[T](dt: DataType, tc: TypeCodec[T]): CassandraColumn[T] = CassandraCodecColumn[T, T](dt, tc, identity, _.asInstanceOf[AnyRef])
-}
-
 object CassandraColumn {
-  implicit val longCol : CassandraColumn[Long] = CassandraCodecColumn(DataType.bigint(), TypeCodec.bigint(), Long2long, _.asInstanceOf[AnyRef])
-  implicit val intCol : CassandraColumn[Int] = CassandraCodecColumn(DataType.cint(), TypeCodec.cint(), Integer2int, _.asInstanceOf[AnyRef])
-  implicit val boolCol : CassandraColumn[Boolean] = CassandraCodecColumn(DataType.cboolean(), TypeCodec.cboolean(), Boolean2boolean, _.asInstanceOf[AnyRef])
-  implicit val stringCol : CassandraColumn[String] = CassandraCodecColumn.direct[String](DataType.text(), TypeCodec.varchar())
-  implicit val dateCol : CassandraColumn[Date] = CassandraCodecColumn.direct[Date](DataType.timestamp(), TypeCodec.timestamp())
-  implicit val uuidCol : CassandraColumn[UUID] = CassandraCodecColumn.direct[UUID](DataType.uuid(), TypeCodec.uuid())
+  def direct[T](dt: DataType, tc: TypeCodec[T]): CassandraColumn[T] = CassandraCodecColumn[T, T](dt, tc, identity, _.asInstanceOf[AnyRef])
 
-  implicit def optionalCol[A](implicit col: CassandraColumn[A]) : CassandraColumn[Option[A]] = OptionalColumn(col)
+  def converted[A0, A](dt: DataType, tc: TypeCodec[A0], c: A0 => A): CassandraColumn[A]
+  = CassandraCodecColumn[A0, A](dt, tc, c, _.asInstanceOf[AnyRef])
+
+  implicit val longCol = converted(DataType.bigint(), TypeCodec.bigint(), Long2long)
+  implicit val intCol = converted(DataType.cint(), TypeCodec.cint(), Integer2int)
+  implicit val boolCol = converted(DataType.cboolean(), TypeCodec.cboolean(), Boolean2boolean)
+  implicit val stringCol = direct[String](DataType.text(), TypeCodec.varchar())
+  implicit val dateCol = direct[Date](DataType.timestamp(), TypeCodec.timestamp())
+  implicit val uuidCol = direct[UUID](DataType.uuid(), TypeCodec.uuid())
+  implicit val shortCol = converted(DataType.cint(), TypeCodec.smallInt(), Short2short)
+  implicit val floatCol = converted(DataType.cfloat(), TypeCodec.cfloat(), Float2float)
+  implicit val doubleCol = converted(DataType.cdouble(), TypeCodec.cdouble(), Double2double)
+
+  implicit def optionalCol[A](implicit col: CassandraColumn[A]): CassandraColumn[Option[A]] = OptionalColumn(col)
 }

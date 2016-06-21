@@ -12,19 +12,19 @@ import cats.syntax.all._
 
 object CrudProperties {
   def apply[F[_] : Monad, A: Arbitrary, K](run: F ~> Id, writes: WriteQueries[F, A],
-                                           _findAll: A => F[Iterable[A]], expected: Int, genUpdate: Gen[(A, A)])
+                                           findAll: A => F[Iterable[A]], expected: Int, genUpdate: Gen[(A, A)])
   = {
     implicit def runProp(fa: F[Prop]): Prop = run(fa)
     new Properties("CRUD ops") {
-      val findAll = (a: A) => _findAll(a).map(_.count(a.==))
+      val countAll = (a: A) => findAll(a).map(_.count(a.==))
 
 
       property("createReadDelete") = forAll { (a: A) =>
         for {
           _ <- writes.insert(a)
-          count <- findAll(a)
+          count <- countAll(a)
           _ <- writes.delete(a)
-          afterDel <- findAll(a)
+          afterDel <- countAll(a)
         } yield {
           s"Expected to find $expected" |: (count ?= expected) &&
             ("0 after delete" |: (afterDel ?= 0))
@@ -35,8 +35,8 @@ object CrudProperties {
         for {
           _ <- writes.insert(a1)
           changed <- writes.update(a1, a2)
-          countOrig <- findAll(a1)
-          countNew <- findAll(a2)
+          countOrig <- countAll(a1)
+          countNew <- countAll(a2)
         } yield {
           "Values are different" |: (a1 != a2) ==> {
             s"Original should be gone - $countOrig" |: countOrig == 0 &&
