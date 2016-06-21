@@ -4,6 +4,7 @@ import cats.{Applicative, Eval, Monad}
 import fs2.util.Catchable
 import shapeless._
 import shapeless.ops.hlist.Mapper
+import shapeless.ops.record.Selector
 import shapeless.tag.@@
 
 /**
@@ -56,12 +57,20 @@ abstract class RelationMapper[F[_]] {
     }
   }
 
+  object zipWithRelation extends Poly2 {
+    implicit def findRelation[K, CRD <: HList, RD, Q](implicit ev: Q <:< RelationReference[K], s: Selector.Aux[CRD, K, RD]) = at[CRD, Q] {
+      (crd, q) => (q, s(crd))
+    }
+  }
+
   def buildModelTest[R <: HList, Q <: HList, CRD <: HList, RDQ <: HList,
   QL <: HList, QOut <: HList, As[_[_]], AsRepr <: HList, QOutTag <: HList]
   (rm: RelationModel[R, Q, As])
   (implicit
-   mapRelations: MapAllRelations.Aux[MapAllContext[HNil, R, ColumnAtom], CRD]
+   mapRelations: MapAllRelations.Aux[MapAllContext[HNil, R, ColumnAtom], CRD],
+   mapWith: MapWith[CRD, Q, zipWithRelation.type]
   ): BuiltQueries.Aux[As[F], DDLStatement] = {
+    println(mapWith(mapRelations(MapAllContext(ColumnMapperContext(stdColumnMaker, HNil), rm.relations)), rm.queryList))
 //    val relations = mapRelations(MapAllContext(ColumnMapperContext(stdColumnMaker, HNil), rm.relations))
 //    val rawQueries = convertAndBuild(BuilderContext(M, C, rm.queryList), relations)
 //    BuiltQueries(genAs.from(convert(zip(rawQueries.queries))), Eval.later(rawQueries.ddl))

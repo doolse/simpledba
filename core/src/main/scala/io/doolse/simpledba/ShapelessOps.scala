@@ -4,7 +4,7 @@ import shapeless.PolyDefns.Case
 import shapeless._
 import shapeless.labelled.FieldType
 import shapeless.labelled.field
-import shapeless.ops.hlist.ZipWithKeys
+import shapeless.ops.hlist.{ConstMapper, ZipWith, ZipWithKeys}
 import shapeless.ops.record.SelectAll
 import shapeless.tag.@@
 import shapeless.{DepFn1, DepFn2, HList, HNil, Nat, Succ}
@@ -35,6 +35,28 @@ object ZipWithTag {
     def apply(t: LH :: LT) = tag[RH](t.head) :: tailZipper(t.tail)
   }
 }
+
+/**
+  * Map a Constant and a HList with a Poly2.
+  * The constant is the first type of the Poly2.
+  *
+  * @author Jolse Maginnis
+  */
+trait MapWith[C, L <: HList, P <: Poly2] extends DepFn2[C, L] with Serializable { type Out <: HList }
+
+object MapWith {
+  type Aux[C, L <: HList, P <: Poly2, Out0 <: HList] = MapWith[C, L, P] { type Out = Out0 }
+
+  implicit def mapWith[C, L <: HList, CL <: HList, P <: Poly2]
+  (implicit cm: ConstMapper.Aux[C, L, CL],
+   zipWith: ZipWith[CL, L, P]) : Aux[C, L, P, zipWith.Out]
+  = new MapWith[C, L, P] {
+    type Out = zipWith.Out
+
+    def apply(c: C, l: L) = zipWith(cm(c, l), l)
+  }
+}
+
 
 /**
   * Zip the values with their index.
@@ -98,24 +120,6 @@ object SelectAllRecord {
 
     def apply(t: L): Out = zwk(sa(t))
   }
-}
-
-trait Values2[L <: HList] extends DepFn1[L] with Serializable { type Out <: HList }
-
-object Values2 {
-  type Aux[L <: HList, Out0 <: HList] = Values2[L] { type Out = Out0 }
-
-  implicit def hnilValues[L <: HNil]: Aux[L, HNil] =
-    new Values2[L] {
-      type Out = HNil
-      def apply(l: L): Out = HNil
-    }
-
-  implicit def hlistValues[K, K2, K3, V, T <: HList](implicit vt: Values2[T]): Aux[FieldType[(K, K2, K3), V] :: T, V :: vt.Out] =
-    new Values2[FieldType[(K, K2, K3), V] :: T] {
-      type Out = V :: vt.Out
-      def apply(l: FieldType[(K, K2, K3), V] :: T): Out = (l.head: V) :: vt(l.tail)
-    }
 }
 
 class WitnessList[A, MT[_, A] <: DepFn1[A]](a: A) {

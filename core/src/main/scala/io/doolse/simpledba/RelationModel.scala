@@ -31,10 +31,11 @@ class Relation[Name, A, Keys <: HList] extends SingletonProductArgs {
   def keysProduct[L <: HList](keys: L)(implicit p: Prepend[L, Keys]) = new Relation[Name, A, p.Out]
 }
 
-trait RelationQuery[K]
+trait RelationReference[K]
+trait RelationQuery[K] extends RelationReference[K]
 class QueryPK[K] extends RelationQuery[K]
 class QueryMultiple[K, Columns <: HList, SortColumns <: HList] extends RelationQuery[K]
-class RelationWriter[K]
+class RelationWriter[K] extends RelationReference[K]
 
 sealed trait RangeValue[+A] {
   def value: Option[A]

@@ -57,7 +57,7 @@ object CassandraColumn {
   implicit val stringCol = direct[String](DataType.text(), TypeCodec.varchar())
   implicit val dateCol = direct[Date](DataType.timestamp(), TypeCodec.timestamp())
   implicit val uuidCol = direct[UUID](DataType.uuid(), TypeCodec.uuid())
-  implicit val shortCol = converted(DataType.cint(), TypeCodec.smallInt(), Short2short)
+  implicit val shortCol = converted(DataType.smallint(), TypeCodec.smallInt(), Short2short)
   implicit val floatCol = converted(DataType.cfloat(), TypeCodec.cfloat(), Float2float)
   implicit val doubleCol = converted(DataType.cdouble(), TypeCodec.cdouble(), Double2double)
 
