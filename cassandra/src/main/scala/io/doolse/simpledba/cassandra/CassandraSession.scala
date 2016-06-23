@@ -1,10 +1,12 @@
 package io.doolse.simpledba.cassandra
 
-import java.util.concurrent.ExecutionException
+import java.util.concurrent.{ConcurrentHashMap, ExecutionException}
 
 import cats.data.Kleisli
 import com.datastax.driver.core._
 import com.datastax.driver.core.policies.{DCAwareRoundRobinPolicy, DowngradingConsistencyRetryPolicy, LoggingRetryPolicy, TokenAwarePolicy}
+import com.datastax.driver.core.querybuilder.{Clause, QueryBuilder}
+import com.datastax.driver.core.querybuilder.Select.{Selection, SelectionOrAlias, Where}
 import com.google.common.util.concurrent.ListenableFuture
 import com.typesafe.config.{Config, ConfigFactory}
 import fs2.{Chunk, Strategy, Stream}
@@ -41,6 +43,7 @@ object CassandraSession {
   }
 
   def executeLater(stmt: Statement, session: Session) = Task.suspend(executeAsync(stmt, session))
+
   def executeAsync(stmt: Statement, session: Session) = asyncStmt(session.executeAsync(stmt), stmt.toString)
 
   def async[A](lf: ListenableFuture[A], fromEE: ExecutionException => Throwable) = Task.async[A] { k =>
@@ -61,6 +64,7 @@ object CassandraSession {
   val effect2Task = new (Task ~> Effect) {
     def apply[A](f: Task[A]): Effect[A] = Kleisli(_ => f)
   }
+
   def rowsStream(rs: ResultSet)(implicit strat: fs2.Strategy): Stream[Task, Row] = {
     if (rs.isExhausted) Stream.empty[Task, Row]
     else {
@@ -80,13 +84,52 @@ object CassandraSession {
   val reservedColumns = Set("schema")
 
   def escapeReserved(name: String) =
-    if (reservedColumns(name.toLowerCase())) '"'+name+'"' else name
+    if (reservedColumns(name.toLowerCase())) '"' + name + '"' else name
 
 }
 
+sealed trait PreparableStatement {
+  def build: RegularStatement
+}
+
 case class SessionConfig(session: Session, logger: (() ⇒ String) ⇒ Unit = _ => ()) {
+  val statementCache = new ConcurrentHashMap[Any, Task[PreparedStatement]]().asScala
+
   def executeLater(stmt: Statement): Task[ResultSet] = {
     logger(() => stmt.toString())
     CassandraSession.executeLater(stmt, session)
+  }
+
+  def prepare[A <: PreparableStatement](a: A): Task[PreparedStatement] = {
+    statementCache.getOrElseUpdate(a, Task.suspend {
+      val built = a.build
+      CassandraSession.asyncStmt(session.prepareAsync(built), built.getQueryString)
+    })
+  }
+}
+
+sealed trait CassandraClause {
+  def toClause(v: Any): Clause
+}
+
+case class Eq(name: String) extends CassandraClause {
+  def toClause(v: Any) = QueryBuilder.eq(CassandraSession.escapeReserved(name), v)
+}
+
+case class CassandraSelect(table: String, columns: Seq[String], where: Seq[CassandraClause], ordering: Seq[(String, Boolean)], limit: Boolean) extends PreparableStatement {
+  def addColumn(c: String, s: Selection) = s.column(CassandraSession.escapeReserved(c))
+
+  def addClause(c: CassandraClause, w: Where) = w.and(c.toClause(QueryBuilder.bindMarker()))
+
+  def build: RegularStatement = {
+    val s = columns.foldRight(QueryBuilder.select())(addColumn).from(table)
+    val orderings = ordering.map { case (c, asc) =>
+      val esc = CassandraSession.escapeReserved(c)
+      if (asc) QueryBuilder.asc(esc) else QueryBuilder.desc(esc)
+    }
+    val s2 = where.foldRight(s.where)(addClause)
+    if (limit) s2.limit(QueryBuilder.bindMarker())
+    if (orderings.nonEmpty) s2.orderBy(orderings : _*)
+    s2
   }
 }

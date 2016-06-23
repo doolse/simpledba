@@ -6,6 +6,7 @@ import shapeless._
 import shapeless.ops.hlist.Mapper
 import shapeless.ops.record.Selector
 import shapeless.tag.@@
+import poly._
 
 /**
   * Created by jolz on 10/05/16.
@@ -18,6 +19,8 @@ abstract class RelationMapper[F[_]] {
   type DDLStatement
   type KeyMapperT
   type ColumnAtom[A]
+  type KeyMapperPoly <: Poly1
+  type QueriesPoly <: Poly2
 
   def stdColumnMaker : MappingCreator[ColumnAtom]
 
@@ -58,19 +61,28 @@ abstract class RelationMapper[F[_]] {
   }
 
   object zipWithRelation extends Poly2 {
-    implicit def findRelation[K, CRD <: HList, RD, Q](implicit ev: Q <:< RelationReference[K], s: Selector.Aux[CRD, K, RD]) = at[CRD, Q] {
-      (crd, q) => (q, s(crd))
+    implicit def findRelation[K, CRD <: HList, RD, Q, T, CR <: HList, KL <: HList, CVL <: HList]
+    (implicit ev: Q <:< RelationReference[K],
+     s: Selector.Aux[CRD, K, RD],
+     ev2: RD <:< RelationDef[T, CR, KL, CVL]) =
+      at[CRD, Q] {
+      (crd, q) => (q, ev2(s(crd)))
     }
   }
 
   def buildModelTest[R <: HList, Q <: HList, CRD <: HList, RDQ <: HList,
-  QL <: HList, QOut <: HList, As[_[_]], AsRepr <: HList, QOutTag <: HList]
+  QL <: HList, QOut <: HList, As[_[_]], AsRepr <: HList, QOutTag <: HList, RelWithQ <: HList,
+  MappedTables <: HList]
   (rm: RelationModel[R, Q, As])
   (implicit
    mapRelations: MapAllRelations.Aux[MapAllContext[HNil, R, ColumnAtom], CRD],
-   mapWith: MapWith[CRD, Q, zipWithRelation.type]
+   mapWith: MapWith.Aux[CRD, Q, zipWithRelation.type, RelWithQ],
+   tableMap: Mapper.Aux[KeyMapperPoly, RelWithQ, MappedTables],
+   buildQueries: Case2[QueriesPoly, RelWithQ, MappedTables]
   ): BuiltQueries.Aux[As[F], DDLStatement] = {
-    println(mapWith(mapRelations(MapAllContext(ColumnMapperContext(stdColumnMaker, HNil), rm.relations)), rm.queryList))
+    val withRel = mapWith(mapRelations(MapAllContext(ColumnMapperContext(stdColumnMaker, HNil), rm.relations)), rm.queryList)
+    val res = tableMap(withRel)
+    println(buildQueries(withRel, res))
 //    val relations = mapRelations(MapAllContext(ColumnMapperContext(stdColumnMaker, HNil), rm.relations))
 //    val rawQueries = convertAndBuild(BuilderContext(M, C, rm.queryList), relations)
 //    BuiltQueries(genAs.from(convert(zip(rawQueries.queries))), Eval.later(rawQueries.ddl))

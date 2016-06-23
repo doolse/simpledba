@@ -11,10 +11,11 @@ import fs2.interop.cats._
 import fs2.util.{Catchable, Task}
 import io.doolse.simpledba.cassandra.CassandraMapper._
 import io.doolse.simpledba.cassandra.CassandraSession._
-import io.doolse.simpledba.{QueryBuilder => _, _}
+import io.doolse.simpledba.{RelationDef, QueryBuilder => _, _}
 import shapeless._
-import shapeless.ops.hlist.{Intersection, IsHCons, RemoveAll, ToList}
-import shapeless.ops.record.{SelectAll, Values}
+import shapeless.ops.hlist.{Collect, Diff, Intersection, IsHCons, Mapper, Prepend, Reify, RemoveAll, RightFolder, ToList, ZipConst}
+import shapeless.ops.record.{Keys, SelectAll, Values}
+import poly._
 
 
 /**
@@ -54,6 +55,8 @@ class CassandraMapper extends RelationMapper[Effect] {
   type ColumnAtom[A] = CassandraColumn[A]
   type DDLStatement = (String, Create)
   type KeyMapperT = CassandraKeyMapper
+  type KeyMapperPoly = CassandraMapper2.type
+  type QueriesPoly = ConvertQueries2.type
 
   val M = Applicative[Effect]
   val C = implicitly[Catchable[Effect]]
@@ -266,4 +269,113 @@ object CassandraKeyMapper {
   ): Aux[T, CR, PKL, CVL, QueryMultiple[K, UCL, SKL], UCL, PKV, SKL, SKV]
   = CassandraKeyMapper(tableCreator)
 
+}
+
+class CassandraTable[K, KL, SKL]
+
+object CassandraMapper2 extends Poly1 {
+
+  implicit def byPK[K, T, CR <: HList, KL <: HList, CVL <: HList]
+  = at[(QueryPK[K], RelationDef[T, CR, KL, CVL])] {
+    case (q, relation) => new CassandraTable[K, KL, HNil]
+  }
+
+  implicit def queryMulti[K, Cols <: HList, SortCols <: HList,
+  T, CR <: HList, KL <: HList, CVL <: HList,
+  LeftOverKL <: HList, LeftOverKL2 <: HList]
+  (implicit
+   diff1: Diff.Aux[KL, Cols, LeftOverKL],
+   diff2: Diff.Aux[LeftOverKL, SortCols, LeftOverKL2],
+   prepend: Prepend[SortCols, LeftOverKL2] )
+  = at[(QueryMultiple[K, Cols, SortCols], RelationDef[T, CR, KL, CVL])] {
+    case (q, relation) => new CassandraTable[K, Cols, prepend.Out]
+  }
+
+  implicit def writes[K, RD] = at[(RelationWriter[K], RD)](_ => ())
+
+}
+
+object ConvertQueries2 extends Poly2 {
+
+  case class BuilderState[Used, Available, Builders](tablesUsed: Used, tablesAvailable: Available, builders: Builders)
+
+  trait mapQueryLP2 extends Poly1 {
+    implicit def fallback[Q, RD]
+    = at[(Q, RD, HNil)] {
+      case (q,rd, table) => (s: String) => "Nothing found"
+    }
+  }
+  trait mapQueryLP extends mapQueryLP2 {
+    implicit def nextEntry[Q, RD, H, T <: HList](implicit tailEntry: Case1[mapQuery.type, (Q, RD, T)]) = at[(Q, RD, H :: T)] {
+      case (q, rd, l) => tailEntry(q, rd, l.tail)
+    }
+  }
+  object mapQuery extends mapQueryLP {
+
+    implicit def writeQuery[K, T, CR <: HList, PKL <: HList, CVL <: HList, CT]
+    = at[(RelationWriter[K], RelationDef[T, CR, PKL, CVL], CT)] {
+      case(q,rd,_) => (tn : String) => new WriteQueries[Effect, T] {
+        def delete(t: T): Effect[Unit] = ???
+
+        def insert(t: T): Effect[Unit] = ???
+
+        def update(existing: T, newValue: T): Effect[Boolean] = ???
+      }
+    }
+
+    implicit def pkQuery[K, T, CR <: HList, PKL <: HList, CVL <: HList, KL <: HList, SKL <: HList, Tail <: HList]
+    (implicit pkCols: ColumnsAsSeq[CR, PKL, T, CassandraColumn])
+    = at[(QueryPK[K], RelationDef[T, CR, PKL, CVL], CassandraTable[K, KL, SKL] :: Tail)] {
+      case (q,rd,table) => (tn : String) => {
+        def doQuery(v: pkCols.Vals): Effect[Option[T]] = ???
+        UniqueQuery[Effect, T, pkCols.Vals](doQuery)
+      }
+    }
+
+    implicit def rangeQuery[K, Cols <: HList, SortCols <: HList, Q, T, RD, CR <: HList, CVL <: HList,
+    PKL <: HList, KL <: HList, SKL, Tail <: HList, CRK <: HList,
+    ColsVals <: HList, SortVals <: HList]
+    (implicit
+     allKeys: Keys.Aux[CR, CRK],
+     allCols: ColumnsAsSeq.Aux[CR, CRK, T, CassandraColumn, CVL],
+     cols: ColumnsAsSeq.Aux[CR, Cols, T, CassandraColumn, ColsVals],
+     sortCols: ColumnsAsSeq.Aux[CR, SortCols, T, CassandraColumn, SortVals]
+    )
+    = at[(QueryMultiple[K, Cols, SortCols], RelationDef[T, CR, PKL, CVL], CassandraTable[K, KL, SKL] :: Tail)] {
+      case (q,rd, table) => (tn: String) => {
+        val columns = rd.mapper.columns
+        val baseSelect = CassandraSelect(tn, allCols(columns).map(_.name),
+          cols(columns).map(c => Eq(c.name)),
+          Seq.empty, true)
+
+        def doQuery(c: ColsVals, lr: RangeValue[SortVals], ur: RangeValue[SortVals], asc: Option[Boolean]): Stream[Effect, T] = ???
+        RangeQuery[Effect, T, ColsVals, SortVals](None, doQuery)
+      }
+    }
+  }
+
+  object foldQueries extends Poly2 {
+    implicit def buildTable[Q, RD, Used, Available, Builders <: HList, Out]
+    (implicit mq: Case1.Aux[mapQuery.type, (Q, RD, Available), String => Out])
+    = at[(Q, RD), BuilderState[Used, Available, Builders]] {
+      case ((q, rd), bs) => bs.copy[Used, Available, Out :: Builders](builders = mq(q, rd, bs.tablesAvailable).apply("TABLE") :: bs.builders)
+    }
+  }
+
+  object tablesWithSK extends Poly1 {
+    implicit def withSK[CT, SK <: HList](implicit ev: CT <:< CassandraTable[_, _, SK], ishCons: IsHCons[SK]) = at[CT](identity)
+  }
+
+  object tablesNoSK extends Poly1 {
+    implicit def noSK[CT, SK <: HList](implicit ev: CT <:< CassandraTable[_, _, HNil]) = at[CT](identity)
+  }
+
+  implicit def convertAll[Q <: HList, Tables <: HList, WithSK <: HList, NoSK <: HList,
+  SortedTables <: HList, QueriesAndTables <: HList]
+  (implicit
+   collect: Collect.Aux[Tables, tablesWithSK.type, WithSK],
+   collect2: Collect.Aux[Tables, tablesNoSK.type, NoSK],
+   prepend: Prepend.Aux[WithSK, NoSK, SortedTables],
+   folder: RightFolder[Q, BuilderState[HNil, SortedTables, HNil], foldQueries.type]
+  ) = at[Q, Tables]((q,tables) => folder(q, BuilderState(HNil, prepend(collect(tables), collect2(tables)), HNil)))
 }

@@ -2,13 +2,30 @@ package io.doolse.simpledba
 
 import cats.data.Xor
 import shapeless.labelled._
-import shapeless.ops.hlist.{At, Zip, ZipWith, _}
-import shapeless.ops.record.Selector
-import shapeless.{::, DepFn0, DepFn1, DepFn2, HList, HNil, Nat, Poly1, Poly2}
+import shapeless.ops.hlist.{At, Mapper, ToList, ToTraversable, Zip, ZipWith}
+import shapeless.ops.record.{SelectAll, Selector}
+import shapeless.{::, DepFn0, DepFn1, DepFn2, HList, HNil, Nat, Poly1, Poly2, record}
 
 /**
   * Created by jolz on 8/06/16.
   */
+
+trait ColumnsAsSeq[CR, KL, T, CA[_]] {
+  type Vals
+  def apply(cr: CR): Seq[ColumnMapping[CA, T, _]]
+}
+
+object ColumnsAsSeq {
+  type Aux[CR, KL, T, CA[_], Out] = ColumnsAsSeq[CR, KL, T, CA] { type Vals = Out }
+  implicit def extractColumns[CR <: HList, KL <: HList, T, CA[_], CRSelected <: HList]
+  (implicit sa: SelectAll.Aux[CR, KL, CRSelected],
+   toSeq: ToTraversable.Aux[CRSelected, Seq, ColumnMapping[CA, T, _]],
+   cvl: ColumnValues[CRSelected]) = new ColumnsAsSeq[CR, KL, T, CA] {
+    type Vals = cvl.Out
+    def apply(cr: CR): Seq[ColumnMapping[CA, T, _]] = toSeq(sa(cr)).reverse
+  }
+}
+
 trait ColumnMaterialzer[ColumnAtom[_]] {
   def apply[A](name: String, atom: ColumnAtom[A]): Option[A]
 }
