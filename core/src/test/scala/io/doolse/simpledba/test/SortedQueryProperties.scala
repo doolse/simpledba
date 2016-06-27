@@ -17,8 +17,7 @@ abstract class SortedQueryProperties[F[_] : Monad](name: String) extends Abstrac
 
   case class Sortable(pk1: UUID, same: UUID, intField: Int, stringField: String, shortField: Short, longField: Long, floatField: Float, doubleField: Double)
 
-  case class Queries[F[_]](writes: WriteQueries[F, Sortable], int1: SortableQuery[F, Sortable, UUID])
-  //, int2: SortableQuery[F, Sortable, String])
+  case class Queries[F[_]](writes: WriteQueries[F, Sortable], int1: SortableQuery[F, Sortable, UUID], int2: SortableQuery[F, Sortable, UUID])
 
   val model = RelationModel(relation[Sortable]('sortable).key('pk1)).queries[Queries](
     writes('sortable),

@@ -38,7 +38,8 @@ class QueryMultiple[K, Columns <: HList, SortColumns <: HList] extends RelationQ
 class RelationWriter[K] extends RelationReference[K]
 
 sealed trait RangeValue[+A] {
-  def value: Option[A]
+  def value = fold((), ()).map(_._1)
+  def fold[B](inc: B, exc: B): Option[(A, B)]
 }
 case class FilterRange[A](lower: RangeValue[A], upper: RangeValue[A]) {
   def contains(v: A)(implicit o: Ordering[A]): Boolean = {
@@ -65,9 +66,9 @@ object RangeValue {
   }
   implicit def autoInclusive[A](a: A) : Inclusive[A] = Inclusive(a)
 }
-case object NoRange extends RangeValue[Nothing] { def value = None }
-case class Inclusive[A](a: A) extends RangeValue[A] { def value = Some(a) }
-case class Exclusive[A](a: A) extends RangeValue[A] { def value = Some(a) }
+case object NoRange extends RangeValue[Nothing] { def fold[B](i: B, x: B) = None }
+case class Inclusive[A](a: A) extends RangeValue[A] { def fold[B](i: B, x: B) = Some((a, i)) }
+case class Exclusive[A](a: A) extends RangeValue[A] { def fold[B](i: B, x: B) = Some((a, x)) }
 
 case class UniqueQuery[F[_], T, Key](query: Key => F[Option[T]]) {
   def apply(kv: Key) = query(kv)

@@ -19,13 +19,13 @@ trait BuiltQueries[Q] {
 
   def queries: Q
 
-  def ddl: List[DDL]
+  def ddl: Iterable[DDL]
 }
 
 object BuiltQueries {
   type Aux[Q, DDL0] = BuiltQueries[Q] {type DDL = DDL0}
 
-  def apply[Q, DDL0](q: Q, _ddl: Eval[List[DDL0]]) : Aux[Q, DDL0] = new BuiltQueries[Q] {
+  def apply[Q, DDL0](q: Q, _ddl: Eval[Iterable[DDL0]]) : Aux[Q, DDL0] = new BuiltQueries[Q] {
     type DDL = DDL0
 
     def queries = q

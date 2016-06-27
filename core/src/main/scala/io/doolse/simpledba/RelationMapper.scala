@@ -13,14 +13,16 @@ import poly._
   */
 
 abstract class RelationMapper[F[_]] {
-
   def M: Applicative[F]
   def C: Catchable[F]
   type DDLStatement
   type KeyMapperT
   type ColumnAtom[A]
+  type MapperConfig
   type KeyMapperPoly <: Poly1
-  type QueriesPoly <: Poly2
+  type QueriesPoly <: Poly3
+
+  val config : MapperConfig
 
   def stdColumnMaker : MappingCreator[ColumnAtom]
 
@@ -78,15 +80,15 @@ abstract class RelationMapper[F[_]] {
    mapRelations: MapAllRelations.Aux[MapAllContext[HNil, R, ColumnAtom], CRD],
    mapWith: MapWith.Aux[CRD, Q, zipWithRelation.type, RelWithQ],
    tableMap: Mapper.Aux[KeyMapperPoly, RelWithQ, MappedTables],
-   buildQueries: Case2[QueriesPoly, RelWithQ, MappedTables]
+   buildQueries: Case3.Aux[QueriesPoly, RelWithQ, MappedTables, MapperConfig, BuiltQueries.Aux[QOut, DDLStatement]],
+   genAs: Generic.Aux[As[F], AsRepr],
+   zip: ZipWithTag.Aux[QOut, AsRepr, QOutTag],
+   convert: Mapper.Aux[queriesAs.type, QOutTag, AsRepr]
   ): BuiltQueries.Aux[As[F], DDLStatement] = {
     val withRel = mapWith(mapRelations(MapAllContext(ColumnMapperContext(stdColumnMaker, HNil), rm.relations)), rm.queryList)
     val res = tableMap(withRel)
-    println(buildQueries(withRel, res))
-//    val relations = mapRelations(MapAllContext(ColumnMapperContext(stdColumnMaker, HNil), rm.relations))
-//    val rawQueries = convertAndBuild(BuilderContext(M, C, rm.queryList), relations)
-//    BuiltQueries(genAs.from(convert(zip(rawQueries.queries))), Eval.later(rawQueries.ddl))
-    ???
+    val rawQueries = buildQueries(HList(withRel, res, config))
+    BuiltQueries(genAs.from(convert(zip(rawQueries.queries))), Eval.later(rawQueries.ddl))
   }
 
 }

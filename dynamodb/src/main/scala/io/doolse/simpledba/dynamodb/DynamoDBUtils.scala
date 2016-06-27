@@ -13,7 +13,7 @@ import scala.collection.JavaConverters._
   * Created by jolz on 13/06/16.
   */
 object DynamoDBUtils {
-  def createSchema(client: AmazonDynamoDB, creation: List[CreateTableRequest]): Unit = {
+  def createSchema(client: AmazonDynamoDB, creation: Iterable[CreateTableRequest]): Unit = {
     val existingTables = client.listTables().getTableNames.asScala.toSet
     creation.foreach(ct => Try {
       val tableName = ct.getTableName

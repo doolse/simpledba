@@ -32,7 +32,7 @@ object DynamoDBMapper {
   type Effect[A] = ReaderT[Task, DynamoDBSession, A]
 
 
-  def asAttrMap(l: List[PhysicalValue[DynamoDBColumn]]) = l.map(physical2Attribute).toMap.asJava
+  def asAttrMap(l: Seq[PhysicalValue[DynamoDBColumn]]) = l.map(physical2Attribute).toMap.asJava
 
   def physical2Attribute(pc: PhysicalValue[DynamoDBColumn]) = pc.name -> pc.atom.to(pc.v)
 }
@@ -111,6 +111,9 @@ class DynamoDBMapper extends RelationMapper[DynamoDBMapper.Effect] {
 
   def M = Applicative[Effect]
   def C = implicitly[Catchable[Effect]]
+
+  type MapperConfig = Unit
+  val config = ()
 }
 
 trait DynamoDBPhysicalRelations[T, CR <: HList, CVL <: HList, PKN, SKN, PKVO, SKVO] {

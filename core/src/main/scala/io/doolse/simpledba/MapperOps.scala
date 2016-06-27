@@ -12,17 +12,22 @@ import shapeless.{::, DepFn0, DepFn1, DepFn2, HList, HNil, Nat, Poly1, Poly2, re
 
 trait ColumnsAsSeq[CR, KL, T, CA[_]] {
   type Vals
-  def apply(cr: CR): Seq[ColumnMapping[CA, T, _]]
+  def apply(cr: CR): (Seq[ColumnMapping[CA, T, _]], Vals => Seq[PhysicalValue[CA]])
 }
 
 object ColumnsAsSeq {
   type Aux[CR, KL, T, CA[_], Out] = ColumnsAsSeq[CR, KL, T, CA] { type Vals = Out }
-  implicit def extractColumns[CR <: HList, KL <: HList, T, CA[_], CRSelected <: HList]
+
+  implicit def extractColumns[CR <: HList, KL <: HList, T, CA[_], CRSelected <: HList, Vals0]
   (implicit sa: SelectAll.Aux[CR, KL, CRSelected],
    toSeq: ToTraversable.Aux[CRSelected, Seq, ColumnMapping[CA, T, _]],
-   cvl: ColumnValues[CRSelected]) = new ColumnsAsSeq[CR, KL, T, CA] {
-    type Vals = cvl.Out
-    def apply(cr: CR): Seq[ColumnMapping[CA, T, _]] = toSeq(sa(cr)).reverse
+   pVals: PhysicalValues.Aux[CA, CRSelected, Vals0, List[PhysicalValue[CA]]]
+   ) = new ColumnsAsSeq[CR, KL, T, CA] {
+    type Vals = Vals0
+    def apply(cr: CR) = {
+      val selCols = sa(cr)
+      (toSeq(selCols), pVals(selCols))
+    }
   }
 }
 
@@ -67,7 +72,9 @@ object MaterializeFromColumns {
 trait ColumnListHelper[CA[_], T, CVL <: HList, FullKey] {
   def materializer: ColumnMaterialzer[CA] => Option[T]
 
-  def toPhysicalValues: T => List[PhysicalValue[CA]]
+  def extractKey: T => FullKey
+
+  def toPhysicalValues: T => Seq[PhysicalValue[CA]]
 
   def changeChecker: (T, T) => Option[Xor[(FullKey, List[ValueDifference[CA]]), (FullKey, FullKey, List[PhysicalValue[CA]])]]
 }
@@ -82,7 +89,7 @@ object ColumnListHelperBuilder {
    differ: ValueDifferences.Aux[CA, CR, CVL, CVL, List[ValueDifference[CA]]],
    materializeAll: MaterializeFromColumns.Aux[CA, CR, CVL]
   ) = new ColumnListHelperBuilder[CA, T, CR, CVL, FullKey] {
-    def apply(mapper: ColumnMapper[T, CR, CVL], u: (CVL) => FullKey): ColumnListHelper[CA, T, CVL, FullKey]
+    def apply(mapper: ColumnMapper[T, CR, CVL], toKeys: (CVL) => FullKey): ColumnListHelper[CA, T, CVL, FullKey]
     = new ColumnListHelper[CA, T, CVL, FullKey] {
       val columns = mapper.columns
       val toColumns = mapper.toColumns
@@ -90,8 +97,7 @@ object ColumnListHelperBuilder {
       val materializer = materializeAll(columns) andThen (_.map(fromColumns))
       val colsToValues = allVals(columns)
       val toPhysicalValues = colsToValues compose toColumns
-
-      val toKeys = u
+      val extractKey = toColumns andThen toKeys
 
       val changeChecker: (T, T) => Option[Xor[(FullKey, List[ValueDifference[CA]]), (FullKey, FullKey, List[PhysicalValue[CA]])]] = (existing, newValue) => {
         if (existing == newValue) None

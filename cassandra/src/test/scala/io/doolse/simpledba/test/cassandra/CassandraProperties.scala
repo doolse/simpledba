@@ -21,7 +21,7 @@ trait CassandraProperties {
 
   def setup[Q](bq: BuiltQueries.Aux[Q, (String, Create)]) = {
     initKS
-    CassandraUtils.createSchema(sessionConfig, bq.ddl).unsafeRun
+    CassandraUtils.createSchema(sessionConfig.copy(logger = msg => Console.out.println(msg())), bq.ddl).unsafeRun
     bq.queries
   }
 

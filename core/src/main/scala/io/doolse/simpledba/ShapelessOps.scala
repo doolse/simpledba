@@ -5,7 +5,7 @@ import shapeless._
 import shapeless.labelled.FieldType
 import shapeless.labelled.field
 import shapeless.ops.hlist.{ConstMapper, ZipWith, ZipWithKeys}
-import shapeless.ops.record.SelectAll
+import shapeless.ops.record.{LacksKey, SelectAll, Selector, Updater}
 import shapeless.tag.@@
 import shapeless.{DepFn1, DepFn2, HList, HNil, Nat, Succ}
 import poly._
@@ -57,6 +57,23 @@ object MapWith {
   }
 }
 
+/**
+  *
+  */
+trait UpdateOrAdd[L <: HList, K, V] extends DepFn2[L, Option[V] => V] with Serializable { type Out <: HList }
+
+object UpdateOrAdd {
+  implicit def existing[L <: HList, K, V](implicit s: Selector.Aux[L, K, V], updater: Updater[L, FieldType[K, V]]) = new UpdateOrAdd[L, K, V] {
+    type Out = updater.Out
+
+    def apply(l: L, f: (Option[V]) => V) = updater(l, field[K](f(Some(s(l)))))
+  }
+  implicit def first[L <: HList, K, V](implicit s: LacksKey[L, K], updater: Updater[L, FieldType[K, V]]) = new UpdateOrAdd[L, K, V] {
+    type Out = updater.Out
+
+    def apply(l: L, f: (Option[V]) => V) = updater(l, field[K](f(None)))
+  }
+}
 
 /**
   * Zip the values with their index.

@@ -5,7 +5,7 @@ import java.util.concurrent.{ConcurrentHashMap, ExecutionException}
 import cats.data.Kleisli
 import com.datastax.driver.core._
 import com.datastax.driver.core.policies.{DCAwareRoundRobinPolicy, DowngradingConsistencyRetryPolicy, LoggingRetryPolicy, TokenAwarePolicy}
-import com.datastax.driver.core.querybuilder.{Clause, QueryBuilder}
+import com.datastax.driver.core.querybuilder._
 import com.datastax.driver.core.querybuilder.Select.{Selection, SelectionOrAlias, Where}
 import com.google.common.util.concurrent.ListenableFuture
 import com.typesafe.config.{Config, ConfigFactory}
@@ -42,9 +42,15 @@ object CassandraSession {
     ks.map(cluster.connect).getOrElse(cluster.connect)
   }
 
+  def stmt2String(s: Statement): String = s match {
+    case bs : BoundStatement => bs.preparedStatement.getQueryString
+    case rs : RegularStatement => rs.getQueryString
+    case s => s.toString()
+  }
+
   def executeLater(stmt: Statement, session: Session) = Task.suspend(executeAsync(stmt, session))
 
-  def executeAsync(stmt: Statement, session: Session) = asyncStmt(session.executeAsync(stmt), stmt.toString)
+  def executeAsync(stmt: Statement, session: Session) = asyncStmt(session.executeAsync(stmt), stmt2String(stmt))
 
   def async[A](lf: ListenableFuture[A], fromEE: ExecutionException => Throwable) = Task.async[A] { k =>
     lf.addListener(new Runnable {
@@ -96,40 +102,98 @@ case class SessionConfig(session: Session, logger: (() ⇒ String) ⇒ Unit = _ 
   val statementCache = new ConcurrentHashMap[Any, Task[PreparedStatement]]().asScala
 
   def executeLater(stmt: Statement): Task[ResultSet] = {
-    logger(() => stmt.toString())
+    logger(() => CassandraSession.stmt2String(stmt))
     CassandraSession.executeLater(stmt, session)
   }
 
-  def prepare[A <: PreparableStatement](a: A): Task[PreparedStatement] = {
-    statementCache.getOrElseUpdate(a, Task.suspend {
+  def prepareAndBind[A <: PreparableStatement](a: A, b: Seq[AnyRef]): Task[ResultSet] = {
+    lazy val prepared = {
       val built = a.build
+      logger(() => "Preparing: "+CassandraSession.stmt2String(built))
       CassandraSession.asyncStmt(session.prepareAsync(built), built.getQueryString)
-    })
+    }
+    statementCache.getOrElseUpdate(a, prepared).flatMap {
+      ps =>
+        logger(() => "Binding "+b.mkString(", ")+" to "+ps.getQueryString)
+        CassandraSession.executeAsync(ps.bind(b: _*), session)
+    }
   }
 }
 
-sealed trait CassandraClause {
-  def toClause(v: Any): Clause
+sealed trait CassandraAssignment {
+  def toAssignment(v: Any): Assignment
 }
 
-case class Eq(name: String) extends CassandraClause {
-  def toClause(v: Any) = QueryBuilder.eq(CassandraSession.escapeReserved(name), v)
+case class SetAssignment(column: String) extends CassandraAssignment {
+  def toAssignment(v: Any): Assignment = QueryBuilder.set(column,v)
+}
+
+sealed trait CassandraClause {
+  def toClause(v: AnyRef): Clause
+}
+
+case class CassandraGT(name: String) extends CassandraClause {
+  def toClause(v: AnyRef) = QueryBuilder.gt(CassandraSession.escapeReserved(name), v)
+}
+
+case class CassandraGTE(name: String) extends CassandraClause {
+  def toClause(v: AnyRef) = QueryBuilder.gte(CassandraSession.escapeReserved(name), v)
+}
+
+case class CassandraLTE(name: String) extends CassandraClause {
+  def toClause(v: AnyRef) = QueryBuilder.lte(CassandraSession.escapeReserved(name), v)
+}
+
+case class CassandraLT(name: String) extends CassandraClause {
+  def toClause(v: AnyRef) = QueryBuilder.lt(CassandraSession.escapeReserved(name), v)
+}
+
+case class CassandraEQ(name: String) extends CassandraClause {
+  def toClause(v: AnyRef) = QueryBuilder.eq(CassandraSession.escapeReserved(name), v)
 }
 
 case class CassandraSelect(table: String, columns: Seq[String], where: Seq[CassandraClause], ordering: Seq[(String, Boolean)], limit: Boolean) extends PreparableStatement {
-  def addColumn(c: String, s: Selection) = s.column(CassandraSession.escapeReserved(c))
-
-  def addClause(c: CassandraClause, w: Where) = w.and(c.toClause(QueryBuilder.bindMarker()))
-
   def build: RegularStatement = {
-    val s = columns.foldRight(QueryBuilder.select())(addColumn).from(table)
+    val sel = QueryBuilder.select()
+    columns.foreach(sel.column)
+    val s = sel.from(table)
     val orderings = ordering.map { case (c, asc) =>
       val esc = CassandraSession.escapeReserved(c)
       if (asc) QueryBuilder.asc(esc) else QueryBuilder.desc(esc)
     }
-    val s2 = where.foldRight(s.where)(addClause)
-    if (limit) s2.limit(QueryBuilder.bindMarker())
-    if (orderings.nonEmpty) s2.orderBy(orderings : _*)
-    s2
+    val marker = QueryBuilder.bindMarker()
+    where.foreach(c => s.where(c.toClause(marker)))
+    if (limit) s.limit(marker)
+    if (orderings.nonEmpty) s.orderBy(orderings : _*)
+    s
+  }
+}
+
+case class CassandraInsert(table: String, columns: Seq[String]) extends PreparableStatement {
+  def build = {
+    val ins = QueryBuilder.insertInto(table)
+    columns.foreach(c => ins.value(CassandraSession.escapeReserved(c), QueryBuilder.bindMarker()))
+    ins
+  }
+}
+
+case class CassandraUpdate(table: String, assignments: Seq[CassandraAssignment], where: Seq[CassandraClause]) extends PreparableStatement {
+  def build = {
+    val upd = QueryBuilder.update(table)
+    val updateWith = upd.`with`
+    val updateWhere = upd.where()
+    assignments.foreach { asgn => updateWith.and(asgn.toAssignment(QueryBuilder.bindMarker())) }
+    where.foreach(c => updateWhere.and(c.toClause(QueryBuilder.bindMarker())))
+    upd
+  }
+}
+
+case class CassandraDelete(table: String, where: Seq[CassandraClause]) extends PreparableStatement {
+  def addClause(c: CassandraClause, w: Delete.Where) = w.and(c.toClause(QueryBuilder.bindMarker()))
+  def build = {
+    val del = QueryBuilder.delete().all().from(table)
+    val delWhere = del.where()
+    where.foreach(c => delWhere.and(c.toClause(QueryBuilder.bindMarker())))
+    del
   }
 }

@@ -18,6 +18,10 @@ sealed trait CassandraColumn[A] {
   def assignment(name: String, ex: A, v: A): Assignment = {
     QueryBuilder.set(name, binding(v))
   }
+
+  def assigner(name: String, ex: A, v: A): (CassandraAssignment, AnyRef) = {
+    (SetAssignment(name), binding(v))
+  }
 }
 
 case class WrappedColumn[S, A](wrapped: CassandraColumn[A], to: S => A, from: A => S) extends CassandraColumn[S] {
