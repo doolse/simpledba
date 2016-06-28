@@ -36,7 +36,6 @@ abstract class RelationMapper[F[_]] {
   def M: Applicative[F]
   def C: Catchable[F]
   type DDLStatement
-  type KeyMapperT
   type ColumnAtom[A]
   type MapperConfig
   type KeyMapperPoly <: Poly1
@@ -49,11 +48,11 @@ abstract class RelationMapper[F[_]] {
   def verifyModel[R <: HList, Q <: HList, C2, As[_[_]]]
   (rm: RelationModel[R, Q, As], p: String => Unit = Console.err.println)
   (implicit
-   verify: ModelVerifier[ModelVerifierContext[R, HNil, ColumnAtom, F, DDLStatement, KeyMapperT, Q, As]]
+   verify: ModelVerifier[ModelVerifierContext[R, HNil, ColumnAtom, F, DDLStatement, KeyMapperPoly, QueriesPoly, Q, As, MapperConfig]]
   ): BuiltQueries.Aux[As[F], DDLStatement] = {
 
     val (name, errors) = verify.errors(
-      new ModelVerifierContext(rm, ColumnMapperContext(stdColumnMaker), M, C)
+      new ModelVerifierContext(rm, ColumnMapperContext(stdColumnMaker), M, C, config)
     )
     p(name)
     errors.foreach(p)
@@ -64,16 +63,6 @@ abstract class RelationMapper[F[_]] {
 
       def queries = throwError
       def ddl = throwError
-    }
-  }
-
-  object zipWithRelation extends Poly2 {
-    implicit def findRelation[K, CRD <: HList, RD, Q, T, CR <: HList, KL <: HList, CVL <: HList]
-    (implicit ev: Q <:< RelationReference[K],
-     s: Selector.Aux[CRD, K, RD],
-     ev2: RD <:< RelationDef[T, CR, KL, CVL]) =
-      at[CRD, Q] {
-      (crd, q) => (q, ev2(s(crd)))
     }
   }
 

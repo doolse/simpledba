@@ -358,3 +358,13 @@ object tablesWithSK extends Poly1 {
 object tablesNoSK extends Poly1 {
   implicit def noSK[CT, SK <: HList](implicit ev: CT <:< TableWithSK[HNil]) = at[CT](identity)
 }
+
+object zipWithRelation extends Poly2 {
+  implicit def findRelation[K, CRD <: HList, RD, Q, T, CR <: HList, KL <: HList, CVL <: HList]
+  (implicit ev: Q <:< RelationReference[K],
+   s: Selector.Aux[CRD, K, RD],
+   ev2: RD <:< RelationDef[T, CR, KL, CVL]) =
+    at[CRD, Q] {
+      (crd, q) => (q, ev2(s(crd)))
+    }
+}

@@ -98,8 +98,9 @@ sealed trait PreparableStatement {
   def build: RegularStatement
 }
 
-case class SessionConfig(session: Session, logger: (() ⇒ String) ⇒ Unit = _ => ()) {
-  val statementCache = new ConcurrentHashMap[Any, Task[PreparedStatement]]().asScala
+case class SessionConfig(session: Session, logger: (() ⇒ String) ⇒ Unit = _ => (),
+                         statementCache : scala.collection.concurrent.Map[Any, Task[PreparedStatement]]
+                         = new ConcurrentHashMap[Any, Task[PreparedStatement]]().asScala) {
 
   def executeLater(stmt: Statement): Task[ResultSet] = {
     logger(() => CassandraSession.stmt2String(stmt))

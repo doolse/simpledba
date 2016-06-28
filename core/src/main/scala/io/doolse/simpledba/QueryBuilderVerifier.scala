@@ -3,12 +3,13 @@ package io.doolse.simpledba
 import shapeless.ops.hlist._
 import shapeless.{::, HList, HNil, Poly1, Witness}
 import shapeless.ops.record.{Keys, LacksKey, Selector}
+import shapeless.poly.Case1
 
 /**
   * Created by jolz on 8/06/16.
   */
 
-case class QueryBuilderVerifierContext[F[_], DDL, RM <: HList, KeyMapperT](relations: RM)
+case class QueryBuilderVerifierContext[F[_], DDL, RM <: HList, KeyMapperPoly](relations: RM)
 
 case class QueryBuilderVerifier[In](errors: In => List[String])
 
@@ -67,9 +68,6 @@ trait QueryBuilderVerifierLP {
 
 object QueryBuilderVerifier extends QueryBuilderVerifierLP {
 
-  type KeyMapperLookup[KMT, T, CR <: HList, KL <: HList, CVL <: HList, Query]
-  = KMT with KeyMapper[T, CR, KL, CVL, Query]
-
   implicit def verifyWrites[F[_], DDL, RM <: HList, Q, K, KMT]
   (implicit
    ev: Q <:< RelationWriter[K],
@@ -80,8 +78,7 @@ object QueryBuilderVerifier extends QueryBuilderVerifierLP {
    ev2: Q <:< RelationQuery[K],
    sel: Selector.Aux[RM, K, RD],
    ev: RD <:< RelationDef[T, CR, KL, CVL],
-   km: KeyMapperLookup[KMT, T, CR, KL, CVL, Q],
-   c: convertQueries.Case[(RM, BuilderContext[F, DDL, KMT, HNil]), Q]
+   c: Case1[KMT, (Q, RD)]
   ) = QueryBuilderVerifier[(QueryBuilderVerifierContext[F, DDL, RM, KMT], Q)](_ => List.empty)
 
   implicit def hconsVerify[CTX, H, T <: HList](implicit hv: QueryBuilderVerifier[(CTX, H)], tv: QueryBuilderVerifier[(CTX, T)])
