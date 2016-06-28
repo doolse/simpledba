@@ -11,6 +11,7 @@ import com.datastax.driver.core.{DataType, ResultSet, Row, Statement}
 import fs2._
 import fs2.interop.cats._
 import fs2.util.{Catchable, Task}
+import io.doolse.simpledba.RelationMapper._
 import io.doolse.simpledba.cassandra.CassandraMapper._
 import io.doolse.simpledba.cassandra.CassandraSession._
 import io.doolse.simpledba.{RelationDef, QueryBuilder => _, _}
@@ -30,18 +31,6 @@ import scala.util.Random
 object CassandraMapper {
   type Effect[A] = ReaderT[Task, SessionConfig, A]
   type CassandraDDL = (String, Create)
-
-  case class TableNameDetails(existingTables: Set[String], baseName: String, pkNames: Seq[String], skNames: Seq[String])
-
-  case class CassandraMapperConfig(tableNamer: TableNameDetails => String)
-
-  val defaultTableNamer =
-    (td: TableNameDetails) => {
-      val bn = td.baseName
-      if (td.existingTables(bn)) {
-        (2 to 1000).iterator.map(n => s"${bn}_$n").find(n => !td.existingTables(n)).getOrElse(sys.error(s"Couldn't generate a unique table name for ${bn}"))
-      } else bn
-    }
 }
 
 trait CassandraTables[T, CR <: HList, CVL <: HList, PKL, SKL, XSKL, PKV, SKV] extends DepFn2[ColumnMapper[T, CR, CVL], String] {
@@ -67,16 +56,15 @@ case class CassandraWhere(clauses: List[Clause]) {
   }
 }
 
-class CassandraMapper(tableNamer: TableNameDetails => String = defaultTableNamer) extends RelationMapper[Effect] {
+class CassandraMapper(val config: SimpleMapperConfig = defaultMapperConfig) extends RelationMapper[Effect] {
 
   type ColumnAtom[A] = CassandraColumn[A]
-  type MapperConfig = CassandraMapperConfig
-  type DDLStatement = (String, Create)
+  type MapperConfig = SimpleMapperConfig
+  type DDLStatement = CassandraDDL
   type KeyMapperT = CassandraKeyMapper
   type KeyMapperPoly = CassandraMapper2.type
   type QueriesPoly = ConvertQueries2.type
 
-  val config = CassandraMapperConfig(tableNamer)
   val M = Applicative[Effect]
   val C = implicitly[Catchable[Effect]]
 
@@ -332,14 +320,7 @@ object ConvertQueries2 extends Poly3 {
 
   case class QueryCreate[K, PKL, SKL, Out](matched: CassandraTable[K, PKL, SKL], build: String => Out)
 
-  trait mapQueryLP2 extends Poly1 {
-    implicit def fallback[Q, RD]
-    = at[(Q, RD, HNil)] {
-      case (q, rd, table) => (s: String) => "Nothing found"
-    }
-  }
-
-  trait mapQueryLP extends mapQueryLP2 {
+  trait mapQueryLP extends Poly1 {
     implicit def nextEntry[Q, RD, H, T <: HList](implicit tailEntry: Case1[mapQuery.type, (Q, RD, T)]) = at[(Q, RD, H :: T)] {
       case (q, rd, l) => tailEntry(q, rd, l.tail)
     }
@@ -426,7 +407,6 @@ object ConvertQueries2 extends Poly3 {
      mq: Case1.Aux[mapQuery.type, (Q, RelationDef[T, CR, KL, CVL], Available), QueryCreate[K, PKL, SKL, Out]],
      update: UpdateOrAdd[Writers, K, WriteQueries[Effect, T]],
      allColKeys: Keys.Aux[CR, AllK],
-     keysReified: Reify[AllK],
      allCols: ColumnsAsSeq[CR, AllK, T, CassandraColumn],
      pkColLookup: ColumnsAsSeq.Aux[CR, PKL, T, CassandraColumn, PKV],
      skColLookup: ColumnsAsSeq.Aux[CR, SKL, T, CassandraColumn, SKV],
@@ -446,7 +426,6 @@ object ConvertQueries2 extends Poly3 {
         val tableName = bs.tableNamer(TableNameDetails(bs.tableNames, rd.baseName, pkNames, skNames))
 
         def createDDL = {
-          val kr = keysReified()
           val create = SchemaBuilder.createTable(tableName)
           val dts = columns.map(cm => cm.name -> cm.atom.dataType).toMap
           def addCol(f: (String, DataType) => Create)(name: String) = f(CassandraSession.escapeReserved(name), dts(name))
@@ -534,9 +513,10 @@ object ConvertQueries2 extends Poly3 {
    collect: Collect.Aux[Tables, tablesWithSK.type, WithSK],
    collect2: Collect.Aux[Tables, tablesNoSK.type, NoSK],
    prepend: Prepend.Aux[WithSK, NoSK, SortedTables],
-   folder: RightFolder.Aux[Q, BuilderState[HNil, SortedTables, HNil, HNil], foldQueries.type, BuilderState[Created, SortedTables, OutQueries, Writers]],
+   folder: RightFolder.Aux[Q, BuilderState[HNil, SortedTables, HNil, HNil],
+     foldQueries.type, BuilderState[Created, SortedTables, OutQueries, Writers]],
    finishUp: MapWith[Writers, OutQueries, finishWrites.type]
-  ) = at[Q, Tables, CassandraMapperConfig] { (q, tables, config) =>
+  ) = at[Q, Tables, SimpleMapperConfig] { (q, tables, config) =>
     val folded = folder(q, BuilderState(HNil, prepend(collect(tables), collect2(tables)), HNil, HNil, Eval.now(Vector.empty), config.tableNamer))
     val outQueries = finishUp(folded.writers, folded.builders)
     BuiltQueries[finishUp.Out, CassandraDDL](outQueries, folded.ddl.map(a => a))

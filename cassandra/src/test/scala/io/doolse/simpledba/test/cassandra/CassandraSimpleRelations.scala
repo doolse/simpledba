@@ -11,14 +11,14 @@ import io.doolse.simpledba.test.SimpleRelations._
 object CassandraSimpleRelations extends SimpleRelations[Effect]("Cassandra") with CassandraProperties {
 
   lazy val queries1: Fields1Queries[Effect] = {
-    setup(mapper.buildModelTest(fields1Model))
+    setup(mapper.buildModel(fields1Model))
   }
 
   lazy val queries2: Fields2Queries[Effect] = {
-    setup(mapper.buildModelTest(fields2Model))
+    setup(mapper.buildModel(fields2Model))
   }
 
   lazy val queries3: Fields3Queries[Effect] = {
-    setup(mapper.buildModelTest(fields3Model))
+    setup(mapper.buildModel(fields3Model))
   }
 }

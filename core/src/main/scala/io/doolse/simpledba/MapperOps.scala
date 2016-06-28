@@ -2,7 +2,7 @@ package io.doolse.simpledba
 
 import cats.data.Xor
 import shapeless.labelled._
-import shapeless.ops.hlist.{At, Mapper, ToList, ToTraversable, Zip, ZipWith}
+import shapeless.ops.hlist.{At, IsHCons, Mapper, ToList, ToTraversable, Zip, ZipWith}
 import shapeless.ops.record.{SelectAll, Selector}
 import shapeless.{::, DepFn0, DepFn1, DepFn2, HList, HNil, Nat, Poly1, Poly2, record}
 
@@ -69,7 +69,7 @@ object MaterializeFromColumns {
   }
 }
 
-trait ColumnListHelper[CA[_], T, CVL <: HList, FullKey] {
+trait ColumnListHelper[CA[_], T, FullKey] {
   def materializer: ColumnMaterialzer[CA] => Option[T]
 
   def extractKey: T => FullKey
@@ -80,17 +80,18 @@ trait ColumnListHelper[CA[_], T, CVL <: HList, FullKey] {
 }
 
 trait ColumnListHelperBuilder[CA[_], T, CR <: HList, CVL <: HList, FullKey] extends DepFn2[ColumnMapper[T, CR, CVL], CVL => FullKey] {
-  type Out = ColumnListHelper[CA, T, CVL, FullKey]
+  type Out = ColumnListHelper[CA, T, FullKey]
 }
 
 object ColumnListHelperBuilder {
   implicit def helper[CA[_], T, CR <: HList, CVL <: HList, FullKey]
-  (implicit allVals: PhysicalValues.Aux[CA, CR, CVL, List[PhysicalValue[CA]]],
+  (implicit
+   allVals: PhysicalValues.Aux[CA, CR, CVL, List[PhysicalValue[CA]]],
    differ: ValueDifferences.Aux[CA, CR, CVL, CVL, List[ValueDifference[CA]]],
    materializeAll: MaterializeFromColumns.Aux[CA, CR, CVL]
   ) = new ColumnListHelperBuilder[CA, T, CR, CVL, FullKey] {
-    def apply(mapper: ColumnMapper[T, CR, CVL], toKeys: (CVL) => FullKey): ColumnListHelper[CA, T, CVL, FullKey]
-    = new ColumnListHelper[CA, T, CVL, FullKey] {
+    def apply(mapper: ColumnMapper[T, CR, CVL], toKeys: (CVL) => FullKey): ColumnListHelper[CA, T, FullKey]
+    = new ColumnListHelper[CA, T, FullKey] {
       val columns = mapper.columns
       val toColumns = mapper.toColumns
       val fromColumns = mapper.fromColumns
@@ -108,6 +109,56 @@ object ColumnListHelperBuilder {
           val newKey = toKeys(newCols)
           if (oldKey == newKey) Xor.left(oldKey, differ(columns, (exCols, newCols))) else Xor.right(oldKey, newKey, colsToValues(newCols))
         }
+      }
+    }
+  }
+}
+
+trait ColumnFamilyHelper[CA[_], T, PKV, SKV] extends ColumnListHelper[CA, T, PKV :: SKV :: HNil] {
+  def pkColumns: Seq[ColumnMapping[CA, T, _]]
+  def skColumns: Seq[ColumnMapping[CA, T, _]]
+  def physPkColumns: PKV => Seq[PhysicalValue[CA]]
+  def physSkColumns: SKV => Seq[PhysicalValue[CA]]
+  def toAllPhysicalValues(t: T): (Seq[PhysicalValue[CA]], Seq[PhysicalValue[CA]], Seq[PhysicalValue[CA]])
+}
+
+trait ColumnFamilyHelperBuilder[CA[_], T, CR <: HList, CVL <: HList, PKL, SKL] extends DepFn1[ColumnMapper[T, CR, CVL]] {
+  type PKV
+  type SKV
+  type Out = ColumnFamilyHelper[CA, T, PKV, SKV]
+}
+
+object ColumnFamilyHelperBuilder {
+  type Aux[CA[_], T, CR <: HList, CVL <: HList, PKL, SKL, PKV0, SKV0] = ColumnFamilyHelperBuilder[CA, T, CR, CVL, PKL, SKL] {
+    type PKV = PKV0
+    type SKV = SKV0
+  }
+
+  implicit def helper[CA[_], T, CR <: HList, CVL <: HList, PKL, SKL, PKV0, SKV0]
+  (implicit
+   allVals: PhysicalValues.Aux[CA, CR, CVL, List[PhysicalValue[CA]]],
+   pkColsLookup: ColumnsAsSeq.Aux[CR, PKL, T, CA, PKV0],
+   skColsLookup: ColumnsAsSeq.Aux[CR, SKL, T, CA, SKV0],
+   extractor: ValueExtractor.Aux[CR, CVL, PKL :: SKL :: HNil, PKV0 :: SKV0 :: HNil],
+   clHelper: ColumnListHelperBuilder[CA, T, CR, CVL, PKV0 :: SKV0 :: HNil]) = new ColumnFamilyHelperBuilder[CA, T, CR, CVL, PKL, SKL] {
+    type PKV = PKV0
+    type SKV = SKV0
+
+    def apply(mapper: ColumnMapper[T, CR, CVL]): ColumnFamilyHelper[CA, T, PKV0, SKV0] = new ColumnFamilyHelper[CA, T, PKV0, SKV0] {
+      val toKeys = extractor()
+      val helper = clHelper(mapper, toKeys)
+      val columns = mapper.columns
+      val (pkColumns, physPkColumns) = pkColsLookup(columns)
+      val (skColumns, physSkColumns) = skColsLookup(columns)
+      val materializer = helper.materializer
+      val extractKey = helper.extractKey
+      val toPhysicalValues = helper.toPhysicalValues
+      val changeChecker = helper.changeChecker
+      val allVals1 = allVals(columns)
+      def toAllPhysicalValues(t: T) = {
+        val cvl = mapper.toColumns(t)
+        val (pkv :: skv :: HNil) = toKeys(cvl)
+        (allVals1(cvl), physPkColumns(pkv), physSkColumns(skv))
       }
     }
   }
@@ -296,4 +347,14 @@ object columnNamesFromMappings extends Poly1 {
   implicit def mappingToName[CA[_], S, A] = at[ColumnMapping[CA, S, A]](_.name)
 
   implicit def fieldMappingToName[CA[_], K, S, A] = at[FieldType[K, ColumnMapping[CA, S, A]]](_.name)
+}
+
+trait TableWithSK[SK]
+
+object tablesWithSK extends Poly1 {
+  implicit def withSK[CT, SK <: HList](implicit ev: CT <:< TableWithSK[SK], ishCons: IsHCons[SK]) = at[CT](identity)
+}
+
+object tablesNoSK extends Poly1 {
+  implicit def noSK[CT, SK <: HList](implicit ev: CT <:< TableWithSK[HNil]) = at[CT](identity)
 }

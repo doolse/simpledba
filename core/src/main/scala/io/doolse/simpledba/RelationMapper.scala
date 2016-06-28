@@ -12,6 +12,26 @@ import poly._
   * Created by jolz on 10/05/16.
   */
 
+
+object RelationMapper {
+  case class TableNameDetails(existingTables: Set[String], baseName: String, pkNames: Seq[String], skNames: Seq[String])
+
+  case class SimpleMapperConfig(tableNamer: TableNameDetails => String)
+
+
+  val defaultTableNamer =
+    (td: TableNameDetails) => {
+      val bn = td.baseName
+      if (td.existingTables(bn)) {
+        (2 to 1000).iterator.map(n => s"${bn}_$n")
+          .find(n => !td.existingTables(n))
+          .getOrElse(sys.error(s"Couldn't generate a unique table name for ${bn}"))
+      } else bn
+    }
+
+  val defaultMapperConfig = SimpleMapperConfig(defaultTableNamer)
+}
+
 abstract class RelationMapper[F[_]] {
   def M: Applicative[F]
   def C: Catchable[F]
@@ -25,21 +45,6 @@ abstract class RelationMapper[F[_]] {
   val config : MapperConfig
 
   def stdColumnMaker : MappingCreator[ColumnAtom]
-
-  def buildModel[R <: HList, Q <: HList, CRD <: HList, RDQ <: HList,
-  QL <: HList, QOut <: HList, As[_[_]], AsRepr <: HList, QOutTag <: HList]
-  (rm: RelationModel[R, Q, As])
-  (implicit
-   mapRelations: MapAllRelations.Aux[MapAllContext[HNil, R, ColumnAtom], CRD],
-   convertAndBuild: ConvertAndBuild.Aux[(BuilderContext[F, DDLStatement, KeyMapperT, Q], CRD), BuiltQueries.Aux[QOut, DDLStatement]],
-   genAs: Generic.Aux[As[F], AsRepr],
-   zip: ZipWithTag.Aux[QOut, AsRepr, QOutTag],
-   convert: Mapper.Aux[queriesAs.type, QOutTag, AsRepr]
-  ): BuiltQueries.Aux[As[F], DDLStatement] = {
-    val relations = mapRelations(MapAllContext(ColumnMapperContext(stdColumnMaker, HNil), rm.relations))
-    val rawQueries = convertAndBuild(BuilderContext(M, C, rm.queryList), relations)
-    BuiltQueries(genAs.from(convert(zip(rawQueries.queries))), Eval.later(rawQueries.ddl))
-  }
 
   def verifyModel[R <: HList, Q <: HList, C2, As[_[_]]]
   (rm: RelationModel[R, Q, As], p: String => Unit = Console.err.println)
@@ -72,9 +77,9 @@ abstract class RelationMapper[F[_]] {
     }
   }
 
-  def buildModelTest[R <: HList, Q <: HList, CRD <: HList, RDQ <: HList,
-  QL <: HList, QOut <: HList, As[_[_]], AsRepr <: HList, QOutTag <: HList, RelWithQ <: HList,
-  MappedTables <: HList]
+  def buildModel[R <: HList, Q <: HList, CRD <: HList, RDQ <: HList,
+  QL <: HList, QOut <: HList, As[_[_]], AsRepr <: HList, QOutTag <: HList,
+  RelWithQ <: HList, MappedTables <: HList]
   (rm: RelationModel[R, Q, As])
   (implicit
    mapRelations: MapAllRelations.Aux[MapAllContext[HNil, R, ColumnAtom], CRD],
