@@ -3,33 +3,33 @@ package io.doolse.simpledba.dynamodb
 import com.amazonaws.auth.{AWSCredentials, BasicAWSCredentials}
 import com.amazonaws.{ClientConfiguration, PredefinedClientConfigurations}
 import com.amazonaws.services.dynamodbv2.{AmazonDynamoDB, AmazonDynamoDBAsync, AmazonDynamoDBAsyncClient, AmazonDynamoDBClient}
-import com.amazonaws.services.dynamodbv2.model.CreateTableRequest
+import com.amazonaws.services.dynamodbv2.model.{CreateTableRequest, DeleteTableRequest, ListTablesRequest}
 import com.typesafe.config.{Config, ConfigFactory}
+import fs2.util.Task
+import DynamoDBIO._
+import cats.std.vector._
+import cats.syntax.all._
+import io.doolse.simpledba.CatsUtils._
 
 import scala.util.{Failure, Try}
 import scala.collection.JavaConverters._
+import fs2.interop.cats._
 
 /**
   * Created by jolz on 13/06/16.
   */
 object DynamoDBUtils {
-  def createSchema(client: AmazonDynamoDB, creation: Iterable[CreateTableRequest]): Unit = {
-    val existingTables = client.listTables().getTableNames.asScala.toSet
-    creation.foreach(ct => Try {
+  def createSchema(s: DynamoDBSession, creation: Iterable[CreateTableRequest]): Task[Unit] = for {
+    tr <- s.request(listTablesAsync, new ListTablesRequest())
+    existingTables = tr.getTableNames.asScala.toSet
+    _ <- creation.toVector.traverseU { ct =>
       val tableName = ct.getTableName
-      if (existingTables.contains(tableName)) {
-        println("Deleting: " + tableName)
-        client.deleteTable(tableName)
-      }
-      println("Creating: " + tableName)
-      client.createTable(ct)
-    } match {
-      case Failure(f) => f.printStackTrace()
-      case _ =>
-    })
-  }
+      whenM(existingTables(tableName), s.request(deleteTableAsync, new DeleteTableRequest(tableName))) *>
+        s.request(createTableAsync, ct)
+    }
+  } yield ()
 
-  def createClient(_config: Config = ConfigFactory.load()) : AmazonDynamoDBAsync = {
+  def createClient(_config: Config = ConfigFactory.load()): AmazonDynamoDBAsync = {
     val config = _config.getConfig("simpledba.dynamodb")
     val clientConfig = PredefinedClientConfigurations.dynamoDefault()
     if (config.hasPath("proxy")) {

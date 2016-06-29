@@ -35,7 +35,7 @@ object QuickstartExample extends App {
   val mapper = new CassandraMapper()
   val built = mapper.buildModel(model)
   val queries = built.queries
-  val sessionConfig = SessionConfig(CassandraSession.simpleSession("localhost"), c => Console.println(c()))
+  val sessionConfig = CassandraSession(CassandraIO.simpleSession("localhost"), c => Console.println(c()))
   CassandraUtils.initKeyspaceAndSchema(sessionConfig, "test", built.ddl, dropKeyspace = true).unsafeRun
 
   private val magId = UUID.randomUUID()

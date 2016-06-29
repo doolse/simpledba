@@ -22,7 +22,7 @@ import scala.collection.JavaConverters._
 /**
   * Created by jolz on 5/05/16.
   */
-object CassandraSession {
+object CassandraIO {
 
   implicit val strat = Strategy.fromExecutionContext(ExecutionContext.global)
 
@@ -98,25 +98,25 @@ sealed trait PreparableStatement {
   def build: RegularStatement
 }
 
-case class SessionConfig(session: Session, logger: (() ⇒ String) ⇒ Unit = _ => (),
-                         statementCache : scala.collection.concurrent.Map[Any, Task[PreparedStatement]]
+case class CassandraSession(session: Session, logger: (() ⇒ String) ⇒ Unit = _ => (),
+                            statementCache : scala.collection.concurrent.Map[Any, Task[PreparedStatement]]
                          = new ConcurrentHashMap[Any, Task[PreparedStatement]]().asScala) {
 
   def executeLater(stmt: Statement): Task[ResultSet] = {
-    logger(() => CassandraSession.stmt2String(stmt))
-    CassandraSession.executeLater(stmt, session)
+    logger(() => CassandraIO.stmt2String(stmt))
+    CassandraIO.executeLater(stmt, session)
   }
 
   def prepareAndBind[A <: PreparableStatement](a: A, b: Seq[AnyRef]): Task[ResultSet] = {
     lazy val prepared = {
       val built = a.build
-      logger(() => "Preparing: "+CassandraSession.stmt2String(built))
-      CassandraSession.asyncStmt(session.prepareAsync(built), built.getQueryString)
+      logger(() => "Preparing: "+CassandraIO.stmt2String(built))
+      CassandraIO.asyncStmt(session.prepareAsync(built), built.getQueryString)
     }
     statementCache.getOrElseUpdate(a, prepared).flatMap {
       ps =>
         logger(() => "Binding "+b.mkString(", ")+" to "+ps.getQueryString)
-        CassandraSession.executeAsync(ps.bind(b: _*), session)
+        CassandraIO.executeAsync(ps.bind(b: _*), session)
     }
   }
 }
@@ -134,23 +134,23 @@ sealed trait CassandraClause {
 }
 
 case class CassandraGT(name: String) extends CassandraClause {
-  def toClause(v: AnyRef) = QueryBuilder.gt(CassandraSession.escapeReserved(name), v)
+  def toClause(v: AnyRef) = QueryBuilder.gt(CassandraIO.escapeReserved(name), v)
 }
 
 case class CassandraGTE(name: String) extends CassandraClause {
-  def toClause(v: AnyRef) = QueryBuilder.gte(CassandraSession.escapeReserved(name), v)
+  def toClause(v: AnyRef) = QueryBuilder.gte(CassandraIO.escapeReserved(name), v)
 }
 
 case class CassandraLTE(name: String) extends CassandraClause {
-  def toClause(v: AnyRef) = QueryBuilder.lte(CassandraSession.escapeReserved(name), v)
+  def toClause(v: AnyRef) = QueryBuilder.lte(CassandraIO.escapeReserved(name), v)
 }
 
 case class CassandraLT(name: String) extends CassandraClause {
-  def toClause(v: AnyRef) = QueryBuilder.lt(CassandraSession.escapeReserved(name), v)
+  def toClause(v: AnyRef) = QueryBuilder.lt(CassandraIO.escapeReserved(name), v)
 }
 
 case class CassandraEQ(name: String) extends CassandraClause {
-  def toClause(v: AnyRef) = QueryBuilder.eq(CassandraSession.escapeReserved(name), v)
+  def toClause(v: AnyRef) = QueryBuilder.eq(CassandraIO.escapeReserved(name), v)
 }
 
 case class CassandraSelect(table: String, columns: Seq[String], where: Seq[CassandraClause], ordering: Seq[(String, Boolean)], limit: Boolean) extends PreparableStatement {
@@ -159,7 +159,7 @@ case class CassandraSelect(table: String, columns: Seq[String], where: Seq[Cassa
     columns.foreach(sel.column)
     val s = sel.from(table)
     val orderings = ordering.map { case (c, asc) =>
-      val esc = CassandraSession.escapeReserved(c)
+      val esc = CassandraIO.escapeReserved(c)
       if (asc) QueryBuilder.asc(esc) else QueryBuilder.desc(esc)
     }
     val marker = QueryBuilder.bindMarker()
@@ -173,7 +173,7 @@ case class CassandraSelect(table: String, columns: Seq[String], where: Seq[Cassa
 case class CassandraInsert(table: String, columns: Seq[String]) extends PreparableStatement {
   def build = {
     val ins = QueryBuilder.insertInto(table)
-    columns.foreach(c => ins.value(CassandraSession.escapeReserved(c), QueryBuilder.bindMarker()))
+    columns.foreach(c => ins.value(CassandraIO.escapeReserved(c), QueryBuilder.bindMarker()))
     ins
   }
 }

@@ -11,12 +11,14 @@ import io.doolse.simpledba.dynamodb.{DynamoDBMapper, DynamoDBSession, DynamoDBUt
 trait DynamoDBProperties {
   lazy val client = DynamoDBUtils.createClient()
 
+  lazy val session = DynamoDBSession(client)
+
   lazy val mapper = new DynamoDBMapper()
 
   def setup[Q](bq: BuiltQueries.Aux[Q, CreateTableRequest]) = {
-    DynamoDBUtils.createSchema(client, bq.ddl)
+    DynamoDBUtils.createSchema(session.copy(logger = msg => Console.out.println(msg())), bq.ddl).unsafeRun
     bq.queries
   }
 
-  def run[A](fa: Effect[A]): A = fa.run(DynamoDBSession(client)).unsafeRun
+  def run[A](fa: Effect[A]): A = fa.run(session).unsafeRun
 }

@@ -3,14 +3,14 @@ package io.doolse.simpledba.test.cassandra
 import com.datastax.driver.core.schemabuilder.Create
 import io.doolse.simpledba.BuiltQueries
 import io.doolse.simpledba.cassandra.CassandraMapper._
-import io.doolse.simpledba.cassandra.{CassandraMapper, CassandraSession, CassandraUtils, SessionConfig}
+import io.doolse.simpledba.cassandra.{CassandraMapper, CassandraIO, CassandraUtils, CassandraSession}
 
 /**
   * Created by jolz on 16/06/16.
   */
 
 object CassandraProperties {
-  lazy val sessionConfig = SessionConfig(CassandraSession.initSimpleSession())
+  lazy val sessionConfig = CassandraSession(CassandraIO.initSimpleSession())
   lazy val initKS = CassandraUtils.initKeyspaceAndSchema(sessionConfig, "test", List.empty, dropKeyspace = true).unsafeRun
 }
 

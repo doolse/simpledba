@@ -14,8 +14,8 @@ object TestCassandra extends App {
   val built = mapper.buildModel(TestCreator.model)
   val queries = built.queries
 
-  val session = CassandraSession.simpleSession("localhost")
-  val sessionConfig = SessionConfig(session, s => println(s()))
+  val session = CassandraIO.simpleSession("localhost")
+  val sessionConfig = CassandraSession(session, s => println(s()))
   CassandraUtils.initKeyspaceAndSchema(sessionConfig, "test", built.ddl, dropKeyspace = true).unsafeRun
 
   val q = TestCreator.doTest(queries)

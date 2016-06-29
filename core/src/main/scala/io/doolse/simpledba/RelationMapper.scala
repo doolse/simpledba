@@ -33,8 +33,7 @@ object RelationMapper {
 }
 
 abstract class RelationMapper[F[_]] {
-  def M: Applicative[F]
-  def C: Catchable[F]
+
   type DDLStatement
   type ColumnAtom[A]
   type MapperConfig
@@ -52,7 +51,7 @@ abstract class RelationMapper[F[_]] {
   ): BuiltQueries.Aux[As[F], DDLStatement] = {
 
     val (name, errors) = verify.errors(
-      new ModelVerifierContext(rm, ColumnMapperContext(stdColumnMaker), M, C, config)
+      new ModelVerifierContext(rm, ColumnMapperContext(stdColumnMaker), config)
     )
     p(name)
     errors.foreach(p)

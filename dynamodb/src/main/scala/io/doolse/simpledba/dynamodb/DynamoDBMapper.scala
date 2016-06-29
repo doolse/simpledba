@@ -17,6 +17,7 @@ import shapeless._
 import shapeless.ops.hlist.{Collect, Diff, Length, Prepend, RightFolder, Take}
 import shapeless.ops.record.Selector
 import shapeless.poly.Case1
+import DynamoDBIO._
 
 import scala.collection.JavaConverters._
 import scala.concurrent.ExecutionContext
@@ -25,7 +26,6 @@ import scala.concurrent.ExecutionContext
   * Created by jolz on 12/05/16.
   */
 
-case class DynamoDBSession(client: AmazonDynamoDBAsync)
 
 object DynamoDBMapper {
   type Effect[A] = ReaderT[Task, DynamoDBSession, A]
@@ -35,18 +35,6 @@ object DynamoDBMapper {
   def asAttrMap(l: Seq[PhysicalValue[DynamoDBColumn]]) = l.map(physical2Attribute).toMap.asJava
 
   def physical2Attribute(pc: PhysicalValue[DynamoDBColumn]) = pc.name -> pc.atom.to(pc.v)
-
-  implicit val strat = Strategy.fromExecutionContext(ExecutionContext.global)
-
-  def asyncWR[R <: AmazonWebServiceRequest, A](r: R, f: (R, AsyncHandler[R, A]) => java.util.concurrent.Future[A]): Task[A] = {
-    Task.async[A] {
-      cb => f(r, new AsyncHandler[R, A] {
-        def onError(exception: Exception): Unit = cb(Left(exception))
-
-        def onSuccess(request: R, result: A): Unit = cb(Right(result))
-      })
-    }
-  }
 
   def asValueUpdate(d: ValueDifference[DynamoDBColumn]) = {
     d.name -> d.atom.diff(d.existing, d.newValue)
@@ -59,15 +47,12 @@ object DynamoDBMapper {
   }
 
   def resultStream(qr: QueryRequest): Stream[Effect, java.util.Map[String, AttributeValue]] = {
-    val request = Stream.eval[Effect, QueryResult](ReaderT(s => asyncWR(qr, s.client.queryAsync)))
-    request.flatMap {
-      result =>
-        val chunk = Stream.chunk(Chunk.seq(result.getItems.asScala))
-        if (result.getLastEvaluatedKey == null) chunk
-        else chunk ++ resultStream(qr.withExclusiveStartKey(result.getLastEvaluatedKey))
+    Stream.eval[Effect, QueryResult](ReaderT { _.request(queryAsync, qr) }).flatMap { result =>
+      val chunk = Stream.chunk(Chunk.seq(result.getItems.asScala))
+      if (result.getLastEvaluatedKey == null) chunk
+      else chunk ++ resultStream(qr.withExclusiveStartKey(result.getLastEvaluatedKey))
     }
   }
-
 }
 
 trait QueryParam {
@@ -137,10 +122,6 @@ class DynamoDBMapper(val config: SimpleMapperConfig = defaultMapperConfig) exten
         atom.attributeType, (ex, nv) => atom.diff(to(ex), to(nv)), atom.sortablePart compose to, (from(lr), from(hr)))
     }
   }
-
-  def M = Applicative[Effect]
-
-  def C = implicitly[Catchable[Effect]]
 }
 
 case class DynamoTable[K, T, PKL, SKL, PKV, SKV](helper: ColumnFamilyHelper[DynamoDBColumn, T, PKV, SKV],
@@ -155,14 +136,14 @@ case class DynamoTable[K, T, PKL, SKL, PKV, SKV](helper: ColumnFamilyHelper[Dyna
   lazy val pkAtom = atomForKey(PK, helper.pkColumns).get
   lazy val skAtom = atomForKey(SK, helper.skColumns)
 
-  def compositeValue(prefix: String, vals: Seq[PhysicalValue[DynamoDBColumn]]) = if (vals.length > 1) {
+  def compositeValue(prefix: String, vals: Seq[PhysicalValue[DynamoDBColumn]]) : Option[PhysicalValue[DynamoDBColumn]] = if (vals.length > 1) {
     Some(PhysicalValue(prefix + "_Composite", DynamoDBColumn.stringColumn, vals.map(pv => pv.atom.sortablePart(pv.v)).mkString(",")))
   } else None
 
-  def extraFields(key: PKV :: SKV :: HNil) = compositeValue(PK, helper.physPkColumns(key.head)) ++
+  def extraFields(key: PKV :: SKV :: HNil) : Seq[PhysicalValue[DynamoDBColumn]] = compositeValue(PK, helper.physPkColumns(key.head)).toSeq ++
     compositeValue(SK, helper.physSkColumns(key.tail.head))
 
-  def toPhysicalValues(t: T) = {
+  def toPhysicalValues(t: T) : Seq[PhysicalValue[DynamoDBColumn]] = {
     val (all, pk, sk) = helper.toAllPhysicalValues(t)
     all ++ compositeValue(PK, pk) ++ compositeValue(SK, sk)
   }
@@ -239,8 +220,8 @@ object DynamoDBQueries extends Poly3 {
       case (q, rd, table :: _) => QueryCreate[K, T, KL, SKL, PKV, HNil, UniqueQuery[Effect, T, PKV]](table, { tableName =>
         val columns = rd.columns
         def doQuery(v: PKV): Effect[Option[T]] = ReaderT { s =>
-          asyncWR(new GetItemRequest(tableName, asAttrMap(Seq(table.pkValue(v)))), s.client.getItemAsync).map {
-            (gir: GetItemResult) => Option(gir.getItem()).map(createMaterializer).flatMap(table.helper.materializer)
+          s.request(getItemAsync, new GetItemRequest(tableName, asAttrMap(Seq(table.pkValue(v))))).map {
+            gir => Option(gir.getItem()).map(createMaterializer).flatMap(table.helper.materializer)
           }
         }
         UniqueQuery(doQuery)
@@ -308,22 +289,22 @@ object DynamoDBQueries extends Poly3 {
         val writer: WriteQueries[Effect, T] = new WriteQueries[Effect, T] {
 
 
-          def delete(t: T): Effect[Unit] = ReaderT { s =>
-            asyncWR(new DeleteItemRequest(tableName, keysAsAttributes(helper.extractKey(t))), s.client.deleteItemAsync).map(_ => ())
+          def delete(t: T): Effect[Unit] = ReaderT {
+            _.request(deleteItemAsync, new DeleteItemRequest(tableName, keysAsAttributes(helper.extractKey(t)))).map(_ => ())
           }
 
-          def insert(t: T): Effect[Unit] = ReaderT { s =>
-            asyncWR(new PutItemRequest(tableName, asAttrMap(dynamoTable.toPhysicalValues(t))), s.client.putItemAsync).map(_ => ())
+          def insert(t: T): Effect[Unit] = ReaderT {
+            _.request(putItemAsync, new PutItemRequest(tableName, asAttrMap(dynamoTable.toPhysicalValues(t)))).map(_ => ())
           }
 
           def update(existing: T, newValue: T): Effect[Boolean] = ReaderT { s =>
             helper.changeChecker(existing, newValue).map {
               case Xor.Left((k, changes)) =>
-                asyncWR(new UpdateItemRequest(tableName, keysAsAttributes(k), changes.map(c => asValueUpdate(c)).toMap.asJava),
-                  s.client.updateItemAsync)
+                s.request(updateItemAsync, new UpdateItemRequest(tableName, keysAsAttributes(k),
+                  changes.map(c => asValueUpdate(c)).toMap.asJava))
               case Xor.Right((oldKey, newk, vals)) =>
-                asyncWR(new DeleteItemRequest(tableName, keysAsAttributes(oldKey)), s.client.deleteItemAsync) <*
-                  asyncWR(new PutItemRequest(tableName, asAttrMap(vals ++ dynamoTable.extraFields(newk))), s.client.putItemAsync)
+                s.request(deleteItemAsync, new DeleteItemRequest(tableName, keysAsAttributes(oldKey))) <*
+                  s.request(putItemAsync, new PutItemRequest(tableName, asAttrMap(vals ++ dynamoTable.extraFields(newk))))
             } map (_.map(_ => true)) getOrElse Task.now(false)
           }
         }

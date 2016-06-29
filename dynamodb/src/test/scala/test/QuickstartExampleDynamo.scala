@@ -41,7 +41,8 @@ object QuickstartExampleDynamo extends App {
   val config = new ClientConfiguration().withProxyHost("localhost").withProxyPort(8888)
   val client: AmazonDynamoDBAsync = new AmazonDynamoDBAsyncClient(config).withEndpoint("http://localhost:8000")
 
-  DynamoDBUtils.createSchema(client, built.ddl)
+  val session = DynamoDBSession(client)
+  DynamoDBUtils.createSchema(session, built.ddl).unsafeRun
   private val magId = UUID.randomUUID()
   private val mahId = UUID.randomUUID()
   println {
@@ -54,6 +55,6 @@ object QuickstartExampleDynamo extends App {
       _ <- queries.cars.insert(Car(UUID.randomUUID(), "Hyundai", "Accent", magId))
       cars <- queries.carsForUser(magId, lower = "Ford", higher = Exclusive("Hyundai"))
       users <- queries.usersByFirstName("Jolse")
-    } yield (cars ++ users).mkString("\n")).run(DynamoDBSession(client))
+    } yield (cars ++ users).mkString("\n")).run(session)
   }
 }

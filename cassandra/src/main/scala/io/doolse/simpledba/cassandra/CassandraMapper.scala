@@ -10,7 +10,7 @@ import fs2.interop.cats._
 import fs2.util.{Catchable, Task}
 import io.doolse.simpledba.RelationMapper._
 import io.doolse.simpledba.cassandra.CassandraMapper._
-import io.doolse.simpledba.cassandra.CassandraSession._
+import io.doolse.simpledba.cassandra.CassandraIO._
 import io.doolse.simpledba.{RelationDef, QueryBuilder => _, _}
 import shapeless._
 import shapeless.ops.hlist.{Collect, Diff, Length, Prepend, RightFolder, Take}
@@ -23,7 +23,7 @@ import shapeless.poly.Case1
   */
 
 object CassandraMapper {
-  type Effect[A] = ReaderT[Task, SessionConfig, A]
+  type Effect[A] = ReaderT[Task, CassandraSession, A]
   type CassandraDDL = (String, Create)
 }
 
@@ -34,9 +34,6 @@ class CassandraMapper(val config: SimpleMapperConfig = defaultMapperConfig) exte
   type DDLStatement = CassandraDDL
   type KeyMapperPoly = CassandraKeyMapper.type
   type QueriesPoly = ConvertCassandraQueries.type
-
-  val M = Applicative[Effect]
-  val C = implicitly[Catchable[Effect]]
 
   val stdColumnMaker = new MappingCreator[CassandraColumn] {
     def wrapAtom[S, A](atom: CassandraColumn[A], to: (S) => A, from: (A) => S): CassandraColumn[S] = WrappedColumn[S, A](atom, to, from)
@@ -157,7 +154,7 @@ object ConvertCassandraQueries extends Poly3 {
               val select = baseSelect.copy(where = baseSelect.where ++ lw ++ uw, ordering=ordering)
               s.prepareAndBind(select, valsToBinding(pkPhysV(c) ++ lv ++ uv))
             }
-          }.flatMap(rs => CassandraSession.rowsStream(rs).translate(effect2Task))
+          }.flatMap(rs => CassandraIO.rowsStream(rs).translate(effect2Task))
             .map(r => materialize(rowMaterializer(r))).collect { case Some(e) => e }
         }
         RangeQuery(None, doQuery)
@@ -194,7 +191,7 @@ object ConvertCassandraQueries extends Poly3 {
         def createDDL = {
           val create = SchemaBuilder.createTable(tableName)
           val dts = columns.map(cm => cm.name -> cm.atom.dataType).toMap
-          def addCol(f: (String, DataType) => Create)(name: String) = f(CassandraSession.escapeReserved(name), dts(name))
+          def addCol(f: (String, DataType) => Create)(name: String) = f(CassandraIO.escapeReserved(name), dts(name))
           pkNames.map(addCol(create.addPartitionKey))
           skNames.map(addCol(create.addClusteringColumn))
           (dts.keySet -- (pkNames ++ skNames)).toList.map(addCol(create.addColumn))
@@ -209,10 +206,10 @@ object ConvertCassandraQueries extends Poly3 {
 
           def keyBindings(key: PKV :: SKV :: HNil) = valsToBinding(pkPhys(key.head) ++ skPhys(key.tail.head))
 
-          def deleteWithKey(key: PKV :: SKV :: HNil, s: SessionConfig): Task[Unit] =
+          def deleteWithKey(key: PKV :: SKV :: HNil, s: CassandraSession): Task[Unit] =
             s.prepareAndBind(deleteQ, keyBindings(key)).map(_ => ())
 
-          def insertWithVals(vals: Seq[PhysicalValue[CassandraColumn]], s: SessionConfig) =
+          def insertWithVals(vals: Seq[PhysicalValue[CassandraColumn]], s: CassandraSession) =
             s.prepareAndBind(insertQ, valsToBinding(vals)).map(_ => ())
 
           def delete(t: T): Effect[Unit] = ReaderT { s => deleteWithKey(helper.extractKey(t), s) }

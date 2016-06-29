@@ -14,7 +14,7 @@ trait KeyMapperContext[Q, KeyMapperPoly, QBPoly, MapperConfig] {
   def config : MapperConfig
 }
 class ModelVerifierContext[R <: HList, E <: HList, CA[_], F[_], DDL, KeyMapperPoly, QBPoly, Q <: HList, As[_[_]], MapperConfig]
-(rm: RelationModel[R, Q, As], cmc: ColumnMapperContext[CA, E], val M: Applicative[F],  val C: Catchable[F], val config: MapperConfig)
+(rm: RelationModel[R, Q, As], cmc: ColumnMapperContext[CA, E], val config: MapperConfig)
   extends MapAllContext[E, R, CA] with KeyMapperContext[Q, KeyMapperPoly, QBPoly, MapperConfig]
   with ConvertVerifierContext[F, As] {
   def ctx = cmc

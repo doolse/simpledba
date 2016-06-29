@@ -19,9 +19,10 @@ object TestDynamo extends App {
   val queries = built.queries
   val creation = built.ddl
 
-  DynamoDBUtils.createSchema(client, built.ddl)
+  val session = DynamoDBSession(client)
+  DynamoDBUtils.createSchema(session, built.ddl).unsafeRun
   val q = TestCreator.doTest(queries)
-  val res = q.run(DynamoDBSession(client)).unsafeRun
+  val res = q.run(session).unsafeRun
   println(res)
 
 }
