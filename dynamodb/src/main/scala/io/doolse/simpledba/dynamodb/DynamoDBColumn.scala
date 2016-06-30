@@ -23,10 +23,19 @@ object DynamoDBColumn {
     b => if (b) "1" else "0", (false, true), ScalarAttributeType.S)
 
   implicit val intColumn = create[Int](_.getN.toInt, l => new AttributeValue().withN(l.toString),
-    i => f"${i - Int.MinValue}%08X", (Int.MinValue, Int.MaxValue), ScalarAttributeType.N)
+    int2sortableString, (Int.MinValue, Int.MaxValue), ScalarAttributeType.N)
 
   implicit val longColumn = create[Long](_.getN.toLong, l => new AttributeValue().withN(l.toString),
-    l => f"${l - Long.MinValue}%016X", (Long.MinValue, Long.MaxValue), ScalarAttributeType.N)
+    long2sortableString, (Long.MinValue, Long.MaxValue), ScalarAttributeType.N)
+
+  implicit val shortColumn = create[Short](_.getN.toShort, l => new AttributeValue().withN(l.toString),
+    s => int2sortableString(s.toInt), (Short.MinValue, Short.MaxValue), ScalarAttributeType.N)
+
+  implicit val floatColumn = create[Float](_.getN.toFloat, l => new AttributeValue().withN(l.toString),
+    float2sortableString, (Float.MinValue, Float.MaxValue), ScalarAttributeType.N)
+
+  implicit val doubleColumn = create[Double](_.getN.toDouble, l => new AttributeValue().withN(l.toString),
+    double2sortableString, (Double.MinValue, Double.MaxValue), ScalarAttributeType.N)
 
   implicit val stringColumn = {
     def decodeBlank(a: AttributeValue): String = {
@@ -48,4 +57,44 @@ object DynamoDBColumn {
     oA => oA.map(wrapped.sortablePart).getOrElse(""), wrapped.range match {
       case (a, b) => (Some(a), Some(b))
     }, wrapped.attributeType)
+
+  def int2sortableString(i: Int) : String = {
+    val chrs = new Array[Char](3)
+    int2sortableChars(i, chrs, 0)
+    new String(chrs, 0, 3)
+  }
+
+  def int2sortableChars(i: Int, a: Array[Char], offset: Int) {
+    val u = i+Int.MinValue
+    a(offset) = (u >>> 24).toChar
+    a(offset+1) = ((u >>> 12) & 0x0fff).toChar
+    a(offset+2) = (u & 0x0fff).toChar
+  }
+
+  def long2sortableString(l: Long) : String = {
+    val chrs = new Array[Char](5)
+    long2sortableChars(l, chrs, 0)
+    new String(chrs, 0, 5)
+  }
+
+  def long2sortableChars(l: Long, a: Array[Char], offset: Int) {
+    val u = l + Long.MinValue
+    a(offset) = (u >>>60).toChar
+    a(offset+1) = (u >>>45 & 0x7fff).toChar
+    a(offset+2) = (u >>>30 & 0x7fff).toChar
+    a(offset+3) = (u >>>15 & 0x7fff).toChar
+    a(offset+4) = (u & 0x7fff).toChar
+  }
+
+  def float2sortableString(f: Float) = {
+    val i = java.lang.Float.floatToRawIntBits(f)
+    val i2 = if (i<0) i ^ 0x7fffffff else i
+    int2sortableString(i2)
+  }
+
+  def double2sortableString(d: Double) = {
+    val l = java.lang.Double.doubleToRawLongBits(d)
+    val ul = if (l<0) l ^ 0x7fffffffffffffffL else l
+    long2sortableString(ul)
+  }
 }

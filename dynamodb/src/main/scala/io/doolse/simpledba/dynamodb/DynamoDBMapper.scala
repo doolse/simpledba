@@ -9,7 +9,8 @@ import com.amazonaws.services.dynamodbv2.AmazonDynamoDBAsync
 import com.amazonaws.services.dynamodbv2.model.{Stream => _, _}
 import fs2._
 import fs2.interop.cats._
-import fs2.util.{Catchable, Task}
+import io.doolse.simpledba.CatsUtils._
+import fs2.util.Catchable
 import io.doolse.simpledba.RelationMapper._
 import io.doolse.simpledba._
 import io.doolse.simpledba.dynamodb.DynamoDBMapper._
@@ -334,17 +335,15 @@ object DynamoDBQueries extends Poly3 {
   }
 
 
-  implicit def convertAll[Q <: HList, Tables <: HList, WithSK <: HList, NoSK <: HList,
-  SortedTables <: HList, QueriesAndTables <: HList, Created, OutQueries <: HList, Writers]
+  implicit def convertAll[Q <: HList, Tables <: HList, SortedTables <: HList,
+  QueriesAndTables <: HList, Created, OutQueries <: HList, Writers]
   (implicit
-   collect: Collect.Aux[Tables, tablesWithSK.type, WithSK],
-   collect2: Collect.Aux[Tables, tablesNoSK.type, NoSK],
-   prepend: Prepend.Aux[WithSK, NoSK, SortedTables],
+   sort: SortedTables.Aux[Tables, SortedTables],
    folder: RightFolder.Aux[Q, BuilderState[HNil, SortedTables, HNil, HNil],
      foldQueries.type, BuilderState[Created, SortedTables, OutQueries, Writers]],
    finishUp: MapWith[Writers, OutQueries, finishWrites.type]
   ) = at[Q, Tables, SimpleMapperConfig] { (q, tables, config) =>
-    val folded = folder(q, BuilderState(HNil, prepend(collect(tables), collect2(tables)), HNil, HNil, Eval.now(Vector.empty), config.tableNamer))
+    val folded = folder(q, BuilderState(HNil, sort(tables), HNil, HNil, Eval.now(Vector.empty), config.tableNamer))
     val outQueries = finishUp(folded.writers, folded.builders)
     BuiltQueries[finishUp.Out, DynamoDBDDL](outQueries, folded.ddl.map(a => a))
   }

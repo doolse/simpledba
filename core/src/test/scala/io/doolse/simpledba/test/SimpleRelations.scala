@@ -12,6 +12,10 @@ import org.scalacheck.Shapeless._
 import cats.syntax.all._
 import shapeless.Generic
 import SimpleRelations._
+import fs2._
+import org.scalacheck.Test.Parameters
+
+import scala.concurrent.ExecutionContext
 
 /**
   * Created by jolz on 15/06/16.
@@ -44,7 +48,7 @@ object SimpleRelations {
     query('fields3).multipleByColumns('year).sortBy('name))
 }
 
-abstract class SimpleRelations[F[_]](name: String)(implicit M: Monad[F])
+abstract class SimpleRelations[F[_] : Async](name: String)(implicit M: Monad[F])
   extends AbstractRelationsProperties[F](s"$name - Relation Shapes") {
 
   def queries1: Fields1Queries[F]
@@ -70,21 +74,6 @@ abstract class SimpleRelations[F[_]](name: String)(implicit M: Monad[F])
     } yield oA ++ l ++ l2,
     3, genUpdate[Fields3]((a, b) => b)), "Fields3")
 
-  property("sorted results") = forAllNoShrink { (l: Vector[Fields3]) =>
-    val name = UUID.randomUUID().toString
-    val sameName = l.map(_.copy(name = name))
-    for {
-      _ <- sameName.traverse(queries3.updates.insert)
-      ascend <- queries3.byName.queryWithOrder(name, asc = true).map(_.map(_.year))
-      descend <- queries3.byName.queryWithOrder(name, asc = false).map(_.map(_.year))
-    } yield {
-      val ascExpected = sameName.map(_.year).sorted
-      val descExpected = sameName.map(_.year).sorted(Ordering.Int.reverse)
-      "Ascending" |: (ascend ?= ascExpected) &&
-        ("Descending" |: (descend ?= descExpected))
-    }
-  }
-
   implicit def validRange[A](implicit o: Ordering[A], ab: Arbitrary[RangeValue[A]]) = Arbitrary {
     for {
       r1 <- ab.arbitrary
@@ -98,11 +87,11 @@ abstract class SimpleRelations[F[_]](name: String)(implicit M: Monad[F])
     }
   }
 
-  property("range results") = forAllNoShrink { (l: Vector[Fields3], range: FilterRange[Int]) =>
-    val name = UUID.randomUUID().toString
+  property("range results") = forAll { (l: Vector[Fields3], range: FilterRange[Int]) =>
+    val name = s"${UUID.randomUUID}-name"
     val sameName = l.map(_.copy(name = name))
     for {
-      _ <- sameName.traverse(queries3.updates.insert)
+      _ <- queries3.updates.bulkInsert(sameName)
       results <- queries3.byName(name, range.lower, range.upper)
     } yield {
       "Results are within range" |: !results.map(_.year).exists(v => !range.contains(v))

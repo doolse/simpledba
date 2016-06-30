@@ -351,12 +351,43 @@ object columnNamesFromMappings extends Poly1 {
 
 trait TableWithSK[SK]
 
-object tablesWithSK extends Poly1 {
-  implicit def withSK[CT, SK <: HList](implicit ev: CT <:< TableWithSK[SK], ishCons: IsHCons[SK]) = at[CT](identity)
+trait SortedTables[TL] extends DepFn1[TL]
+
+trait SortedTablesLP {
+  implicit def hnilSort[L] = new SortedTables[L] {
+    type Out = L
+    def apply(t: L): L = t
+  }
 }
 
-object tablesNoSK extends Poly1 {
-  implicit def noSK[CT, SK <: HList](implicit ev: CT <:< TableWithSK[HNil]) = at[CT](identity)
+object SortedTables extends SortedTablesLP {
+  type Aux[TL, Out0] = SortedTables[TL] { type Out = Out0 }
+
+  trait SelectLeast[L <: HList, M, Rem <: HList] {
+    def apply(l : L) : (M, Rem)
+  }
+  trait SelectLeastLP {
+    implicit def headNotLeast[H, T <: HList, M, Rem <: HList](implicit sl: SelectLeast[T, M, Rem]) = new SelectLeast[H :: T, M, H :: Rem] {
+      def apply(l: H :: T): (M, H :: Rem) = {
+        val (m, rem) = sl(l.tail)
+        (m, l.head :: rem)
+      }
+    }
+  }
+  object SelectLeast extends SelectLeastLP {
+    implicit def headLeast[H, T <: HList](implicit ev: H <:< TableWithSK[HNil]) = new SelectLeast[H :: T, H, T] {
+      def apply(l: H :: T): (H, T) = (l.head, l.tail)
+    }
+  }
+
+  implicit def hlistSort[L <: HList, M, Rem <: HList, ST <: HList]
+  (implicit sl : SelectLeast[L, M, Rem], sr : SortedTables.Aux[Rem, ST]) = new SortedTables[L] {
+    type Out = M :: ST
+    def apply(l : L) = {
+      val (m, rem) = sl(l)
+      m :: sr(rem)
+    }
+  }
 }
 
 object zipWithRelation extends Poly2 {

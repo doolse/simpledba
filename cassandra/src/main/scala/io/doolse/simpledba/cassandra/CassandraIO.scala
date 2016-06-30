@@ -9,8 +9,8 @@ import com.datastax.driver.core.querybuilder._
 import com.datastax.driver.core.querybuilder.Select.{Selection, SelectionOrAlias, Where}
 import com.google.common.util.concurrent.ListenableFuture
 import com.typesafe.config.{Config, ConfigFactory}
-import fs2.{Chunk, Strategy, Stream}
-import fs2.util.{Task, ~>}
+import fs2.{Chunk, Strategy, Stream, Task}
+import fs2.util.~>
 import io.doolse.simpledba.cassandra.CassandraMapper.Effect
 
 import scala.collection.mutable
@@ -67,7 +67,7 @@ object CassandraIO {
   def asyncStmt[A](lf: ListenableFuture[A], stmt: => String) =
     async[A](lf, ee => new CassandraIOException(s"Failed executing - $stmt - cause ${ee.getMessage}", ee.getCause))
 
-  val effect2Task = new (Task ~> Effect) {
+  val task2Effect = new (Task ~> Effect) {
     def apply[A](f: Task[A]): Effect[A] = Kleisli(_ => f)
   }
 

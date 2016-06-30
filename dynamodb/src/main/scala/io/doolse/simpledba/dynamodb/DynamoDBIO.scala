@@ -5,7 +5,7 @@ import com.amazonaws.handlers.AsyncHandler
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBAsync
 import com.amazonaws.services.dynamodbv2.model._
 import fs2.Strategy
-import fs2.util.Task
+import fs2.Task
 import io.doolse.simpledba.dynamodb.DynamoDBIO._
 
 import scala.concurrent.ExecutionContext

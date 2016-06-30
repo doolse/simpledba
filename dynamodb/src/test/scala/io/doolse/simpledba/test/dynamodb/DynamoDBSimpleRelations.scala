@@ -1,15 +1,12 @@
 package io.doolse.simpledba.test.dynamodb
 
-import cats.Id
 import fs2.interop.cats._
-import com.amazonaws.ClientConfiguration
-import com.amazonaws.services.dynamodbv2.model.CreateTableRequest
-import com.amazonaws.services.dynamodbv2.{AmazonDynamoDBAsync, AmazonDynamoDBAsyncClient}
-import io.doolse.simpledba.BuiltQueries
-import io.doolse.simpledba.dynamodb.{DynamoDBMapper, DynamoDBSession, DynamoDBUtils}
+import io.doolse.simpledba.CatsUtils._
 import io.doolse.simpledba.dynamodb.DynamoDBMapper.Effect
-import io.doolse.simpledba.test.SimpleRelations._
+import io.doolse.simpledba.dynamodb._
+import DynamoDBIO._
 import io.doolse.simpledba.test.SimpleRelations
+import io.doolse.simpledba.test.SimpleRelations._
 /**
   * Created by jolz on 15/06/16.
   */

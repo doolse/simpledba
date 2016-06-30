@@ -5,8 +5,8 @@ import cats.std.vector._
 import cats.syntax.traverse._
 import com.datastax.driver.core._
 import com.datastax.driver.core.schemabuilder.{Create, SchemaBuilder}
+import fs2.Task
 import fs2.interop.cats._
-import fs2.util.Task
 import io.doolse.simpledba.CatsUtils._
 /**
   * Created by jolz on 9/06/16.

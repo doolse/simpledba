@@ -3,6 +3,8 @@ package io.doolse.simpledba.test.cassandra
 import io.doolse.simpledba.cassandra.CassandraMapper.Effect
 import io.doolse.simpledba.test.SortedQueryProperties
 import fs2.interop.cats._
+import io.doolse.simpledba.CatsUtils._
+import io.doolse.simpledba.cassandra.CassandraIO._
 
 /**
   * Created by jolz on 21/06/16.

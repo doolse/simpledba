@@ -7,7 +7,7 @@ import com.datastax.driver.core.schemabuilder.{Create, SchemaBuilder}
 import com.datastax.driver.core.{DataType, ResultSet, Row}
 import fs2._
 import fs2.interop.cats._
-import fs2.util.{Catchable, Task}
+import fs2.util.Catchable
 import io.doolse.simpledba.RelationMapper._
 import io.doolse.simpledba.cassandra.CassandraMapper._
 import io.doolse.simpledba.cassandra.CassandraIO._
@@ -16,6 +16,7 @@ import shapeless._
 import shapeless.ops.hlist.{Collect, Diff, Length, Prepend, RightFolder, Take}
 import shapeless.ops.record._
 import shapeless.poly.Case1
+import CatsUtils._
 
 
 /**
@@ -154,7 +155,7 @@ object ConvertCassandraQueries extends Poly3 {
               val select = baseSelect.copy(where = baseSelect.where ++ lw ++ uw, ordering=ordering)
               s.prepareAndBind(select, valsToBinding(pkPhysV(c) ++ lv ++ uv))
             }
-          }.flatMap(rs => CassandraIO.rowsStream(rs).translate(effect2Task))
+          }.flatMap(rs => CassandraIO.rowsStream(rs).translate(task2Effect))
             .map(r => materialize(rowMaterializer(r))).collect { case Some(e) => e }
         }
         RangeQuery(None, doQuery)
@@ -262,17 +263,15 @@ object ConvertCassandraQueries extends Poly3 {
     implicit def getWriter[K, W <: HList](implicit s: Selector[W, K]) = at[W, RelationWriter[K]] { case (w, _) => s(w) }
   }
 
-  implicit def convertAll[Q <: HList, Tables <: HList, WithSK <: HList, NoSK <: HList,
-  SortedTables <: HList, QueriesAndTables <: HList, Created, OutQueries <: HList, Writers]
+  implicit def convertAll[Q <: HList, Tables <: HList, SortedTables <: HList,
+  QueriesAndTables <: HList, Created, OutQueries <: HList, Writers]
   (implicit
-   collect: Collect.Aux[Tables, tablesWithSK.type, WithSK],
-   collect2: Collect.Aux[Tables, tablesNoSK.type, NoSK],
-   prepend: Prepend.Aux[WithSK, NoSK, SortedTables],
+   sort: SortedTables.Aux[Tables, SortedTables],
    folder: RightFolder.Aux[Q, BuilderState[HNil, SortedTables, HNil, HNil],
      foldQueries.type, BuilderState[Created, SortedTables, OutQueries, Writers]],
    finishUp: MapWith[Writers, OutQueries, finishWrites.type]
   ) = at[Q, Tables, SimpleMapperConfig] { (q, tables, config) =>
-    val folded = folder(q, BuilderState(HNil, prepend(collect(tables), collect2(tables)), HNil, HNil, Eval.now(Vector.empty), config.tableNamer))
+    val folded = folder(q, BuilderState(HNil, sort(tables), HNil, HNil, Eval.now(Vector.empty), config.tableNamer))
     val outQueries = finishUp(folded.writers, folded.builders)
     BuiltQueries[finishUp.Out, CassandraDDL](outQueries, folded.ddl.map(a => a))
   }

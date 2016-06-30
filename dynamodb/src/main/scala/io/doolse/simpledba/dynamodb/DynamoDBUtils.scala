@@ -5,7 +5,7 @@ import com.amazonaws.{ClientConfiguration, PredefinedClientConfigurations}
 import com.amazonaws.services.dynamodbv2.{AmazonDynamoDB, AmazonDynamoDBAsync, AmazonDynamoDBAsyncClient, AmazonDynamoDBClient}
 import com.amazonaws.services.dynamodbv2.model.{CreateTableRequest, DeleteTableRequest, ListTablesRequest}
 import com.typesafe.config.{Config, ConfigFactory}
-import fs2.util.Task
+import fs2.Task
 import DynamoDBIO._
 import cats.std.vector._
 import cats.syntax.all._

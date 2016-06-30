@@ -1,10 +1,10 @@
 package io.doolse.simpledba
 
-import cats.{Applicative, Functor, Monad}
+import cats.{Applicative, Functor, Monad, Traverse}
 import cats.syntax.all._
 import shapeless.ops.hlist.Prepend
 import shapeless._
-import fs2.Stream
+import fs2.{Async, Stream, concurrent}
 import fs2.util.Catchable
 
 /**
@@ -100,6 +100,10 @@ trait WriteQueries[F[_], T] {
   def insert(t: T): F[Unit]
 
   def update(existing: T, newValue: T): F[Boolean]
+
+  def bulkInsert(l: Seq[T], conc: Int = 8)(implicit A: Async[F]): F[Unit] = {
+    concurrent.join(conc)(Stream(l:_*).map(t => Stream.eval(insert(t)))).run
+  }
 }
 
 object WriteQueries {

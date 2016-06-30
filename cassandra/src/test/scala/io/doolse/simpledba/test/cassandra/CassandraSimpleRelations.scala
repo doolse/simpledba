@@ -1,6 +1,8 @@
 package io.doolse.simpledba.test.cassandra
 
 import fs2.interop.cats._
+import io.doolse.simpledba.CatsUtils._
+import io.doolse.simpledba.cassandra.CassandraIO._
 import io.doolse.simpledba.cassandra.CassandraMapper.Effect
 import io.doolse.simpledba.test.SimpleRelations
 import io.doolse.simpledba.test.SimpleRelations._
