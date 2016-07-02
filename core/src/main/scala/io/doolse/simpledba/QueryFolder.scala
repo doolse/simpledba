@@ -90,7 +90,7 @@ trait QueryFolder[Effect[_], DDL, PhysicalTable[_] <: KeyBasedTable, MapQuery <:
     (q, tables, config) =>
 
       val tabList = tables.toList.collect {
-        case (k: String, ct: PhysicalTable[_]) => (k, ct)
+        case (k: String, ct: KeyBasedTable) => (k, ct.asInstanceOf[PhysicalTable[_]])
       } sortBy (_._2.skNames.size)
 
       val bases = tabList.map(_._1).distinct
