@@ -14,7 +14,7 @@ case class DynamoDBColumn[T](from: AttributeValue => T, to: T => AttributeValue,
 
 object DynamoDBColumn {
 
-  val EmptyStringValue = "\u0002"
+  val EmptyStringValue = "\u0000"
 
   def create[T](from: AttributeValue => T, to: T => AttributeValue, sortablePart: T => String, range: (T, T), attr: ScalarAttributeType)
   = DynamoDBColumn(from, to, attr, (oldV: T, newV: T) => new AttributeValueUpdate(to(newV), AttributeAction.PUT), sortablePart, range)
@@ -46,7 +46,7 @@ object DynamoDBColumn {
       val rs = if (s.isEmpty) EmptyStringValue else s
       new AttributeValue(rs)
     }
-    create[String](decodeBlank, encodeBlank, identity, ("\u0001", "\uffff"), ScalarAttributeType.S)
+    create[String](decodeBlank, encodeBlank, identity, ("\u0000", "\uffff"), ScalarAttributeType.S)
   }
 
   implicit val uuidColumn = create[UUID](v => UUID.fromString(v.getS), u => new AttributeValue(u.toString), _.toString(),
