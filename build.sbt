@@ -17,6 +17,7 @@ val commonSettings = Seq(
 
 val subSettings = Seq(
   name := "simpledba-" + baseDirectory.value.getName,
+  testOptions in Test += Tests.Argument(TestFrameworks.ScalaCheck, "-s", "10"),
   scalacOptions ++= Option("-Xlog-implicits").filter(_ => config.getBoolean("debug.implicits")).toSeq,
   addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.7.1"),
   addCompilerPlugin("com.milessabin" % "si2712fix-plugin" % "1.2.0" cross CrossVersion.full)
