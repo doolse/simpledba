@@ -35,7 +35,7 @@ object QuickstartExampleDynamo extends App {
   )
 
   val mapper = new DynamoDBMapper()
-  val built = mapper.buildModel(model)
+  val built = mapper.verifyModel(model)
   val queries = built.queries
 
   val config = new ClientConfiguration().withProxyHost("localhost").withProxyPort(8888)

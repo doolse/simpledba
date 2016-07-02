@@ -1,27 +1,19 @@
 package io.doolse.simpledba.dynamodb
 
 import cats.data.{ReaderT, Xor}
-import cats.syntax.all._
-import cats.{Applicative, Eval}
-import com.amazonaws.AmazonWebServiceRequest
-import com.amazonaws.handlers.AsyncHandler
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDBAsync
 import com.amazonaws.services.dynamodbv2.model.{Stream => _, _}
 import fs2._
 import fs2.interop.cats._
 import io.doolse.simpledba.CatsUtils._
-import fs2.util.Catchable
 import io.doolse.simpledba.RelationMapper._
 import io.doolse.simpledba._
+import io.doolse.simpledba.dynamodb.DynamoDBIO._
 import io.doolse.simpledba.dynamodb.DynamoDBMapper._
 import shapeless._
-import shapeless.ops.hlist.{Collect, Diff, Length, Prepend, RightFolder, Take}
-import shapeless.ops.record.Selector
-import shapeless.poly.Case1
-import DynamoDBIO._
+import cats.syntax.all._
+import shapeless.ops.hlist.{Diff, Prepend}
 
 import scala.collection.JavaConverters._
-import scala.concurrent.ExecutionContext
 
 /**
   * Created by jolz on 12/05/16.
@@ -48,7 +40,9 @@ object DynamoDBMapper {
   }
 
   def resultStream(qr: QueryRequest): Stream[Effect, java.util.Map[String, AttributeValue]] = {
-    Stream.eval[Effect, QueryResult](ReaderT { _.request(queryAsync, qr) }).flatMap { result =>
+    Stream.eval[Effect, QueryResult](ReaderT {
+      _.request(queryAsync, qr)
+    }).flatMap { result =>
       val chunk = Stream.chunk(Chunk.seq(result.getItems.asScala))
       if (result.getLastEvaluatedKey == null) chunk
       else chunk ++ resultStream(qr.withExclusiveStartKey(result.getLastEvaluatedKey))
@@ -125,235 +119,211 @@ class DynamoDBMapper(val config: SimpleMapperConfig = defaultMapperConfig) exten
   }
 }
 
-case class DynamoTable[K, T, PKL, SKL, PKV, SKV](helper: ColumnFamilyHelper[DynamoDBColumn, T, PKV, SKV],
-                                                 name: String = "") extends TableWithSK[SKL] {
-  val SK = "SK"
-  val PK = "PK"
+trait DynamoTable[T] extends KeyBasedTable {
+  def writer(name: String): WriteQueries[Effect, T]
 
-  def atomForKey(prefix: String, cols: Seq[ColumnMapping[DynamoDBColumn, T, _]]) = if (cols.length > 1)
-    Some(ColumnMapping[DynamoDBColumn, T, String](prefix + "_Composite", DynamoDBColumn.stringColumn, _ => ???))
-  else cols.headOption
+  def createDDL(name: String): CreateTableRequest
 
-  lazy val pkAtom = atomForKey(PK, helper.pkColumns).get
-  lazy val skAtom = atomForKey(SK, helper.skColumns)
+  def pkNames: Seq[String]
 
-  def compositeValue(prefix: String, vals: Seq[PhysicalValue[DynamoDBColumn]]) : Option[PhysicalValue[DynamoDBColumn]] = if (vals.length > 1) {
-    Some(PhysicalValue(prefix + "_Composite", DynamoDBColumn.stringColumn, vals.map(pv => pv.atom.sortablePart(pv.v)).mkString(",")))
-  } else None
+  def skNames: Seq[String]
 
-  def extraFields(key: PKV :: SKV :: HNil) : Seq[PhysicalValue[DynamoDBColumn]] = compositeValue(PK, helper.physPkColumns(key.head)).toSeq ++
-    compositeValue(SK, helper.physSkColumns(key.tail.head))
+  def materializer: ColumnMaterialzer[DynamoDBColumn] => Option[T]
 
-  def toPhysicalValues(t: T) : Seq[PhysicalValue[DynamoDBColumn]] = {
-    val (all, pk, sk) = helper.toAllPhysicalValues(t)
-    all ++ compositeValue(PK, pk) ++ compositeValue(SK, sk)
-  }
+  def realPK(logical: Seq[PhysicalValue[DynamoDBColumn]]): PhysicalValue[DynamoDBColumn]
 
-  def fullSK(lower: Boolean, firstPV: Seq[PhysicalValue[DynamoDBColumn]]) = {
-    def asPhysValue[A](m: ColumnMapping[DynamoDBColumn, T, A]) = {
-      val a = m.atom
-      val (l, r) = a.range
-      PhysicalValue(m.name, a, if (lower) l else r)
+  def fullSK(lower: Boolean, firstPV: Seq[PhysicalValue[DynamoDBColumn]]): Option[PhysicalValue[DynamoDBColumn]]
+}
+
+trait DynamoTableBuilder[T, CR <: HList, CVL <: HList, PKL, SKL] {
+  def apply(mapper: ColumnMapper[T, CR, CVL]): DynamoTable[T]
+}
+
+object DynamoTableBuilder {
+  implicit def makeTable[CR <: HList, AllK <: HList, T, PKL, SKL, CVL <: HList, PKV, SKV]
+  (implicit helperB: ColumnFamilyHelperBuilder.Aux[DynamoDBColumn, T, CR, CVL, PKL, SKL, PKV, SKV])
+  = new DynamoTableBuilder[T, CR, CVL, PKL, SKL] {
+
+    def apply(mapper: ColumnMapper[T, CR, CVL]) = new DynamoTable[T] {
+      val SK = "SK"
+      val PK = "PK"
+
+      val helper = helperB(mapper)
+
+      def toPhysicalValues(t: T): Seq[PhysicalValue[DynamoDBColumn]] = {
+        val (all, pk, sk) = helper.toAllPhysicalValues(t)
+        all ++ compositeValue(PK, pk) ++ compositeValue(SK, sk)
+      }
+
+
+      def compositeValue(prefix: String, vals: Seq[PhysicalValue[DynamoDBColumn]]): Option[PhysicalValue[DynamoDBColumn]] = if (vals.length > 1) {
+        Some(PhysicalValue(prefix + "_Composite", DynamoDBColumn.stringColumn, vals.map(pv => pv.atom.sortablePart(pv.v)).mkString(",")))
+      } else None
+
+
+      def writer(tableName: String) = new WriteQueries[Effect, T] {
+
+        def extraFields(key: PKV :: SKV :: HNil): Seq[PhysicalValue[DynamoDBColumn]] = compositeValue(PK, helper.physPkColumns(key.head)).toSeq ++
+          compositeValue(SK, helper.physSkColumns(key.tail.head))
+
+        def delete(t: T): Effect[Unit] = ReaderT {
+          _.request(deleteItemAsync, new DeleteItemRequest(tableName, keysAsAttributes(helper.extractKey(t)))).map(_ => ())
+        }
+
+        def insert(t: T): Effect[Unit] = ReaderT {
+          _.request(putItemAsync, new PutItemRequest(tableName, asAttrMap(toPhysicalValues(t)))).map(_ => ())
+        }
+
+        def update(existing: T, newValue: T): Effect[Boolean] = ReaderT { s =>
+          helper.changeChecker(existing, newValue).map {
+            case Xor.Left((k, changes)) =>
+              s.request(updateItemAsync, new UpdateItemRequest(tableName, keysAsAttributes(k),
+                changes.map(c => asValueUpdate(c)).toMap.asJava))
+            case Xor.Right((oldKey, newk, vals)) =>
+              s.request(deleteItemAsync, new DeleteItemRequest(tableName, keysAsAttributes(oldKey))) <*
+                s.request(putItemAsync, new PutItemRequest(tableName, asAttrMap(vals ++ extraFields(newk))))
+          } map (_.map(_ => true)) getOrElse Task.now(false)
+        }
+      }
+
+
+      def createDDL(tableName: String): DynamoDBDDL = {
+        def atomForKey(prefix: String, cols: Seq[ColumnMapping[DynamoDBColumn, T, _]]) = if (cols.length > 1)
+          Some(ColumnMapping[DynamoDBColumn, T, String](prefix + "_Composite", DynamoDBColumn.stringColumn, _ => ???))
+        else cols.headOption
+
+        lazy val pkAtom = atomForKey(PK, helper.pkColumns).get
+        lazy val skAtom = atomForKey(SK, helper.skColumns)
+
+
+        val keyColumn = pkAtom
+        val sortKeyList = skAtom
+        val sortDef = (List(keyColumn) ++ sortKeyList).map(c => new AttributeDefinition(c.name, c.atom.attributeType))
+        val keyDef = new KeySchemaElement(keyColumn.name, KeyType.HASH)
+        val sortKeyDef = sortKeyList.map(c => new KeySchemaElement(c.name, KeyType.RANGE))
+        new CreateTableRequest(sortDef.asJava, tableName, (List(keyDef) ++ sortKeyDef).asJava, new ProvisionedThroughput(1L, 1L))
+
+      }
+
+      val pkNames: Seq[String] = helper.pkColumns.map(_.name)
+
+      val skNames: Seq[String] = helper.skColumns.map(_.name)
+
+      def materializer: (ColumnMaterialzer[DynamoDBColumn]) => Option[T] = helper.materializer
+
+      def realPK(logical: Seq[PhysicalValue[DynamoDBColumn]]): PhysicalValue[DynamoDBColumn] =
+        compositeValue(PK, logical).orElse(logical.headOption).get
+
+      def fullSK(lower: Boolean, firstPV: Seq[PhysicalValue[DynamoDBColumn]]) = {
+        def asPhysValue[A](m: ColumnMapping[DynamoDBColumn, T, A]) = {
+          val a = m.atom
+          val (l, r) = a.range
+          PhysicalValue(m.name, a, if (lower) l else r)
+        }
+        val allSK = firstPV ++ helper.skColumns.drop(firstPV.length).map(cm => asPhysValue(cm))
+        compositeValue(SK, allSK).orElse(allSK.headOption)
+      }
+
+      def pkValue(pkv: PKV): PhysicalValue[DynamoDBColumn] = {
+        realPK(helper.physPkColumns(pkv))
+      }
+
+      def skValue(skv: SKV): Option[PhysicalValue[DynamoDBColumn]] = {
+        val skVals = helper.physSkColumns(skv)
+        compositeValue(SK, skVals).orElse(skVals.headOption)
+      }
+
+      def keysAsAttributes(key: PKV :: SKV :: HNil) = key match {
+        case (pkv :: skv :: HNil) => asAttrMap(Seq(pkValue(pkv)) ++ skValue(skv))
+      }
+
     }
-    val allSK = firstPV ++ helper.skColumns.drop(firstPV.length).map(cm => asPhysValue(cm))
-    compositeValue(SK, allSK).orElse(allSK.headOption)
-  }
-
-  def pkValue(pkv: PKV): PhysicalValue[DynamoDBColumn] = {
-    val pkVals = helper.physPkColumns(pkv)
-    compositeValue(PK, pkVals).orElse(pkVals.headOption).get
-  }
-
-  def skValue(skv: SKV): Option[PhysicalValue[DynamoDBColumn]] = {
-    val skVals = helper.physSkColumns(skv)
-    compositeValue(SK, skVals).orElse(skVals.headOption)
   }
 }
 
 object DynamoDBKeyMapper extends Poly1 {
-  implicit def byPK[K, T, CR <: HList, KL <: HList, CVL <: HList, PKV]
-  (implicit
-   columnFamilyHelper: ColumnFamilyHelperBuilder.Aux[DynamoDBColumn, T, CR, CVL, KL, HNil, PKV, HNil])
-  = at[(QueryPK[K], RelationDef[T, CR, KL, CVL])] {
-    case (q, relation) => DynamoTable[K, T, KL, HNil, PKV, HNil](columnFamilyHelper(relation.mapper))
-  }
+    implicit def byPK[K, T, CR <: HList, KL <: HList, CVL <: HList, PKV]
+    (implicit
+     builder: DynamoTableBuilder[T, CR, CVL, KL, HNil])
+    = at[(QueryPK[K], RelationDef[T, CR, KL, CVL])] {
+      case (q, relation) => (relation.baseName, builder(relation.mapper))
+    }
 
-  implicit def queryMulti[K, Cols <: HList, SortCols <: HList,
-  T, CR <: HList, KL <: HList, CVL <: HList,
-  LeftOverKL <: HList, LeftOverKL2 <: HList, SKL <: HList, PKV, SKV]
-  (implicit
-   diff1: Diff.Aux[KL, Cols, LeftOverKL],
-   diff2: Diff.Aux[LeftOverKL, SortCols, LeftOverKL2],
-   prepend: Prepend.Aux[SortCols, LeftOverKL2, SKL],
-   columnFamilyHelper: ColumnFamilyHelperBuilder.Aux[DynamoDBColumn, T, CR, CVL, Cols, SKL, PKV, SKV]
-  )
-  = at[(QueryMultiple[K, Cols, SortCols], RelationDef[T, CR, KL, CVL])] {
-    case (q, relation) => DynamoTable[K, T, Cols, SKL, PKV, SKV](columnFamilyHelper(relation.mapper))
-  }
+    implicit def queryMulti[K, Cols <: HList, SortCols <: HList,
+    T, CR <: HList, KL <: HList, CVL <: HList,
+    LeftOverKL <: HList, LeftOverKL2 <: HList, SKL <: HList, PKV, SKV]
+    (implicit
+     diff1: Diff.Aux[KL, Cols, LeftOverKL],
+     diff2: Diff.Aux[LeftOverKL, SortCols, LeftOverKL2],
+     prepend: Prepend.Aux[SortCols, LeftOverKL2, SKL],
+     builder: DynamoTableBuilder[T, CR, CVL, Cols, SKL]
+    )
+    = at[(QueryMultiple[K, Cols, SortCols], RelationDef[T, CR, KL, CVL])] {
+      case (q, relation) => (relation.baseName, builder(relation.mapper))
+    }
 
-  implicit def writes[K, RD] = at[(RelationWriter[K], RD)](_ => ())
+    implicit def writes[K, RD] = at[(RelationWriter[K], RD)](_ => ())
 }
 
-object DynamoDBQueries extends Poly3 {
+object mapQuery extends Poly2 {
 
-  case class BuilderState[Created, Available, Builders, Writers](tablesCreated: Created, tablesAvailable: Available,
-                                                                 builders: Builders, writers: Writers,
-                                                                 ddl: Eval[Vector[DynamoDBDDL]], tableNamer: TableNameDetails => String,
-                                                                 tableNames: Set[String] = Set.empty
-                                                                )
-
-  case class QueryCreate[K, T, PKL, SKL, PKV, SKV, Out](matched: DynamoTable[K, T, PKL, SKL, PKV, SKV], build: String => Out)
-
-  trait mapQueryLP extends Poly1 {
-    implicit def nextEntry[Q, RD, H, T <: HList](implicit tailEntry: Case1[mapQuery.type, (Q, RD, T)]) = at[(Q, RD, H :: T)] {
-      case (q, rd, l) => tailEntry(q, rd, l.tail)
-    }
-  }
-
-  object mapQuery extends mapQueryLP {
-
-    implicit def pkQuery[K, T, CR <: HList, PKL <: HList, CVL <: HList,
-    KL <: HList, SKL <: HList, Tail <: HList, AllKL <: HList, PKV]
-    (implicit
-     matchKL: Diff.Aux[KL, PKL, HNil]
-    )
-    = at[(QueryPK[K], RelationDef[T, CR, PKL, CVL], DynamoTable[K, T, KL, SKL, PKV, HNil] :: Tail)] {
-      case (q, rd, table :: _) => QueryCreate[K, T, KL, SKL, PKV, HNil, UniqueQuery[Effect, T, PKV]](table, { tableName =>
-        val columns = rd.columns
-        def doQuery(v: PKV): Effect[Option[T]] = ReaderT { s =>
-          s.request(getItemAsync, new GetItemRequest(tableName, asAttrMap(Seq(table.pkValue(v))))).map {
-            gir => Option(gir.getItem()).map(createMaterializer).flatMap(table.helper.materializer)
-          }
-        }
-        UniqueQuery(doQuery)
-      })
-    }
-
-    implicit def rangeQuery[K, Cols <: HList, SortCols <: HList, Q, T, RD, CR <: HList, CVL <: HList,
-    PKL <: HList, KL <: HList, SKL <: HList, Tail <: HList, CRK <: HList,
-    SortVals <: HList, SortLen <: Nat, PKV, SKV]
-    (implicit
-     evSame: Cols =:= KL,
-     lenSC: Length.Aux[SortCols, SortLen],
-     firstSK: Take.Aux[SKL, SortLen, SortCols],
-     skColsLookup: ColumnsAsSeq.Aux[CR, SortCols, T, DynamoDBColumn, SortVals]
-    )
-    = at[(QueryMultiple[K, Cols, SortCols], RelationDef[T, CR, PKL, CVL], DynamoTable[K, T, KL, SKL, PKV, SKV] :: Tail)] {
-      case (q, rd, table :: _) => QueryCreate[K, T, KL, SKL, PKV, SKV, RangeQuery[Effect, T, PKV, SortVals]](table, { tn =>
-        val (_, sortVals) = skColsLookup(rd.columns)
-        def doQuery(c: PKV, lr: RangeValue[SortVals], ur: RangeValue[SortVals], asc: Option[Boolean]): Stream[Effect, T] = {
-          def doRange(l: Boolean, i: String, x: String, rv: RangeValue[SortVals]) = {
-            rv.fold(i, x).flatMap { case (sv, op) => table.fullSK(l, sortVals(sv)).map((_, op)) }
-          }
-          val matcher = KeyMatch(table.pkValue(c), doRange(false, ">=", ">", lr), doRange(true, "<=", "<", ur))
-          val qr = matcher.forRequest(new QueryRequest(tn))
-          val qr2 = asc.map(a => qr.withScanIndexForward(a)).getOrElse(qr)
-          resultStream(qr2).map(map => table.helper.materializer(createMaterializer(map))).collect {
-            case Some(a) => a
-          }
-        }
-        RangeQuery(None, doQuery)
-      })
-    }
-  }
-
-
-  trait foldQueriesLP extends Poly2 {
-    implicit def buildNewTable[Q, T, CR <: HList, KL <: HList, CVL <: HList, Used <: HList,
-    Available, Builders <: HList, Writers <: HList, K, PKL, SKL, Out, AllK <: HList, PKV, SKV]
-    (implicit
-     mq: Case1.Aux[mapQuery.type, (Q, RelationDef[T, CR, KL, CVL], Available), QueryCreate[K, T, PKL, SKL, PKV, SKV, Out]],
-     update: UpdateOrAdd[Writers, K, WriteQueries[Effect, T]]
-    )
-    = at[(Q, RelationDef[T, CR, KL, CVL]), BuilderState[Used, Available, Builders, Writers]] {
-      case ((q, rd), bs) =>
-        val cq = mq(q, rd, bs.tablesAvailable)
-        val dynamoTable = cq.matched
-        val helper = dynamoTable.helper
-        val skNames = helper.skColumns.map(_.name)
-        val pkNames = helper.pkColumns.map(_.name)
-        val tableName = bs.tableNamer(TableNameDetails(bs.tableNames, rd.baseName, pkNames, skNames))
-
-        def keysAsAttributes(key: PKV :: SKV :: HNil) = key match {
-          case (pkv :: skv :: HNil) => asAttrMap(Seq(dynamoTable.pkValue(pkv)) ++ dynamoTable.skValue(skv))
-        }
-
-
-        def createDDL: CreateTableRequest = {
-          val keyColumn = cq.matched.pkAtom
-          val sortKeyList = cq.matched.skAtom
-          val sortDef = (List(keyColumn) ++ sortKeyList).map(c => new AttributeDefinition(c.name, c.atom.attributeType))
-          val keyDef = new KeySchemaElement(keyColumn.name, KeyType.HASH)
-          val sortKeyDef = sortKeyList.map(c => new KeySchemaElement(c.name, KeyType.RANGE))
-          new CreateTableRequest(sortDef.asJava, tableName, (List(keyDef) ++ sortKeyDef).asJava, new ProvisionedThroughput(1L, 1L))
-        }
-        val writer: WriteQueries[Effect, T] = new WriteQueries[Effect, T] {
-
-
-          def delete(t: T): Effect[Unit] = ReaderT {
-            _.request(deleteItemAsync, new DeleteItemRequest(tableName, keysAsAttributes(helper.extractKey(t)))).map(_ => ())
-          }
-
-          def insert(t: T): Effect[Unit] = ReaderT {
-            _.request(putItemAsync, new PutItemRequest(tableName, asAttrMap(dynamoTable.toPhysicalValues(t)))).map(_ => ())
-          }
-
-          def update(existing: T, newValue: T): Effect[Boolean] = ReaderT { s =>
-            helper.changeChecker(existing, newValue).map {
-              case Xor.Left((k, changes)) =>
-                s.request(updateItemAsync, new UpdateItemRequest(tableName, keysAsAttributes(k),
-                  changes.map(c => asValueUpdate(c)).toMap.asJava))
-              case Xor.Right((oldKey, newk, vals)) =>
-                s.request(deleteItemAsync, new DeleteItemRequest(tableName, keysAsAttributes(oldKey))) <*
-                  s.request(putItemAsync, new PutItemRequest(tableName, asAttrMap(vals ++ dynamoTable.extraFields(newk))))
-            } map (_.map(_ => true)) getOrElse Task.now(false)
-          }
-        }
-        bs.copy[DynamoTable[K, T, PKL, SKL, PKV, SKV] :: Used, Available, Out :: Builders, update.Out](
-          tablesCreated = dynamoTable.copy[K, T, PKL, SKL, PKV, SKV](name = tableName) :: bs.tablesCreated,
-          builders = cq.build(tableName) :: bs.builders,
-          writers = update(bs.writers, ex => ex.map(x => WriteQueries.combine(x, writer)).getOrElse(writer)),
-          ddl = bs.ddl.map(_ :+ createDDL),
-          tableNames = bs.tableNames + tableName
-        )
-    }
-  }
-
-  object foldQueries extends foldQueriesLP {
-    implicit def writeQuery[K, T, CR <: HList, PKL <: HList, CVL <: HList, Used, Available, Builders <: HList, Writers <: HList]
-    = at[(RelationWriter[K], RelationDef[T, CR, PKL, CVL]), BuilderState[Used, Available, Builders, Writers]] {
-      case ((q, rd), bs) => bs.copy[Used, Available, RelationWriter[K] :: Builders, Writers](builders = q :: bs.builders)
-    }
-
-    implicit def existingTable[Q, RD, Used, Available, Builders <: HList, Writers <: HList, K, T, KL, SKL, PKV, SKV, Out]
-    (implicit mq: Case1.Aux[mapQuery.type, (Q, RD, Used), QueryCreate[K, T, KL, SKL, PKV, SKV, Out]])
-    = at[(Q, RD), BuilderState[Used, Available, Builders, Writers]] {
-      case ((q, rd), bs) =>
-        val cq = mq(q, rd, bs.tablesCreated)
-        bs.copy[Used, Available, Out :: Builders, Writers](builders = cq.build(cq.matched.name) :: bs.builders)
-    }
-  }
-
-
-  implicit def convertAll[Q <: HList, Tables <: HList, SortedTables <: HList,
-  QueriesAndTables <: HList, Created, OutQueries <: HList, Writers]
+  implicit def pkQuery[K, T, CR <: HList, PKL <: HList, CVL <: HList, PKV]
   (implicit
-   sort: SortedTables.Aux[Tables, SortedTables],
-   folder: RightFolder.Aux[Q, BuilderState[HNil, SortedTables, HNil, HNil],
-     foldQueries.type, BuilderState[Created, SortedTables, OutQueries, Writers]],
-   finishUp: MapWith[Writers, OutQueries, finishWrites.type]
-  ) = at[Q, Tables, SimpleMapperConfig] { (q, tables, config) =>
-    val folded = folder(q, BuilderState(HNil, sort(tables), HNil, HNil, Eval.now(Vector.empty), config.tableNamer))
-    val outQueries = finishUp(folded.writers, folded.builders)
-    BuiltQueries[finishUp.Out, DynamoDBDDL](outQueries, folded.ddl.map(a => a))
+   lookupPK: ColumnsAsSeq.Aux[CR, PKL, T, DynamoDBColumn, PKV]
+  )
+  = at[QueryPK[K], RelationDef[T, CR, PKL, CVL]] { (q, rd) =>
+    val (pkCols, pkVals) = lookupPK(rd.columns)
+    val pkNames = pkCols.map(_.name)
+    def pkMatch[T](table: DynamoTable[T]) = table.pkNames == pkNames
+    QueryCreate[DynamoTable[T], UniqueQuery[Effect, T, PKV]](pkMatch, { (tableName, dt) =>
+      val columns = rd.columns
+      def doQuery(v: PKV): Effect[Option[T]] = ReaderT { s =>
+        s.request(getItemAsync, new GetItemRequest(tableName, asAttrMap(Seq(dt.realPK(pkVals(v)))))).map {
+          gir => Option(gir.getItem).map(createMaterializer).flatMap(dt.materializer)
+        }
+      }
+      UniqueQuery(doQuery)
+    })
   }
 
-  trait finishWritesLP extends Poly2 {
-    implicit def any[A, B] = at[A, B]((a, b) => b)
+  implicit def rangeQuery[K, Cols <: HList, SortCols <: HList, Q, T, RD, CR <: HList, CVL <: HList,
+  PKL <: HList, KL <: HList, SKL <: HList, SortVals <: HList, PKV, SKV]
+  (implicit
+   pkColsLookup: ColumnsAsSeq.Aux[CR, Cols, T, DynamoDBColumn, PKV],
+   skColsLookup: ColumnsAsSeq.Aux[CR, SortCols, T, DynamoDBColumn, SortVals]
+  )
+  = at[QueryMultiple[K, Cols, SortCols], RelationDef[T, CR, PKL, CVL]] { (q, rd) =>
+    val (pkCols, pkVals) = pkColsLookup(rd.columns)
+    val (skCols, sortVals) = skColsLookup(rd.columns)
+    val pkNames = pkCols.map(_.name)
+    val skNames = skCols.map(_.name)
+    def multiMatch[T](table: DynamoTable[T]) = {
+      table.pkNames == pkNames && table.skNames.startsWith(skNames)
+    }
+    QueryCreate[DynamoTable[T], RangeQuery[Effect, T, PKV, SortVals]](multiMatch, { (tn, table) =>
+      def doQuery(c: PKV, lr: RangeValue[SortVals], ur: RangeValue[SortVals], asc: Option[Boolean]): Stream[Effect, T] = {
+        def doRange(l: Boolean, i: String, x: String, rv: RangeValue[SortVals]) = {
+          rv.fold(i, x).flatMap { case (sv, op) => table.fullSK(l, sortVals(sv)).map((_, op)) }
+        }
+        val matcher = KeyMatch(table.realPK(pkVals(c)), doRange(false, ">=", ">", lr), doRange(true, "<=", "<", ur))
+        val qr = matcher.forRequest(new QueryRequest(tn))
+        val qr2 = asc.map(a => qr.withScanIndexForward(a)).getOrElse(qr)
+        resultStream(qr2).map(map => table.materializer(createMaterializer(map))).collect {
+          case Some(a) => a
+        }
+      }
+      RangeQuery(None, doQuery)
+    })
   }
+}
 
-  object finishWrites extends finishWritesLP {
-    implicit def getWriter[K, W <: HList](implicit s: Selector[W, K]) = at[W, RelationWriter[K]] { case (w, _) => s(w) }
-  }
+
+object DynamoDBQueries extends QueryFolder[Effect, DynamoDBDDL, DynamoTable, mapQuery.type] {
+
+  def createWriter[T](v: Vector[(String, DynamoTable[T])]): WriteQueries[Effect, T] = v.map {
+    case (name, table) => table.writer(name)
+  }.reduce(WriteQueries.combine[Effect, T])
+
+  def createTableDDL[T](s: String, table: DynamoTable[T]) = table.createDDL(s)
 
 }

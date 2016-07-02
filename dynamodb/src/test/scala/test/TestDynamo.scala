@@ -14,7 +14,7 @@ object TestDynamo extends App {
   val client: AmazonDynamoDBAsync = new AmazonDynamoDBAsyncClient(config).withEndpoint("http://localhost:8000")
 
   val mapper = new DynamoDBMapper()
-  val built = mapper.buildModel(TestCreator.model)
+  val built = mapper.verifyModel(TestCreator.model)
 
   val queries = built.queries
   val creation = built.ddl

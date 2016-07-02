@@ -1,22 +1,20 @@
 package io.doolse.simpledba.cassandra
 
+import cats.Eval
 import cats.data.{ReaderT, Xor}
 import cats.syntax.all._
-import cats.{Applicative, Eval}
 import com.datastax.driver.core.schemabuilder.{Create, SchemaBuilder}
 import com.datastax.driver.core.{DataType, ResultSet, Row}
 import fs2._
 import fs2.interop.cats._
-import fs2.util.Catchable
+import io.doolse.simpledba.CatsUtils._
 import io.doolse.simpledba.RelationMapper._
-import io.doolse.simpledba.cassandra.CassandraMapper._
 import io.doolse.simpledba.cassandra.CassandraIO._
+import io.doolse.simpledba.cassandra.CassandraMapper._
 import io.doolse.simpledba.{RelationDef, QueryBuilder => _, _}
 import shapeless._
-import shapeless.ops.hlist.{Collect, Diff, Length, Prepend, RightFolder, Take}
+import shapeless.ops.hlist.{Diff, Prepend}
 import shapeless.ops.record._
-import shapeless.poly.Case1
-import CatsUtils._
 
 
 /**
@@ -26,6 +24,15 @@ import CatsUtils._
 object CassandraMapper {
   type Effect[A] = ReaderT[Task, CassandraSession, A]
   type CassandraDDL = (String, Create)
+
+  def exactMatch[T](s: Seq[ColumnMapping[CassandraColumn, T, _]]) = s.map(c => CassandraEQ(c.name))
+
+  def valsToBinding(s: Seq[PhysicalValue[CassandraColumn]]) = s.map(pv => pv.atom.binding(pv.v))
+
+  def rowMaterializer(r: Row) = new ColumnMaterialzer[CassandraColumn] {
+    def apply[A](name: String, atom: CassandraColumn[A]): Option[A] = atom.byName(r, name)
+  }
+
 }
 
 class CassandraMapper(val config: SimpleMapperConfig = defaultMapperConfig) extends RelationMapper[Effect] {
@@ -41,165 +48,55 @@ class CassandraMapper(val config: SimpleMapperConfig = defaultMapperConfig) exte
   }
 }
 
+trait CassandraTable[T] extends KeyBasedTable {
+  def writer(name: String): WriteQueries[Effect, T]
 
-case class CassandraTable[K, PKL, SKL](name: String = "") extends TableWithSK[SKL]
+  def createDDL(name: String): CassandraDDL
 
-object CassandraKeyMapper extends Poly1 {
+  def pkNames: Seq[String]
 
-  implicit def byPK[K, T, CR <: HList, KL <: HList, CVL <: HList]
-  = at[(QueryPK[K], RelationDef[T, CR, KL, CVL])] {
-    case (q, relation) => CassandraTable[K, KL, HNil]()
-  }
-
-  implicit def queryMulti[K, Cols <: HList, SortCols <: HList,
-  T, CR <: HList, KL <: HList, CVL <: HList,
-  LeftOverKL <: HList, LeftOverKL2 <: HList]
-  (implicit
-   diff1: Diff.Aux[KL, Cols, LeftOverKL],
-   diff2: Diff.Aux[LeftOverKL, SortCols, LeftOverKL2],
-   prepend: Prepend[SortCols, LeftOverKL2])
-  = at[(QueryMultiple[K, Cols, SortCols], RelationDef[T, CR, KL, CVL])] {
-    case (q, relation) => CassandraTable[K, Cols, prepend.Out]()
-  }
-
-  implicit def writes[K, RD] = at[(RelationWriter[K], RD)](_ => ())
-
+  def skNames: Seq[String]
 }
 
-object ConvertCassandraQueries extends Poly3 {
+trait CassandraTableBuilder[T, CR <: HList, CVL <: HList, PKL, SKL] {
+  def apply(mapper: ColumnMapper[T, CR, CVL]): CassandraTable[T]
+}
 
-  def exactMatch[T](s: Seq[ColumnMapping[CassandraColumn, T, _]]) = s.map(c => CassandraEQ(c.name))
+object CassandraTableBuilder {
+  implicit def cassTable[CR <: HList, AllK <: HList, T, PKL, SKL, CVL <: HList, PKV, SKV]
+  (implicit
+   allColKeys: Keys.Aux[CR, AllK],
+   allCols: ColumnsAsSeq[CR, AllK, T, CassandraColumn],
+   pkColLookup: ColumnsAsSeq.Aux[CR, PKL, T, CassandraColumn, PKV],
+   skColLookup: ColumnsAsSeq.Aux[CR, SKL, T, CassandraColumn, SKV],
+   keyVals: ValueExtractor.Aux[CR, CVL, PKL :: SKL :: HNil, PKV :: SKV :: HNil],
+   helperB: ColumnListHelperBuilder[CassandraColumn, T, CR, CVL, PKV :: SKV :: HNil])
+  = new CassandraTableBuilder[T, CR, CVL, PKL, SKL] {
+    def apply(mapper: ColumnMapper[T, CR, CVL]) = {
+      val extractKey = keyVals()
+      val helper = helperB(mapper, extractKey)
+      val columnsRecord = mapper.columns
+      val (columns, _) = allCols(columnsRecord)
+      val (pkCols, pkPhys) = pkColLookup(columnsRecord)
+      val (skCols, skPhys) = skColLookup(columnsRecord)
 
-  def valsToBinding(s: Seq[PhysicalValue[CassandraColumn]]) = s.map(pv => pv.atom.binding(pv.v))
-
-  def rowMaterializer(r: Row) = new ColumnMaterialzer[CassandraColumn] {
-    def apply[A](name: String, atom: CassandraColumn[A]): Option[A] = atom.byName(r, name)
-  }
-
-  case class BuilderState[Created, Available, Builders, Writers](tablesCreated: Created, tablesAvailable: Available,
-                                                                 builders: Builders, writers: Writers,
-                                                                 ddl: Eval[Vector[CassandraDDL]], tableNamer: TableNameDetails => String,
-                                                                 tableNames: Set[String] = Set.empty
-                                                                )
-
-  case class QueryCreate[K, PKL, SKL, Out](matched: CassandraTable[K, PKL, SKL], build: String => Out)
-
-  trait mapQueryLP extends Poly1 {
-    implicit def nextEntry[Q, RD, H, T <: HList](implicit tailEntry: Case1[mapQuery.type, (Q, RD, T)]) = at[(Q, RD, H :: T)] {
-      case (q, rd, l) => tailEntry(q, rd, l.tail)
-    }
-  }
-
-  object mapQuery extends mapQueryLP {
-
-    implicit def pkQuery[K, T, CR <: HList, PKL <: HList, CVL <: HList,
-    KL <: HList, SKL <: HList, Tail <: HList, AllKL <: HList, PKV]
-    (implicit
-     matchKL: Diff.Aux[KL, PKL, HNil],
-     allColsKeys: Keys.Aux[CR, AllKL],
-     pkColsLookup: ColumnsAsSeq.Aux[CR, PKL, T, CassandraColumn, PKV],
-     allColsLookup: ColumnsAsSeq.Aux[CR, AllKL, T, CassandraColumn, CVL],
-     materializer: MaterializeFromColumns.Aux[CassandraColumn, CR, CVL]
-    )
-    = at[(QueryPK[K], RelationDef[T, CR, PKL, CVL], CassandraTable[K, KL, SKL] :: Tail)] {
-      case (q, rd, table) => QueryCreate[K, KL, SKL, UniqueQuery[Effect, T, PKV]](table.head, { table =>
-        val columns = rd.columns
-        val (allCols, allValsP) = allColsLookup(columns)
-        val (pkCols, pkPhysV) = pkColsLookup(columns)
-        val materialize = materializer(columns)
-        val select = CassandraSelect(table, allCols.map(_.name), exactMatch(pkCols), Seq.empty, false)
-        def doQuery(v: PKV): Effect[Option[T]] = ReaderT { s =>
-          s.prepareAndBind(select, valsToBinding(pkPhysV(v))).map { rs =>
-            Option(rs.one()).flatMap(r => materialize(rowMaterializer(r))).map(rd.mapper.fromColumns)
-          }
-        }
-        UniqueQuery(doQuery)
-      })
-    }
-
-    implicit def rangeQuery[K, Cols <: HList, SortCols <: HList, Q, T, RD, CR <: HList, CVL <: HList,
-    PKL <: HList, KL <: HList, SKL <: HList, Tail <: HList, CRK <: HList,
-    ColsVals <: HList, SortVals <: HList, SortLen <: Nat]
-    (implicit
-     evSame: Cols =:= KL,
-     lenSC: Length.Aux[SortCols, SortLen],
-     firstSK: Take.Aux[SKL, SortLen, SortCols],
-     allKeys: Keys.Aux[CR, CRK],
-     allColsLookup: ColumnsAsSeq.Aux[CR, CRK, T, CassandraColumn, CVL],
-     pkColsLookup: ColumnsAsSeq.Aux[CR, Cols, T, CassandraColumn, ColsVals],
-     skColsLookup: ColumnsAsSeq.Aux[CR, SortCols, T, CassandraColumn, SortVals],
-     materializer: MaterializeFromColumns.Aux[CassandraColumn, CR, CVL]
-    )
-    = at[(QueryMultiple[K, Cols, SortCols], RelationDef[T, CR, PKL, CVL], CassandraTable[K, KL, SKL] :: Tail)] {
-      case (q, rd, table) => QueryCreate[K, KL, SKL, RangeQuery[Effect, T, ColsVals, SortVals]](table.head, { tn =>
-        val columns = rd.columns
-        val (pkCols, pkPhysV) = pkColsLookup(columns)
-        val (skCols, skPhysV) = skColsLookup(columns)
-        val oAsc = skCols.map(cm => (cm.name, true))
-        val oDesc = oAsc.map(o => (o._1, false))
-        val (allCols, _) = allColsLookup(columns)
-        val materialize = materializer(columns) andThen (_.map(rd.mapper.fromColumns))
-        val baseSelect = CassandraSelect(tn, allCols.map(_.name), exactMatch(pkCols), Seq.empty, false)
-
-        def doQuery(c: ColsVals, lr: RangeValue[SortVals], ur: RangeValue[SortVals], asc: Option[Boolean]): Stream[Effect, T] = {
-          Stream.eval[Effect, ResultSet] {
-            ReaderT { s =>
-              def processOp(op: Option[(SortVals, String => CassandraClause)]) = op.map { case (sv, f) =>
-                val vals = skPhysV(sv)
-                (vals.map(pv => f(pv.name)), vals)
-              }.getOrElse(Seq.empty, Seq.empty)
-
-              val (lw, lv) = processOp(lr.fold(CassandraGTE, CassandraGT))
-              val (uw, uv) = processOp(ur.fold(CassandraLTE, CassandraLT))
-              val ordering = asc.map(a => if (a) oAsc else oDesc).getOrElse(Seq.empty)
-              val select = baseSelect.copy(where = baseSelect.where ++ lw ++ uw, ordering=ordering)
-              s.prepareAndBind(select, valsToBinding(pkPhysV(c) ++ lv ++ uv))
-            }
-          }.flatMap(rs => CassandraIO.rowsStream(rs).translate(task2Effect))
-            .map(r => materialize(rowMaterializer(r))).collect { case Some(e) => e }
-        }
-        RangeQuery(None, doQuery)
-      })
-    }
-  }
-
-
-  trait foldQueriesLP extends Poly2 {
-    implicit def buildNewTable[Q, T, CR <: HList, KL <: HList, CVL <: HList, Used <: HList,
-    Available, Builders <: HList, Writers <: HList, K, PKL, SKL, Out, AllK <: HList, PKV, SKV]
-    (implicit
-     mq: Case1.Aux[mapQuery.type, (Q, RelationDef[T, CR, KL, CVL], Available), QueryCreate[K, PKL, SKL, Out]],
-     update: UpdateOrAdd[Writers, K, WriteQueries[Effect, T]],
-     allColKeys: Keys.Aux[CR, AllK],
-     allCols: ColumnsAsSeq[CR, AllK, T, CassandraColumn],
-     pkColLookup: ColumnsAsSeq.Aux[CR, PKL, T, CassandraColumn, PKV],
-     skColLookup: ColumnsAsSeq.Aux[CR, SKL, T, CassandraColumn, SKV],
-     keyVals: ValueExtractor.Aux[CR, CVL, PKL :: SKL :: HNil, PKV :: SKV :: HNil],
-     helperB: ColumnListHelperBuilder[CassandraColumn, T, CR, CVL, PKV :: SKV :: HNil]
-    )
-    = at[(Q, RelationDef[T, CR, KL, CVL]), BuilderState[Used, Available, Builders, Writers]] {
-      case ((q, rd), bs) =>
-        val extractKey = keyVals()
-        val helper = helperB(rd.mapper, extractKey)
-        val columnsRecord = rd.mapper.columns
-        val (columns, _) = allCols(columnsRecord)
-        val (pkCols, pkPhys) = pkColLookup(columnsRecord)
-        val (skCols, skPhys) = skColLookup(columnsRecord)
+      new CassandraTable[T] {
         val skNames = skCols.map(_.name)
         val pkNames = pkCols.map(_.name)
-        val tableName = bs.tableNamer(TableNameDetails(bs.tableNames, rd.baseName, pkNames, skNames))
 
-        def createDDL = {
+        def createDDL(tableName: String) = {
           val create = SchemaBuilder.createTable(tableName)
           val dts = columns.map(cm => cm.name -> cm.atom.dataType).toMap
-          def addCol(f: (String, DataType) => Create)(name: String) = f(CassandraIO.escapeReserved(name), dts(name))
+          def addCol(f: (String, DataType) => Create)(name: String) =
+            f(CassandraIO.escapeReserved(name), dts(name))
+
           pkNames.map(addCol(create.addPartitionKey))
           skNames.map(addCol(create.addClusteringColumn))
           (dts.keySet -- (pkNames ++ skNames)).toList.map(addCol(create.addColumn))
           (tableName, create)
         }
 
-        val writer = new WriteQueries[Effect, T] {
+        def writer(tableName: String) = new WriteQueries[Effect, T] {
           val keyEq = exactMatch(pkCols ++ skCols)
           val insertQ = CassandraInsert(tableName, columns.map(_.name))
           val updateQ = CassandraUpdate(tableName, Seq.empty, keyEq)
@@ -229,50 +126,121 @@ object ConvertCassandraQueries extends Poly3 {
 
           }
         }
-        val cq = mq(q, rd, bs.tablesAvailable)
-        bs.copy[CassandraTable[K, PKL, SKL] :: Used, Available, Out :: Builders, update.Out](
-          tablesCreated = cq.matched.copy[K, PKL, SKL](name = tableName) :: bs.tablesCreated,
-          builders = cq.build(tableName) :: bs.builders,
-          writers = update(bs.writers, ex => ex.map(x => WriteQueries.combine(x, writer)).getOrElse(writer)),
-          ddl = bs.ddl.map(_ :+ createDDL),
-          tableNames = bs.tableNames + tableName
-        )
+      }
     }
   }
 
-  object foldQueries extends foldQueriesLP {
-    implicit def writeQuery[K, T, CR <: HList, PKL <: HList, CVL <: HList, Used, Available, Builders <: HList, Writers <: HList]
-    = at[(RelationWriter[K], RelationDef[T, CR, PKL, CVL]), BuilderState[Used, Available, Builders, Writers]] {
-      case ((q, rd), bs) => bs.copy[Used, Available, RelationWriter[K] :: Builders, Writers](builders = q :: bs.builders)
-    }
+}
 
-    implicit def existingTable[Q, RD, Used, Available, Builders <: HList, Writers <: HList, K, KL, SKL, Out]
-    (implicit mq: Case1.Aux[mapQuery.type, (Q, RD, Used), QueryCreate[K, KL, SKL, Out]])
-    = at[(Q, RD), BuilderState[Used, Available, Builders, Writers]] {
-      case ((q, rd), bs) =>
-        val cq = mq(q, rd, bs.tablesCreated)
-        bs.copy[Used, Available, Out :: Builders, Writers](builders = cq.build(cq.matched.name) :: bs.builders)
-    }
+object CassandraKeyMapper extends Poly1 {
+
+  implicit def byPK[K, T, CR <: HList, KL <: HList, CVL <: HList]
+  (implicit ctb: CassandraTableBuilder[T, CR, CVL, KL, HNil])
+  = at[(QueryPK[K], RelationDef[T, CR, KL, CVL])] {
+    case (q, relation) => (relation.baseName, ctb(relation.mapper))
   }
 
-  trait finishWritesLP extends Poly2 {
-    implicit def any[A, B] = at[A, B]((a, b) => b)
-  }
-
-  object finishWrites extends finishWritesLP {
-    implicit def getWriter[K, W <: HList](implicit s: Selector[W, K]) = at[W, RelationWriter[K]] { case (w, _) => s(w) }
-  }
-
-  implicit def convertAll[Q <: HList, Tables <: HList, SortedTables <: HList,
-  QueriesAndTables <: HList, Created, OutQueries <: HList, Writers]
+  implicit def queryMulti[K, Cols <: HList, SortCols <: HList,
+  T, CR <: HList, KL <: HList, CVL <: HList,
+  LeftOverKL <: HList, LeftOverKL2 <: HList, SKL <: HList]
   (implicit
-   sort: SortedTables.Aux[Tables, SortedTables],
-   folder: RightFolder.Aux[Q, BuilderState[HNil, SortedTables, HNil, HNil],
-     foldQueries.type, BuilderState[Created, SortedTables, OutQueries, Writers]],
-   finishUp: MapWith[Writers, OutQueries, finishWrites.type]
-  ) = at[Q, Tables, SimpleMapperConfig] { (q, tables, config) =>
-    val folded = folder(q, BuilderState(HNil, sort(tables), HNil, HNil, Eval.now(Vector.empty), config.tableNamer))
-    val outQueries = finishUp(folded.writers, folded.builders)
-    BuiltQueries[finishUp.Out, CassandraDDL](outQueries, folded.ddl.map(a => a))
+   diff1: Diff.Aux[KL, Cols, LeftOverKL],
+   diff2: Diff.Aux[LeftOverKL, SortCols, LeftOverKL2],
+   prepend: Prepend.Aux[SortCols, LeftOverKL2, SKL],
+   ctb: CassandraTableBuilder[T, CR, CVL, Cols, SKL]
+  )
+  = at[(QueryMultiple[K, Cols, SortCols], RelationDef[T, CR, KL, CVL])] {
+    case (q, relation) => (relation.baseName, ctb(relation.mapper))
   }
+
+  implicit def writes[K, RD] = at[(RelationWriter[K], RD)](_ => ())
+
+}
+
+object MapQuery extends Poly2 {
+  implicit def pkQuery[K, T, CR <: HList, PKL <: HList, CVL <: HList,
+  KL <: HList, SKL <: HList, AllKL <: HList, PKV]
+  (implicit
+   allColsKeys: Keys.Aux[CR, AllKL],
+   pkColsLookup: ColumnsAsSeq.Aux[CR, PKL, T, CassandraColumn, PKV],
+   allColsLookup: ColumnsAsSeq.Aux[CR, AllKL, T, CassandraColumn, CVL],
+   materializer: MaterializeFromColumns.Aux[CassandraColumn, CR, CVL]
+  )
+  = at[QueryPK[K], RelationDef[T, CR, PKL, CVL]] { (q, rd) =>
+    val columns = rd.columns
+    val (allCols, allValsP) = allColsLookup(columns)
+    val (pkCols, pkPhysV) = pkColsLookup(columns)
+    val pkNames = pkCols.map(_.name)
+    def pkMatcher(ct: CassandraTable[T]) = {
+      ct.pkNames == pkNames
+    }
+    QueryCreate[CassandraTable[T], UniqueQuery[Effect, T, PKV]](pkMatcher, { (table,_) =>
+      val materialize = materializer(columns)
+      val select = CassandraSelect(table, allCols.map(_.name), exactMatch(pkCols), Seq.empty, false)
+      def doQuery(v: PKV): Effect[Option[T]] = ReaderT { s =>
+        s.prepareAndBind(select, valsToBinding(pkPhysV(v))).map { rs =>
+          Option(rs.one()).flatMap(r => materialize(rowMaterializer(r))).map(rd.mapper.fromColumns)
+        }
+      }
+      UniqueQuery(doQuery)
+    })
+  }
+
+
+  implicit def rangeQuery[K, Cols <: HList, SortCols <: HList, Q, T, RD, CR <: HList, CVL <: HList,
+  PKL <: HList, KL <: HList, SKL <: HList, CRK <: HList,
+  ColsVals <: HList, SortVals <: HList, SortLen <: Nat]
+  (implicit
+   allKeys: Keys.Aux[CR, CRK],
+   allColsLookup: ColumnsAsSeq.Aux[CR, CRK, T, CassandraColumn, CVL],
+   pkColsLookup: ColumnsAsSeq.Aux[CR, Cols, T, CassandraColumn, ColsVals],
+   skColsLookup: ColumnsAsSeq.Aux[CR, SortCols, T, CassandraColumn, SortVals],
+   materializer: MaterializeFromColumns.Aux[CassandraColumn, CR, CVL]
+  )
+  = at[QueryMultiple[K, Cols, SortCols], RelationDef[T, CR, PKL, CVL]] { (q, rd) =>
+
+    val columns = rd.columns
+    val (pkCols, pkPhysV) = pkColsLookup(columns)
+    val (skCols, skPhysV) = skColsLookup(columns)
+    val pkNames = pkCols.map(_.name)
+    val skNames = skCols.map(_.name)
+    def multiMatcher(ct: CassandraTable[T]) = {
+      ct.pkNames == pkNames && ct.skNames.startsWith(skNames)
+    }
+    QueryCreate[CassandraTable[T], RangeQuery[Effect, T, ColsVals, SortVals]](multiMatcher, { (tn,_) =>
+      val oAsc = skCols.map(cm => (cm.name, true))
+      val oDesc = oAsc.map(o => (o._1, false))
+      val (allCols, _) = allColsLookup(columns)
+      val materialize = materializer(columns) andThen (_.map(rd.mapper.fromColumns))
+      val baseSelect = CassandraSelect(tn, allCols.map(_.name), exactMatch(pkCols), Seq.empty, false)
+
+      def doQuery(c: ColsVals, lr: RangeValue[SortVals], ur: RangeValue[SortVals], asc: Option[Boolean]): Stream[Effect, T] = {
+        Stream.eval[Effect, ResultSet] {
+          ReaderT { s =>
+            def processOp(op: Option[(SortVals, String => CassandraClause)]) = op.map { case (sv, f) =>
+              val vals = skPhysV(sv)
+              (vals.map(pv => f(pv.name)), vals)
+            }.getOrElse(Seq.empty, Seq.empty)
+
+            val (lw, lv) = processOp(lr.fold(CassandraGTE, CassandraGT))
+            val (uw, uv) = processOp(ur.fold(CassandraLTE, CassandraLT))
+            val ordering = asc.map(a => if (a) oAsc else oDesc).getOrElse(Seq.empty)
+            val select = baseSelect.copy(where = baseSelect.where ++ lw ++ uw, ordering = ordering)
+            s.prepareAndBind(select, valsToBinding(pkPhysV(c) ++ lv ++ uv))
+          }
+        }.flatMap(rs => CassandraIO.rowsStream(rs).translate(task2Effect))
+          .map(r => materialize(rowMaterializer(r))).collect { case Some(e) => e }
+      }
+      RangeQuery(None, doQuery)
+    })
+  }
+}
+
+object ConvertCassandraQueries extends QueryFolder[Effect, CassandraDDL, CassandraTable, MapQuery.type] {
+
+  def createWriter[T](v: Vector[(String, CassandraTable[T])]): WriteQueries[Effect, T] = v.map {
+    case (name, table) => table.writer(name)
+  }.reduce(WriteQueries.combine[Effect, T])
+
+  def createTableDDL[T](s: String, table: CassandraTable[T]): (String, Create) = table.createDDL(s)
 }

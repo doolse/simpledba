@@ -34,6 +34,7 @@ object TestParser extends ParseType with App {
   lazy val printRight: (Int, ParsedType) => String = (i,p) => p.fqn match {
     case "shapeless.::" => ",\n" + printType(i, p.params.head) + printRight(i, p.params.tail.head)
     case "shapeless.HNil" => s"\n${indent(i-1)})"
+    case o => s"\nERROR-$o"
   }
   lazy val printType: (Int,ParsedType) => String = (i,p) => p.fqn match {
     case "shapeless.::" => indent(i) + "HList(\n" + printType(i+1, p.params.head) + printRight(i+1, p.params.tail.head)
