@@ -1,6 +1,7 @@
 # simpledba - Simple Database Access for Scala
 
 [![Build Status](https://api.travis-ci.org/doolse/simpledba.svg)](https://travis-ci.org/doolse/simpledba)
+[![Coverage Status](https://coveralls.io/repos/github/doolse/simpledba/badge.svg?branch=master)](https://coveralls.io/github/doolse/simpledba?branch=master)
 
 AKA principled column family access for Scala (highly inspired by [Doobie](https://github.com/tpolecat/doobie))
   
