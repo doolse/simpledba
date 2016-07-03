@@ -59,6 +59,8 @@ object DynamoDBColumn {
     }, wrapped.attributeType)
 
   def int2sortableString(i: Int) : String = {
+//    val u = i - Int.MinValue
+//    f"$u%08x"
     val chrs = new Array[Char](3)
     int2sortableChars(i, chrs, 0)
     new String(chrs, 0, 3)
@@ -72,6 +74,8 @@ object DynamoDBColumn {
   }
 
   def long2sortableString(l: Long) : String = {
+//    val u = l - Long.MinValue
+//    f"$u%016x"
     val chrs = new Array[Char](5)
     long2sortableChars(l, chrs, 0)
     new String(chrs, 0, 5)

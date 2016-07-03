@@ -2,25 +2,22 @@ package io.doolse.simpledba.test
 
 import java.util.UUID
 
-import cats.implicits._
 import cats.Monad
+import cats.implicits._
 import fs2.Async
 import io.doolse.simpledba._
-import org.scalacheck.{Arbitrary, Gen, Prop}
-import org.scalacheck.Prop._
 import org.scalacheck.Arbitrary._
-import org.scalacheck.Shapeless._
+import org.scalacheck.Prop._
 import org.scalacheck.Test.Parameters
+import org.scalacheck.{Arbitrary, Prop, Shrink}
 
 /**
   * Created by jolz on 21/06/16.
   */
-abstract class SortedQueryProperties[F[_] : Monad : Async](name: String) extends AbstractRelationsProperties[F](name+ " Sorting") {
+case class Sortable(pk1: UUID, same: UUID, intField: Int, stringField: String, shortField: Short,
+                    longField: Long, floatField: Float, doubleField: Double, uuidField: UUID)
 
-  override def overrideParameters(p: Parameters) = p.withMinSuccessfulTests(5)
-
-  case class Sortable(pk1: UUID, same: UUID, intField: Int, stringField: String, shortField: Short,
-                      longField: Long, floatField: Float, doubleField: Double, uuidField: UUID)
+abstract class SortedQueryProperties[F[_] : Monad : Async](implicit arb: Arbitrary[Sortable]) extends AbstractRelationsProperties[F]("Sorting") {
 
   case class Queries[F[_]](writes: WriteQueries[F, Sortable],
                            int1: SortableQuery[F, Sortable, UUID],
@@ -60,6 +57,8 @@ abstract class SortedQueryProperties[F[_] : Monad : Async](name: String) extends
 
   val queries: Queries[F]
 
+  implicit val shrinkSortable = Shrink[Sortable](_ => Stream.empty)
+
   case class OrderQuery[A](lens: Sortable => A, query: SortableQuery[F, Sortable, UUID])(implicit val o: Ordering[A])
 
   def checkOrder[A](same: UUID, v: Vector[Sortable], sortQ: Seq[(String, OrderQuery[_])]) = {
@@ -81,44 +80,42 @@ abstract class SortedQueryProperties[F[_] : Monad : Async](name: String) extends
     } yield Prop.all(p: _*)
   }
 
-  def genSortable = Arbitrary.arbitrary[Vector[Sortable]]
-
-  property("Sorted by int") = forAll(genSortable) { (l: Vector[Sortable]) =>
+  property("Sorted by int") = forAll { (l: Vector[Sortable]) =>
     checkOrder(UUID.randomUUID, l, Seq(
       "int only" -> OrderQuery(_.intField, queries.int1),
       "int and String" -> OrderQuery(s => (s.intField, s.stringField), queries.int2)
     ))
   }
 
-  property("Sorted by string") = forAll(genSortable) { (l: Vector[Sortable]) =>
+  property("Sorted by string") = forAll { (l: Vector[Sortable]) =>
     checkOrder(UUID.randomUUID, l, Seq(
       "string only" -> OrderQuery(_.stringField, queries.string1),
       "string and short" -> OrderQuery(s => (s.stringField,s.shortField), queries.string2)
     ))
   }
 
-  property("Sorted by short") = forAll(genSortable) { (l: Vector[Sortable]) =>
+  property("Sorted by short") = forAll { (l: Vector[Sortable]) =>
     checkOrder(UUID.randomUUID, l, Seq(
       "short only" -> OrderQuery(_.shortField, queries.short1),
       "short and double" -> OrderQuery(s => (s.shortField, s.doubleField), queries.short2)
     ))
   }
 
-  property("Sorted by long") = forAll(genSortable) { (l: Vector[Sortable]) =>
+  property("Sorted by long") = forAll { (l: Vector[Sortable]) =>
     checkOrder(UUID.randomUUID, l, Seq(
       "long only" -> OrderQuery(_.longField, queries.long1),
       "long and float" -> OrderQuery(s => (s.longField, s.floatField), queries.long2)
     ))
   }
 
-  property("Sorted by float") = forAll(genSortable) { (l: Vector[Sortable]) =>
+  property("Sorted by float") = forAll { (l: Vector[Sortable]) =>
     checkOrder(UUID.randomUUID, l, Seq(
       "float only" -> OrderQuery(_.floatField, queries.float1),
       "float and uuid" -> OrderQuery(s => (s.floatField, s.uuidField), queries.float2)
     ))
   }
 
-  property("Sorted by double") = forAll(genSortable) { (l: Vector[Sortable]) =>
+  property("Sorted by double") = forAll { (l: Vector[Sortable]) =>
     checkOrder(UUID.randomUUID, l, Seq(
       "double only" -> OrderQuery(_.doubleField, queries.double1),
       "double and int" -> OrderQuery(s => (s.doubleField, s.intField), queries.double2)
@@ -129,7 +126,7 @@ abstract class SortedQueryProperties[F[_] : Monad : Async](name: String) extends
     def compare(x: UUID, y: UUID): Int = x.toString.compareTo(y.toString)
   }
 
-  property("Sorted by uuid") = forAll(genSortable) { (l: Vector[Sortable]) =>
+  property("Sorted by uuid") = forAll { (l: Vector[Sortable]) =>
     checkOrder(UUID.randomUUID, l, Seq(
       "uuid only" -> OrderQuery(_.uuidField, queries.uuid1),
       "uuid and long" -> OrderQuery(s => (s.uuidField, s.longField), queries.uuid2)

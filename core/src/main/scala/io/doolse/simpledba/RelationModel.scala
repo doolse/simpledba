@@ -113,5 +113,7 @@ object WriteQueries {
     def insert(t: T): F[Unit] = self.insert(t) *> other.insert(t)
 
     def update(existing: T, newValue: T): F[Boolean] = (self.update(existing, newValue) |@| other.update(existing, newValue)).map((a, b) => a || b)
+
+    override def bulkInsert(l: Seq[T], conc: Int = 8)(implicit AS: Async[F]): F[Unit] = self.bulkInsert(l) *> other.bulkInsert(l)
   }
 }

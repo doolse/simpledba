@@ -254,6 +254,7 @@ object PhysicalValue {
     def name = _name
     def atom = _atom
     def v = _v
+    override def toString = s"PhysicalValue($name, $atom, $v)"
   }
 }
 

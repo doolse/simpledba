@@ -8,9 +8,7 @@ import org.scalacheck.{Arbitrary, Gen, Prop, Properties}
 /**
   * Created by jolz on 16/06/16.
   */
-abstract class AbstractRelationsProperties[F[_]](name: String)(implicit M: Monad[F]) extends Properties(name) {
-  implicit val arbUUID = Arbitrary(Gen.uuid)
-
+abstract class AbstractRelationsProperties[F[_]](name: String)(implicit M: Monad[F]) extends SimpleDBAProperties(name) {
   implicit def runProp(fa: F[Prop]): Prop = run(fa)
 
   def crudProps[A : Arbitrary, K](wq: WriteQueries[F, A], f: A => F[Iterable[A]], expected: Int, genUpdate: Gen[(A, A)]) =

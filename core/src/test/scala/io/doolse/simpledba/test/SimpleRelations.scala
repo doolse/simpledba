@@ -73,28 +73,4 @@ abstract class SimpleRelations[F[_] : Async](name: String)(implicit M: Monad[F])
       l2 <- queries3.byYear(a.year)
     } yield oA ++ l ++ l2,
     3, genUpdate[Fields3]((a, b) => b)), "Fields3")
-
-  implicit def validRange[A](implicit o: Ordering[A], ab: Arbitrary[RangeValue[A]]) = Arbitrary {
-    for {
-      r1 <- ab.arbitrary
-      r2 <- ab.arbitrary
-    } yield {
-       val (lr, ur) = (r1.value, r2.value) match {
-        case (Some(a), Some(b)) if o.gteq(a, b) => if (o.equiv(a, b)) (r1, NoRange) else (r2, r1)
-        case _ => (r1, r2)
-      }
-      FilterRange(lr, ur)
-    }
-  }
-
-  property("range results") = forAll { (l: Vector[Fields3], range: FilterRange[Int]) =>
-    val name = s"${UUID.randomUUID}-name"
-    val sameName = l.map(_.copy(name = name))
-    for {
-      _ <- queries3.updates.bulkInsert(sameName)
-      results <- queries3.byName(name, range.lower, range.upper)
-    } yield {
-      "Results are within range" |: !results.map(_.year).exists(v => !range.contains(v))
-    }
-  }
 }

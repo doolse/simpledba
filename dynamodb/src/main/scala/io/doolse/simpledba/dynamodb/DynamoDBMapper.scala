@@ -218,7 +218,7 @@ object DynamoTableBuilder {
         def asPhysValue[A](m: ColumnMapping[DynamoDBColumn, T, A]) = {
           val a = m.atom
           val (l, r) = a.range
-          PhysicalValue(m.name, a, if (lower) l else r)
+          PhysicalValue(m.name, a, if (lower) r else l)
         }
         val allSK = firstPV ++ helper.skColumns.drop(firstPV.length).map(cm => asPhysValue(cm))
         compositeValue(SK, allSK).orElse(allSK.headOption)
@@ -303,7 +303,7 @@ object mapQuery extends Poly2 {
     QueryCreate[DynamoTable[T], RangeQuery[Effect, T, PKV, SortVals]](multiMatch, { (tn, table) =>
       def doQuery(c: PKV, lr: RangeValue[SortVals], ur: RangeValue[SortVals], asc: Option[Boolean]): Stream[Effect, T] = {
         def doRange(l: Boolean, i: String, x: String, rv: RangeValue[SortVals]) = {
-          rv.fold(i, x).flatMap { case (sv, op) => table.fullSK(l, sortVals(sv)).map((_, op)) }
+          rv.fold((i,false), (x,true)).flatMap { case (sv, (op,x)) => table.fullSK(l^x, sortVals(sv)).map((_, op)) }
         }
         val matcher = KeyMatch(table.realPK(pkVals(c)), doRange(false, ">=", ">", lr), doRange(true, "<=", "<", ur))
         val qr = matcher.forRequest(new QueryRequest(tn))

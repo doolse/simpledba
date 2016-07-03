@@ -130,27 +130,28 @@ case class SetAssignment(column: String) extends CassandraAssignment {
 }
 
 sealed trait CassandraClause {
-  def toClause(v: AnyRef): Clause
+  def toClause(v: Seq[AnyRef]): Clause
+  def markers: Seq[AnyRef]
+  def toPrepared: Clause = toClause(markers)
 }
 
-case class CassandraGT(name: String) extends CassandraClause {
-  def toClause(v: AnyRef) = QueryBuilder.gt(CassandraIO.escapeReserved(name), v)
+abstract class CompositeClause(f: (java.util.List[String], java.util.List[AnyRef]) => Clause) extends CassandraClause {
+  val names: Seq[String]
+  def toClause(v: Seq[AnyRef]) = f(names.map(CassandraIO.escapeReserved).asJava, v.asJava)
+  def markers : Seq[AnyRef] = names.map(_ => QueryBuilder.bindMarker())
 }
 
-case class CassandraGTE(name: String) extends CassandraClause {
-  def toClause(v: AnyRef) = QueryBuilder.gte(CassandraIO.escapeReserved(name), v)
-}
+case class CassandraGT(names: Seq[String]) extends CompositeClause(QueryBuilder.gt)
 
-case class CassandraLTE(name: String) extends CassandraClause {
-  def toClause(v: AnyRef) = QueryBuilder.lte(CassandraIO.escapeReserved(name), v)
-}
+case class CassandraGTE(names: Seq[String]) extends CompositeClause(QueryBuilder.gte)
 
-case class CassandraLT(name: String) extends CassandraClause {
-  def toClause(v: AnyRef) = QueryBuilder.lt(CassandraIO.escapeReserved(name), v)
-}
+case class CassandraLTE(names: Seq[String]) extends CompositeClause(QueryBuilder.lte)
+
+case class CassandraLT(names: Seq[String]) extends CompositeClause(QueryBuilder.lt)
 
 case class CassandraEQ(name: String) extends CassandraClause {
-  def toClause(v: AnyRef) = QueryBuilder.eq(CassandraIO.escapeReserved(name), v)
+  def toClause(v: Seq[AnyRef]) =  QueryBuilder.eq(CassandraIO.escapeReserved(name), v(0))
+  def markers = Seq(QueryBuilder.bindMarker)
 }
 
 case class CassandraSelect(table: String, columns: Seq[String], where: Seq[CassandraClause], ordering: Seq[(String, Boolean)], limit: Boolean) extends PreparableStatement {
@@ -163,7 +164,7 @@ case class CassandraSelect(table: String, columns: Seq[String], where: Seq[Cassa
       if (asc) QueryBuilder.asc(esc) else QueryBuilder.desc(esc)
     }
     val marker = QueryBuilder.bindMarker()
-    where.foreach(c => s.where(c.toClause(marker)))
+    where.foreach(c => s.where(c.toPrepared))
     if (limit) s.limit(marker)
     if (orderings.nonEmpty) s.orderBy(orderings : _*)
     s
@@ -184,17 +185,17 @@ case class CassandraUpdate(table: String, assignments: Seq[CassandraAssignment],
     val updateWith = upd.`with`
     val updateWhere = upd.where()
     assignments.foreach { asgn => updateWith.and(asgn.toAssignment(QueryBuilder.bindMarker())) }
-    where.foreach(c => updateWhere.and(c.toClause(QueryBuilder.bindMarker())))
+    where.foreach(c => updateWhere.and(c.toPrepared))
     upd
   }
 }
 
 case class CassandraDelete(table: String, where: Seq[CassandraClause]) extends PreparableStatement {
-  def addClause(c: CassandraClause, w: Delete.Where) = w.and(c.toClause(QueryBuilder.bindMarker()))
+  def addClause(c: CassandraClause, w: Delete.Where) = w.and(c.toPrepared)
   def build = {
     val del = QueryBuilder.delete().all().from(table)
     val delWhere = del.where()
-    where.foreach(c => delWhere.and(c.toClause(QueryBuilder.bindMarker())))
+    where.foreach(c => delWhere.and(c.toPrepared))
     del
   }
 }

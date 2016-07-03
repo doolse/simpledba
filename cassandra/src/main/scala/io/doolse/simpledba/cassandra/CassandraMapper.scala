@@ -217,9 +217,9 @@ object MapQuery extends Poly2 {
       def doQuery(c: ColsVals, lr: RangeValue[SortVals], ur: RangeValue[SortVals], asc: Option[Boolean]): Stream[Effect, T] = {
         Stream.eval[Effect, ResultSet] {
           ReaderT { s =>
-            def processOp(op: Option[(SortVals, String => CassandraClause)]) = op.map { case (sv, f) =>
+            def processOp(op: Option[(SortVals, Seq[String] => CassandraClause)]) = op.map { case (sv, f) =>
               val vals = skPhysV(sv)
-              (vals.map(pv => f(pv.name)), vals)
+              (Seq(f(vals.map(_.name))), vals)
             }.getOrElse(Seq.empty, Seq.empty)
 
             val (lw, lv) = processOp(lr.fold(CassandraGTE, CassandraGT))
