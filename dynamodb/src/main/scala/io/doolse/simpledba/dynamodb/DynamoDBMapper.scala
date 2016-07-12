@@ -277,12 +277,15 @@ object mapQuery extends Poly2 {
     def pkMatch[T](table: DynamoTable[T]) = table.pkNames == pkNames
     QueryCreate[DynamoTable[T], UniqueQuery[Effect, T, PKV]](pkMatch, { (tableName, dt) =>
       val columns = rd.columns
+      val scanAll = resultStream(new QueryRequest(tableName)).map(createMaterializer).map(dt.materializer).collect {
+        case Some(a) => a
+      }
       def doQuery(v: PKV): Effect[Option[T]] = ReaderT { s =>
         s.request(getItemAsync, new GetItemRequest(tableName, asAttrMap(Seq(dt.realPK(pkVals(v)))))).map {
           gir => Option(gir.getItem).map(createMaterializer).flatMap(dt.materializer)
         }
       }
-      UniqueQuery(doQuery)
+      UniqueQuery[Effect, T, PKV](doQuery, scanAll)
     })
   }
 

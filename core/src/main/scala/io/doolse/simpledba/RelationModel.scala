@@ -70,12 +70,12 @@ case object NoRange extends RangeValue[Nothing] { def fold[B](i: B, x: B) = None
 case class Inclusive[A](a: A) extends RangeValue[A] { def fold[B](i: B, x: B) = Some((a, i)) }
 case class Exclusive[A](a: A) extends RangeValue[A] { def fold[B](i: B, x: B) = Some((a, x)) }
 
-case class UniqueQuery[F[_], T, Key](query: Key => F[Option[T]]) {
+case class UniqueQuery[F[_], T, Key](query: Key => F[Option[T]], queryAll: Stream[F, T])(implicit val catchable: Catchable[F]) {
   def apply(kv: Key) = query(kv)
   def as[K](implicit vc: ValueConvert[K, Key]) = copy[F, T, K](query = query compose vc)
 }
 
-case class SortableQuery[F[_], T, Key](ascending: Option[Boolean], _q: (Key, Option[Boolean]) => Stream[F, T])(implicit cb: Catchable[F]) {
+case class SortableQuery[F[_], T, Key](ascending: Option[Boolean], _q: (Key, Option[Boolean]) => Stream[F, T])(implicit val catchable: Catchable[F]) {
   def apply(k: Key) = _q(k, ascending).runLog
 
   def queryWithOrder(k: Key, asc: Boolean) = _q(k, Some(asc)).runLog

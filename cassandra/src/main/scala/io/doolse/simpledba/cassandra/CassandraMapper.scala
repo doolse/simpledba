@@ -175,14 +175,22 @@ object MapQuery extends Poly2 {
       ct.pkNames == pkNames
     }
     QueryCreate[CassandraTable[T], UniqueQuery[Effect, T, PKV]](pkMatcher, { (table,_) =>
-      val materialize = materializer(columns)
-      val select = CassandraSelect(table, allCols.map(_.name), exactMatch(pkCols), Seq.empty, false)
+      val materialize = materializer(columns) andThen (_.map(rd.mapper.fromColumns)) compose rowMaterializer
+      val allNames = allCols.map(_.name)
+      val selectAll = CassandraSelect(table, allNames, Seq.empty, Seq.empty, false)
+      val select = CassandraSelect(table, allNames, exactMatch(pkCols), Seq.empty, false)
+
+      val queryAll = Stream.eval[Effect, ResultSet] {
+        ReaderT { s => s.prepareAndBind(selectAll, Seq.empty) }
+      }.flatMap(rs => CassandraIO.rowsStream(rs).translate(task2Effect))
+        .map(materialize).collect { case Some(e) => e }
+
       def doQuery(v: PKV): Effect[Option[T]] = ReaderT { s =>
         s.prepareAndBind(select, valsToBinding(pkPhysV(v))).map { rs =>
-          Option(rs.one()).flatMap(r => materialize(rowMaterializer(r))).map(rd.mapper.fromColumns)
+          Option(rs.one()).flatMap(materialize)
         }
       }
-      UniqueQuery(doQuery)
+      UniqueQuery[Effect, T, PKV](doQuery, queryAll)
     })
   }
 
