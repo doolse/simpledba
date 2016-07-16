@@ -1,6 +1,6 @@
 package io.doolse.simpledba.dynamodb
 
-import java.util.UUID
+import java.util.{Date, UUID}
 
 import com.amazonaws.services.dynamodbv2.model._
 
@@ -27,6 +27,9 @@ object DynamoDBColumn {
 
   implicit val longColumn = create[Long](_.getN.toLong, l => new AttributeValue().withN(l.toString),
     long2sortableString, (Long.MinValue, Long.MaxValue), ScalarAttributeType.N)
+
+  implicit val dateColumn = create[Date](a => new Date(a.getN.toLong), l => new AttributeValue().withN(l.getTime.toString),
+    d => long2sortableString(d.getTime), (new Date(Long.MinValue), new Date(Long.MaxValue)), ScalarAttributeType.N)
 
   implicit val shortColumn = create[Short](_.getN.toShort, l => new AttributeValue().withN(l.toString),
     s => int2sortableString(s.toInt), (Short.MinValue, Short.MaxValue), ScalarAttributeType.N)

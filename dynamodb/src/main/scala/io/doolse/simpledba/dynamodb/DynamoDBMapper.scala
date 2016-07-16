@@ -48,6 +48,16 @@ object DynamoDBMapper {
       else chunk ++ resultStream(qr.withExclusiveStartKey(result.getLastEvaluatedKey))
     }
   }
+
+  def scanResultStream(qr: ScanRequest): Stream[Effect, java.util.Map[String, AttributeValue]] = {
+    Stream.eval[Effect, ScanResult](ReaderT {
+      _.request(scanAsync, qr)
+    }).flatMap { result =>
+      val chunk = Stream.chunk(Chunk.seq(result.getItems.asScala))
+      if (result.getLastEvaluatedKey == null) chunk
+      else chunk ++ scanResultStream(qr.withExclusiveStartKey(result.getLastEvaluatedKey))
+    }
+  }
 }
 
 trait QueryParam {
@@ -277,7 +287,7 @@ object mapQuery extends Poly2 {
     def pkMatch[T](table: DynamoTable[T]) = table.pkNames == pkNames
     QueryCreate[DynamoTable[T], UniqueQuery[Effect, T, PKV]](pkMatch, { (tableName, dt) =>
       val columns = rd.columns
-      val scanAll = resultStream(new QueryRequest(tableName)).map(createMaterializer).map(dt.materializer).collect {
+      val scanAll = scanResultStream(new ScanRequest(tableName)).map(createMaterializer).map(dt.materializer).collect {
         case Some(a) => a
       }
       def doQuery(v: PKV): Effect[Option[T]] = ReaderT { s =>
