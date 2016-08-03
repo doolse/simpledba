@@ -3,6 +3,7 @@ package io.doolse.simpledba.dynamodb
 import java.util.{Date, UUID}
 
 import com.amazonaws.services.dynamodbv2.model._
+import scala.collection.JavaConverters._
 
 /**
   * Created by jolz on 5/05/16.
@@ -15,6 +16,7 @@ case class DynamoDBColumn[T](from: AttributeValue => T, to: T => AttributeValue,
 object DynamoDBColumn {
 
   val EmptyStringValue = "\u0000"
+  val EmptyStringSetValue = "\u0000\u0000"
 
   def create[T](from: AttributeValue => T, to: T => AttributeValue, sortablePart: T => String, range: (T, T), attr: ScalarAttributeType)
   = DynamoDBColumn(from, to, attr, (oldV: T, newV: T) => new AttributeValueUpdate(to(newV), AttributeAction.PUT), sortablePart, range)
@@ -54,6 +56,14 @@ object DynamoDBColumn {
 
   implicit val uuidColumn = create[UUID](v => UUID.fromString(v.getS), u => new AttributeValue(u.toString), _.toString(),
     (new UUID(0L, 0L), new UUID(-1L, -1L)), ScalarAttributeType.S)
+
+  // TODO proper sets
+  implicit val setUuid = {
+    def checkEmpty(s: Set[String]) = if (s.size == 1 && s.head == EmptyStringSetValue) Set.empty else s
+    def fixEmpty(s: List[String]) = if (s.isEmpty) List(EmptyStringSetValue) else s
+    create[Set[UUID]](v => checkEmpty(v.getSS().asScala.toSet).map(UUID.fromString),
+    s => new AttributeValue(fixEmpty(s.toList.map(_.toString)).asJava), _.toString(), (Set.empty, Set.empty), ScalarAttributeType.S)
+  }
 
   implicit def optionColumn[A](implicit wrapped: DynamoDBColumn[A]) = create[Option[A]](av => Option(av).map(wrapped.from),
     oA => oA.map(wrapped.to).getOrElse(new AttributeValue().withNULL(true)),
