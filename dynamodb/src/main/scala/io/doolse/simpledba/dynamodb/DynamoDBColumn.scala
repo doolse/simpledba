@@ -65,7 +65,7 @@ object DynamoDBColumn {
     s => new AttributeValue(fixEmpty(s.toList.map(_.toString)).asJava), _.toString(), (Set.empty, Set.empty), ScalarAttributeType.S)
   }
 
-  implicit def optionColumn[A](implicit wrapped: DynamoDBColumn[A]) = create[Option[A]](av => Option(av).map(wrapped.from),
+  implicit def optionColumn[A](implicit wrapped: DynamoDBColumn[A]) = create[Option[A]](av => Option(av).filter(_.isNULL == null).map(wrapped.from),
     oA => oA.map(wrapped.to).getOrElse(new AttributeValue().withNULL(true)),
     oA => oA.map(wrapped.sortablePart).getOrElse(""), wrapped.range match {
       case (a, b) => (Some(a), Some(b))
