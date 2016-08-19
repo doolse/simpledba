@@ -36,7 +36,7 @@ trait DynamoDBProperties {
   lazy val mapper = new DynamoDBMapper()
 
   def setup[Q](bq: BuiltQueries.Aux[Q, CreateTableRequest]) = {
-    DynamoDBUtils.createSchema(session.copy(logger = msg => Console.out.println(msg())), bq.ddl).unsafeRun
+    DynamoDBUtils.createSchema(session.copy(logger = msg => Console.out.println(msg())), true, bq.ddl).unsafeRun
     bq.queries
   }
 

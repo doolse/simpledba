@@ -42,7 +42,7 @@ object QuickstartExampleDynamo extends App {
   val client: AmazonDynamoDBAsync = new AmazonDynamoDBAsyncClient(config).withEndpoint("http://localhost:8000")
 
   val session = DynamoDBSession(client)
-  DynamoDBUtils.createSchema(session, built.ddl).unsafeRun
+  DynamoDBUtils.createSchema(session, true, built.ddl).unsafeRun
   private val magId = UUID.randomUUID()
   private val mahId = UUID.randomUUID()
   println {

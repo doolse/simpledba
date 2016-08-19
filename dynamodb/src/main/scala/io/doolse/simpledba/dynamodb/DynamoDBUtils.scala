@@ -19,13 +19,14 @@ import fs2.interop.cats._
   * Created by jolz on 13/06/16.
   */
 object DynamoDBUtils {
-  def createSchema(s: DynamoDBSession, creation: Iterable[CreateTableRequest]): Task[Unit] = for {
+  def createSchema(s: DynamoDBSession, deleteTables: Boolean, creation: Iterable[CreateTableRequest]): Task[Unit] = for {
     tr <- s.request(listTablesAsync, new ListTablesRequest())
     existingTables = tr.getTableNames.asScala.toSet
     _ <- creation.toVector.traverseU { ct =>
       val tableName = ct.getTableName
-      whenM(existingTables(tableName), s.request(deleteTableAsync, new DeleteTableRequest(tableName))) *>
-        s.request(createTableAsync, ct)
+      val exists = existingTables(tableName)
+      whenM(exists && deleteTables, s.request(deleteTableAsync, new DeleteTableRequest(tableName))) *>
+      whenM(!exists || deleteTables, s.request(createTableAsync, ct))
     }
   } yield ()
 
