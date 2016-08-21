@@ -19,9 +19,9 @@ object RelationMapper {
   case class SimpleMapperConfig(tableNamer: TableNameDetails => String)
 
 
-  val defaultTableNamer =
+  def prefixTableNamer(prefix: String) =
     (td: TableNameDetails) => {
-      val bn = td.baseName
+      val bn = prefix + td.baseName
       if (td.existingTables(bn)) {
         (2 to 1000).iterator.map(n => s"${bn}_$n")
           .find(n => !td.existingTables(n))
@@ -29,7 +29,7 @@ object RelationMapper {
       } else bn
     }
 
-  val defaultMapperConfig = SimpleMapperConfig(defaultTableNamer)
+  val defaultMapperConfig = SimpleMapperConfig(prefixTableNamer(""))
 }
 
 abstract class RelationMapper[F[_]] {

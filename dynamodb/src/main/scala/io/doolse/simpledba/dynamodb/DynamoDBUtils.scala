@@ -1,6 +1,6 @@
 package io.doolse.simpledba.dynamodb
 
-import com.amazonaws.auth.{AWSCredentials, BasicAWSCredentials}
+import com.amazonaws.auth.{AWSCredentials, BasicAWSCredentials, DefaultAWSCredentialsProviderChain}
 import com.amazonaws.{ClientConfiguration, PredefinedClientConfigurations}
 import com.amazonaws.services.dynamodbv2.{AmazonDynamoDB, AmazonDynamoDBAsync, AmazonDynamoDBAsyncClient, AmazonDynamoDBClient}
 import com.amazonaws.services.dynamodbv2.model.{CreateTableRequest, DeleteTableRequest, ListTablesRequest}
@@ -9,6 +9,8 @@ import fs2.Task
 import DynamoDBIO._
 import cats.std.vector._
 import cats.syntax.all._
+import com.amazonaws.auth.profile.ProfileCredentialsProvider
+import com.amazonaws.internal.StaticCredentialsProvider
 import io.doolse.simpledba.CatsUtils._
 
 import scala.util.{Failure, Try}
@@ -37,12 +39,13 @@ object DynamoDBUtils {
       clientConfig.setProxyHost(config.getString("proxy.host"))
       clientConfig.setProxyPort(config.getInt("proxy.port"))
     }
-    val client = if (config.hasPath("aws")) {
-      val cConfig = config.getConfig("aws")
-      val creds = new BasicAWSCredentials(cConfig.getString("accessKeyId"), cConfig.getString("secretKey"))
-      val executor = java.util.concurrent.Executors.newFixedThreadPool(clientConfig.getMaxConnections)
-      new AmazonDynamoDBAsyncClient(creds, clientConfig, executor)
-    } else new AmazonDynamoDBAsyncClient(clientConfig)
+    val creds = if (config.hasPath("credentials")) {
+      val cConfig = config.getConfig("credentials")
+      if (cConfig.hasPath("profile")) {
+        new ProfileCredentialsProvider(cConfig.getString("profile"))
+      } else new StaticCredentialsProvider(new BasicAWSCredentials(cConfig.getString("accessKeyId"), cConfig.getString("secretKey")))
+    } else new DefaultAWSCredentialsProviderChain()
+    val client = new AmazonDynamoDBAsyncClient(creds, clientConfig)
     if (config.hasPath("endpoint")) client.withEndpoint(config.getString("endpoint")) else client
   }
 }
