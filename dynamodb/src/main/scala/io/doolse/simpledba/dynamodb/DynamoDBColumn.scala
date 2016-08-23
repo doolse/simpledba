@@ -57,12 +57,18 @@ object DynamoDBColumn {
   implicit val uuidColumn = create[UUID](v => UUID.fromString(v.getS), u => new AttributeValue(u.toString), _.toString(),
     (new UUID(0L, 0L), new UUID(-1L, -1L)), ScalarAttributeType.S)
 
-  // TODO proper sets
+  private def checkEmpty(s: Set[String]) : Set[String] = if (s.size == 1 && s.head == EmptyStringSetValue) Set.empty else s
+  private def fixEmpty(s: List[String]) = if (s.isEmpty) List(EmptyStringSetValue) else s
+
+  // TODO doesn't make sense for sets to be key parts..
   implicit val setUuid = {
-    def checkEmpty(s: Set[String]) = if (s.size == 1 && s.head == EmptyStringSetValue) Set.empty else s
-    def fixEmpty(s: List[String]) = if (s.isEmpty) List(EmptyStringSetValue) else s
     create[Set[UUID]](v => checkEmpty(v.getSS().asScala.toSet).map(UUID.fromString),
     s => new AttributeValue(fixEmpty(s.toList.map(_.toString)).asJava), _.toString(), (Set.empty, Set.empty), ScalarAttributeType.S)
+  }
+
+  implicit val setString = {
+    create[Set[String]](v => checkEmpty(v.getSS().asScala.toSet),
+      s => new AttributeValue(fixEmpty(s.toList).asJava), _.toString(), (Set.empty, Set.empty), ScalarAttributeType.S)
   }
 
   implicit def optionColumn[A](implicit wrapped: DynamoDBColumn[A]) = create[Option[A]](av => Option(av).filter(_.isNULL == null).map(wrapped.from),
