@@ -13,8 +13,9 @@ import shapeless.poly.Case2
 trait KeyBasedTable {
   def pkNames: Seq[String]
   def skNames: Seq[String]
+  def priority: Int
 }
-case class QueryCreate[PT, Out](matcher: PT => Boolean, build: (String,PT) => Out)
+case class QueryCreate[PT, Out](matcher: PT => Boolean, nameHint: String, build: (String,PT) => Out)
 
 trait QueryFolder[Effect[_], DDL, PhysicalTable[_] <: KeyBasedTable, MapQuery <: Poly2] extends Poly3 {
 
@@ -62,7 +63,7 @@ trait QueryFolder[Effect[_], DDL, PhysicalTable[_] <: KeyBasedTable, MapQuery <:
         } orElse bs.available.get(tableKey).flatMap {
           _.collectFirst {
             case ct if queryCreate.matcher(ct) =>
-              val tableName = bs.tableNamer(TableNameDetails(bs.tableNames, rd.baseName, ct.pkNames, ct.skNames))
+              val tableName = bs.tableNamer(TableNameDetails(bs.tableNames, rd.baseName, queryCreate.nameHint, ct.pkNames, ct.skNames))
               bs.copy[Out :: Builders](builders = queryCreate.build(tableName, ct) :: bs.builders,
                 tableNames = bs.tableNames + tableName,
                 created = bs.created + (tableKey, alreadyCreated.getOrElse(Vector.empty) :+ (tableName, ct)))
@@ -91,7 +92,7 @@ trait QueryFolder[Effect[_], DDL, PhysicalTable[_] <: KeyBasedTable, MapQuery <:
 
       val tabList = tables.toList.collect {
         case (k: String, ct: KeyBasedTable) => (k, ct.asInstanceOf[PhysicalTable[_]])
-      } sortBy (_._2.skNames.size)
+      } sortBy (-_._2.priority)
 
       val bases = tabList.map(_._1).distinct
       def addToMap[T](m: HMap[AvailableMap], v: (String, PhysicalTable[T])) = {

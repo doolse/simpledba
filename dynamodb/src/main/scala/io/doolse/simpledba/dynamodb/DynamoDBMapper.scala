@@ -146,7 +146,7 @@ trait DynamoTable[T] extends KeyBasedTable {
 }
 
 trait DynamoTableBuilder[T, CR <: HList, CVL <: HList, PKL, SKL] {
-  def apply(mapper: ColumnMapper[T, CR, CVL]): DynamoTable[T]
+  def apply(mapper: ColumnMapper[T, CR, CVL], lowPriority: Boolean): DynamoTable[T]
 }
 
 object DynamoTableBuilder {
@@ -154,9 +154,11 @@ object DynamoTableBuilder {
   (implicit helperB: ColumnFamilyHelperBuilder.Aux[DynamoDBColumn, T, CR, CVL, PKL, SKL, PKV, SKV])
   = new DynamoTableBuilder[T, CR, CVL, PKL, SKL] {
 
-    def apply(mapper: ColumnMapper[T, CR, CVL]) = new DynamoTable[T] {
+    def apply(mapper: ColumnMapper[T, CR, CVL], lowPriority: Boolean) = new DynamoTable[T] {
       val SK = "SK"
       val PK = "PK"
+
+      def priority = skNames.size + pkNames.size + (if (lowPriority) 0 else 1000)
 
       val helper = helperB(mapper)
 
@@ -256,7 +258,7 @@ object DynamoDBKeyMapper extends Poly1 {
     (implicit
      builder: DynamoTableBuilder[T, CR, CVL, KL, HNil])
     = at[(QueryPK[K], RelationDef[T, CR, KL, CVL])] {
-      case (q, relation) => (relation.baseName, builder(relation.mapper))
+      case (q, relation) => (relation.baseName, builder(relation.mapper, true))
     }
 
     implicit def queryMulti[K, Cols <: HList, SortCols <: HList,
@@ -269,7 +271,7 @@ object DynamoDBKeyMapper extends Poly1 {
      builder: DynamoTableBuilder[T, CR, CVL, Cols, SKL]
     )
     = at[(QueryMultiple[K, Cols, SortCols], RelationDef[T, CR, KL, CVL])] {
-      case (q, relation) => (relation.baseName, builder(relation.mapper))
+      case (q, relation) => (relation.baseName, builder(relation.mapper, false))
     }
 
     implicit def writes[K, RD] = at[(RelationWriter[K], RD)](_ => ())
@@ -284,15 +286,21 @@ object mapQuery extends Poly2 {
   = at[QueryPK[K], RelationDef[T, CR, PKL, CVL]] { (q, rd) =>
     val (pkCols, pkVals) = lookupPK(rd.columns)
     val pkNames = pkCols.map(_.name)
-    def pkMatch[T](table: DynamoTable[T]) = table.pkNames == pkNames
-    QueryCreate[DynamoTable[T], UniqueQuery[Effect, T, PKV]](pkMatch, { (tableName, dt) =>
+    val pkNamesSet = pkNames.toSet
+    def pkMatch[T](table: DynamoTable[T]) = (table.pkNames ++ table.skNames).toSet == pkNamesSet
+    QueryCreate[DynamoTable[T], UniqueQuery[Effect, T, PKV]](pkMatch, q.nameHint, { (tableName, dt) =>
       val columns = rd.columns
       val scanAll = scanResultStream(new ScanRequest(tableName)).map(createMaterializer).map(dt.materializer).collect {
         case Some(a) => a
       }
-      def doQuery(v: PKV): Effect[Option[T]] = ReaderT { s =>
-        s.request(getItemAsync, new GetItemRequest(tableName, asAttrMap(Seq(dt.realPK(pkVals(v)))))).map {
-          gir => Option(gir.getItem).map(createMaterializer).flatMap(dt.materializer)
+      val pkIndexes = dt.pkNames.map(pkNames.indexOf)
+      val skIndexes = dt.skNames.map(pkNames.indexOf)
+      def doQuery(v: PKV): Stream[Effect, T] = {
+        Stream.eval[Effect, GetItemResult](ReaderT { s =>
+          val pkOrigSeq = pkVals(v)
+          val fullKeySeq = Seq(dt.realPK(pkIndexes.map(pkOrigSeq))) ++ dt.fullSK(false, skIndexes.map(pkOrigSeq))
+          s.request(getItemAsync, new GetItemRequest(tableName, asAttrMap(fullKeySeq))) }).flatMap {
+          gir => Option(gir.getItem).map(createMaterializer).flatMap(dt.materializer).map(Stream.emit).getOrElse(Stream.empty)
         }
       }
       UniqueQuery[Effect, T, PKV](doQuery, scanAll)
@@ -313,7 +321,7 @@ object mapQuery extends Poly2 {
     def multiMatch[T](table: DynamoTable[T]) = {
       table.pkNames == pkNames && table.skNames.startsWith(skNames)
     }
-    QueryCreate[DynamoTable[T], RangeQuery[Effect, T, PKV, SortVals]](multiMatch, { (tn, table) =>
+    QueryCreate[DynamoTable[T], RangeQuery[Effect, T, PKV, SortVals]](multiMatch, q.nameHint, { (tn, table) =>
       def doQuery(c: PKV, lr: RangeValue[SortVals], ur: RangeValue[SortVals], asc: Option[Boolean]): Stream[Effect, T] = {
         def doRange(l: Boolean, i: String, x: String, rv: RangeValue[SortVals]) = {
           rv.fold((i,false), (x,true)).flatMap { case (sv, (op,x)) => table.fullSK(l^x, sortVals(sv)).map((_, op)) }

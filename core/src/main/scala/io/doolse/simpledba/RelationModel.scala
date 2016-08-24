@@ -32,9 +32,11 @@ class Relation[Name, A, Keys <: HList] extends SingletonProductArgs {
 }
 
 sealed trait RelationReference[K]
-sealed trait RelationQuery[K] extends RelationReference[K]
-class QueryPK[K] extends RelationQuery[K]
-class QueryMultiple[K, Columns <: HList, SortColumns <: HList] extends RelationQuery[K]
+sealed trait RelationQuery[K] extends RelationReference[K] {
+  def nameHint: String
+}
+case class QueryPK[K](nameHint: String) extends RelationQuery[K]
+case class QueryMultiple[K, Columns <: HList, SortColumns <: HList](nameHint: String) extends RelationQuery[K]
 class RelationWriter[K] extends RelationReference[K]
 
 sealed trait RangeValue[+A] {
@@ -70,24 +72,23 @@ case object NoRange extends RangeValue[Nothing] { def fold[B](i: B, x: B) = None
 case class Inclusive[A](a: A) extends RangeValue[A] { def fold[B](i: B, x: B) = Some((a, i)) }
 case class Exclusive[A](a: A) extends RangeValue[A] { def fold[B](i: B, x: B) = Some((a, x)) }
 
-case class UniqueQuery[F[_], T, Key](query: Key => F[Option[T]], queryAll: Stream[F, T])(implicit val catchable: Catchable[F]) {
+case class UniqueQuery[F[_], T, Key](query: Key => Stream[F, T], queryAll: Stream[F, T]) {
   def apply(kv: Key) = query(kv)
   def as[K](implicit vc: ValueConvert[K, Key]) = copy[F, T, K](query = query compose vc)
 }
 
-case class SortableQuery[F[_], T, Key](ascending: Option[Boolean], _q: (Key, Option[Boolean]) => Stream[F, T])(implicit val catchable: Catchable[F]) {
-  def apply(k: Key) = _q(k, ascending).runLog
+case class SortableQuery[F[_], T, Key](ascending: Option[Boolean], _q: (Key, Option[Boolean]) => Stream[F, T]) {
+  def apply(k: Key) = _q(k, ascending)
 
-  def queryWithOrder(k: Key, asc: Boolean) = _q(k, Some(asc)).runLog
+  def queryWithOrder(k: Key, asc: Boolean) = _q(k, Some(asc))
 
   def as[K](implicit vc: ValueConvert[K, Key]) = copy[F, T, K](_q = (k, asc) => _q(vc(k), asc))
 }
 
-case class RangeQuery[F[_], T, Key, Sort](ascending: Option[Boolean], _q: (Key, RangeValue[Sort], RangeValue[Sort], Option[Boolean]) => Stream[F, T])
-                                         (implicit val cb: Catchable[F]) {
-  def apply(k: Key, lower: RangeValue[Sort] = NoRange, higher: RangeValue[Sort] = NoRange) = _q(k, lower, higher, ascending).runLog
+case class RangeQuery[F[_], T, Key, Sort](ascending: Option[Boolean], _q: (Key, RangeValue[Sort], RangeValue[Sort], Option[Boolean]) => Stream[F, T]) {
+  def apply(k: Key, lower: RangeValue[Sort] = NoRange, higher: RangeValue[Sort] = NoRange) = _q(k, lower, higher, ascending)
 
-  def queryWithOrder(k: Key, lower: RangeValue[Sort] = NoRange, higher: RangeValue[Sort] = NoRange, asc: Boolean) = _q(k, lower, higher, Some(asc)).runLog
+  def queryWithOrder(k: Key, lower: RangeValue[Sort] = NoRange, higher: RangeValue[Sort] = NoRange, asc: Boolean) = _q(k, lower, higher, Some(asc))
 
   def as[K, SK](implicit vc: ValueConvert[K, Key], vc2: ValueConvert[SK, Sort])
   = copy[F, T, K, SK](_q = (k, l, h, asc) => _q(vc(k), l.map(vc2), h.map(vc2), asc))

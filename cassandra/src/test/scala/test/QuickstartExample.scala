@@ -7,7 +7,7 @@ import java.util.UUID
 
 import io.doolse.simpledba._
 import io.doolse.simpledba.cassandra._
-import fs2.interop.cats._
+import io.doolse.simpledba.cassandra.stdImplicits._
 
 object QuickstartExample extends App {
   case class User(userId: UUID, firstName: String, lastName: String, yearOfBirth: Int)
@@ -21,15 +21,15 @@ object QuickstartExample extends App {
                            carsForUser: RangeQuery[F, Car, UUID, String]
                           )
 
-  val model = RelationModel(
-    relation[User]('user).key('userId),
-    relation[Car]('car).key('id)
+  val userRel = relation[User]('user).key('userId)
+  val carRel = relation[Car]('car).key('id)
+  val model = RelationModel(userRel, carRel
   ).queries[Queries](
-    writes('user),
-    writes('car),
-    queryByPK('user),
-    query('user).multipleByColumns('firstName),
-    query('car).multipleByColumns('ownerId).sortBy('make)
+    writes(userRel),
+    writes(carRel),
+    queryByPK(userRel),
+    query(userRel).multipleByColumns('firstName),
+    query(carRel).multipleByColumns('ownerId).sortBy('make)
   )
 
   val mapper = new CassandraMapper()
@@ -48,8 +48,8 @@ object QuickstartExample extends App {
       _ <- queries.cars.insert(Car(UUID.randomUUID(), "Honda", "Civic", magId))
       _ <- queries.cars.insert(Car(UUID.randomUUID(), "Ford", "Laser", magId))
       _ <- queries.cars.insert(Car(UUID.randomUUID(), "Hyundai", "Accent", magId))
-      cars <- queries.carsForUser(magId, lower = Exclusive("Honda"))
-      users <- queries.usersByFirstName("Jolse")
+      cars <- queries.carsForUser(magId, lower = Exclusive("Honda")).runLog
+      users <- queries.usersByFirstName("Jolse").runLog
     } yield (cars ++ users).mkString("\n")).run(sessionConfig).unsafeRun
   }
 }

@@ -7,7 +7,6 @@ import com.datastax.driver.core.schemabuilder.{Create, SchemaBuilder}
 import com.datastax.driver.core.{DataType, ResultSet, Row}
 import fs2._
 import fs2.interop.cats._
-import io.doolse.simpledba.CatsUtils._
 import io.doolse.simpledba.RelationMapper._
 import io.doolse.simpledba.cassandra.CassandraIO._
 import io.doolse.simpledba.cassandra.CassandraMapper._
@@ -59,7 +58,7 @@ trait CassandraTable[T] extends KeyBasedTable {
 }
 
 trait CassandraTableBuilder[T, CR <: HList, CVL <: HList, PKL, SKL] {
-  def apply(mapper: ColumnMapper[T, CR, CVL]): CassandraTable[T]
+  def apply(mapper: ColumnMapper[T, CR, CVL], lowPriority: Boolean): CassandraTable[T]
 }
 
 object CassandraTableBuilder {
@@ -72,7 +71,7 @@ object CassandraTableBuilder {
    keyVals: ValueExtractor.Aux[CR, CVL, PKL :: SKL :: HNil, PKV :: SKV :: HNil],
    helperB: ColumnListHelperBuilder[CassandraColumn, T, CR, CVL, PKV :: SKV :: HNil])
   = new CassandraTableBuilder[T, CR, CVL, PKL, SKL] {
-    def apply(mapper: ColumnMapper[T, CR, CVL]) = {
+    def apply(mapper: ColumnMapper[T, CR, CVL], lowPriority: Boolean) = {
       val extractKey = keyVals()
       val helper = helperB(mapper, extractKey)
       val columnsRecord = mapper.columns
@@ -83,6 +82,8 @@ object CassandraTableBuilder {
       new CassandraTable[T] {
         val skNames = skCols.map(_.name)
         val pkNames = pkCols.map(_.name)
+
+        def priority = skNames.size + pkNames.size + (if (lowPriority) 0 else 1000)
 
         def createDDL(tableName: String) = {
           val create = SchemaBuilder.createTable(tableName)
@@ -137,7 +138,7 @@ object CassandraKeyMapper extends Poly1 {
   implicit def byPK[K, T, CR <: HList, KL <: HList, CVL <: HList]
   (implicit ctb: CassandraTableBuilder[T, CR, CVL, KL, HNil])
   = at[(QueryPK[K], RelationDef[T, CR, KL, CVL])] {
-    case (q, relation) => (relation.baseName, ctb(relation.mapper))
+    case (q, relation) => (relation.baseName, ctb(relation.mapper, true))
   }
 
   implicit def queryMulti[K, Cols <: HList, SortCols <: HList,
@@ -150,7 +151,7 @@ object CassandraKeyMapper extends Poly1 {
    ctb: CassandraTableBuilder[T, CR, CVL, Cols, SKL]
   )
   = at[(QueryMultiple[K, Cols, SortCols], RelationDef[T, CR, KL, CVL])] {
-    case (q, relation) => (relation.baseName, ctb(relation.mapper))
+    case (q, relation) => (relation.baseName, ctb(relation.mapper, false))
   }
 
   implicit def writes[K, RD] = at[(RelationWriter[K], RD)](_ => ())
@@ -174,22 +175,22 @@ object MapQuery extends Poly2 {
     def pkMatcher(ct: CassandraTable[T]) = {
       ct.pkNames == pkNames
     }
-    QueryCreate[CassandraTable[T], UniqueQuery[Effect, T, PKV]](pkMatcher, { (table,_) =>
+    QueryCreate[CassandraTable[T], UniqueQuery[Effect, T, PKV]](pkMatcher, q.nameHint, { (table,_) =>
       val materialize = materializer(columns) andThen (_.map(rd.mapper.fromColumns)) compose rowMaterializer
       val allNames = allCols.map(_.name)
       val selectAll = CassandraSelect(table, allNames, Seq.empty, Seq.empty, false)
       val select = CassandraSelect(table, allNames, exactMatch(pkCols), Seq.empty, false)
 
-      val queryAll = Stream.eval[Effect, ResultSet] {
-        ReaderT { s => s.prepareAndBind(selectAll, Seq.empty) }
-      }.flatMap(rs => CassandraIO.rowsStream(rs).translate(task2Effect))
-        .map(materialize).collect { case Some(e) => e }
+      val rsStream = (s: Stream[Effect, ResultSet]) => s.flatMap(rs => CassandraIO.rowsStream(rs).translate(task2Effect))
+      .map(materialize).collect { case Some(e) => e }
 
-      def doQuery(v: PKV): Effect[Option[T]] = ReaderT { s =>
-        s.prepareAndBind(select, valsToBinding(pkPhysV(v))).map { rs =>
-          Option(rs.one()).flatMap(materialize)
-        }
-      }
+      val queryAll = rsStream (
+        Stream.eval[Effect, ResultSet] { ReaderT { s => s.prepareAndBind(selectAll, Seq.empty) } }
+      )
+
+      def doQuery(v: PKV): Stream[Effect, T] = rsStream (
+        Stream.eval[Effect, ResultSet] { ReaderT { s => s.prepareAndBind(select, valsToBinding(pkPhysV(v))) } }
+      )
       UniqueQuery[Effect, T, PKV](doQuery, queryAll)
     })
   }
@@ -215,7 +216,7 @@ object MapQuery extends Poly2 {
     def multiMatcher(ct: CassandraTable[T]) = {
       ct.pkNames == pkNames && ct.skNames.startsWith(skNames)
     }
-    QueryCreate[CassandraTable[T], RangeQuery[Effect, T, ColsVals, SortVals]](multiMatcher, { (tn,_) =>
+    QueryCreate[CassandraTable[T], RangeQuery[Effect, T, ColsVals, SortVals]](multiMatcher, q.nameHint, { (tn,_) =>
       val oAsc = skCols.map(cm => (cm.name, true))
       val oDesc = oAsc.map(o => (o._1, false))
       val (allCols, _) = allColsLookup(columns)

@@ -1,6 +1,6 @@
 package io.doolse.simpledba.test.dynamodb
 
-import fs2.interop.cats._
+import io.doolse.simpledba.dynamodb.stdImplicits._
 import io.doolse.simpledba.dynamodb.DynamoDBMapper.Effect
 import io.doolse.simpledba.test.CompositeRelations
 import io.doolse.simpledba.test.CompositeRelations._

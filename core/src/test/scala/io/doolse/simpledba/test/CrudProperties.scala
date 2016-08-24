@@ -2,21 +2,23 @@ package io.doolse.simpledba.test
 
 import cats.{Id, Monad, ~>}
 import io.doolse.simpledba.WriteQueries
+import fs2._
 import org.scalacheck.Prop._
 import org.scalacheck.{Arbitrary, Gen, Prop, Properties}
 import cats.syntax.all._
+import fs2.util.Catchable
 
 /**
   * Created by jolz on 16/06/16.
   */
 
 object CrudProperties {
-  def apply[F[_] : Monad, A: Arbitrary, K](run: F ~> Id, writes: WriteQueries[F, A],
-                                           findAll: A => F[Iterable[A]], expected: Int, genUpdate: Gen[(A, A)])
+  def apply[F[_] : Monad : Catchable, A: Arbitrary, K](run: F ~> Id, writes: WriteQueries[F, A],
+                                                       findAll: A => Stream[F, A], expected: Int, genUpdate: Gen[(A, A)])
   = {
     implicit def runProp(fa: F[Prop]): Prop = run(fa)
     new Properties("CRUD ops") {
-      val countAll = (a: A) => findAll(a).map(_.count(a.==))
+      val countAll = (a: A) => findAll(a).runLog.map(_.count(a.==))
 
 
       property("createReadDelete") = forAll { (a: A) =>

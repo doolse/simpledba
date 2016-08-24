@@ -36,9 +36,10 @@ abstract class SortedQueryProperties[F[_] : Monad : Async](implicit arb: Arbitra
                            uuid2: SortableQuery[F, Sortable, UUID]
                           )
 
-  private val sameSortable = query('sortable).multipleByColumns('same)
-  val model = RelationModel(relation[Sortable]('sortable).key('pk1)).queries[Queries](
-    writes('sortable),
+  val sortableRel = relation[Sortable]('sortable).key('pk1)
+  private val sameSortable = query(sortableRel).multipleByColumns('same)
+  val model = RelationModel(sortableRel).queries[Queries](
+    writes(sortableRel),
     sameSortable.sortBy('intField),
     sameSortable.sortBy('intField, 'stringField),
     sameSortable.sortBy('stringField),
@@ -67,8 +68,8 @@ abstract class SortedQueryProperties[F[_] : Monad : Async](implicit arb: Arbitra
       _ <- queries.writes.bulkInsert(vSame)
       p = sortQ.map {
         case (name, oq @ OrderQuery(lens, q)) => run(for {
-          ascend <- q.queryWithOrder(same, asc = true).map(_.map(lens))
-          descend <- q.queryWithOrder(same, asc = false).map(_.map(lens))
+          ascend <- q.queryWithOrder(same, asc = true).map(lens).runLog
+          descend <- q.queryWithOrder(same, asc = false).map(lens).runLog
         } yield {
           val ord = oq.o
           val ascExpected = vSame.map(lens).sorted(ord)

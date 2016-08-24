@@ -37,15 +37,23 @@ object SimpleRelations {
   case class Fields3Queries[F[_]](updates: WriteQueries[F, Fields3], byPK: UniqueQuery[F, Fields3, UUID],
                                   byName: RangeQuery[F, Fields3, NonEmptyString, Int], byYear: SortableQuery[F, Fields3, Int])
 
-  lazy val fields1Model = RelationModel(relation[Fields1]('fields1).key('uuid))
-    .queries[Fields1Queries](writes('fields1), queryByPK('fields1))
+  lazy val fields1Model = {
+    val field1Rel = relation[Fields1]('fields1).key('uuid)
+    RelationModel(field1Rel).queries[Fields1Queries](writes(field1Rel), queryByPK(field1Rel))
+  }
 
-  lazy val fields2Model = RelationModel(atom(Generic[NonEmptyString]), relation[Fields2]('fields2).key('uuid))
-    .queries[Fields2Queries](writes('fields2), queryByPK('fields2), query('fields2).multipleByColumns('name))
+  lazy val fields2Model = {
+    val field2Rel = relation[Fields2]('fields2).key('uuid)
+    RelationModel(atom(Generic[NonEmptyString]), field2Rel)
+      .queries[Fields2Queries](writes(field2Rel), queryByPK(field2Rel), query(field2Rel).multipleByColumns('name))
+  }
 
-  lazy val fields3Model = RelationModel(atom(Generic[NonEmptyString]), relation[Fields3]('fields3).key('uuid))
-    .queries[Fields3Queries](writes('fields3), queryByPK('fields3), query('fields3).multipleByColumns('name).sortBy('year),
-    query('fields3).multipleByColumns('year).sortBy('name))
+  lazy val fields3Model = {
+    val field3Rel = relation[Fields3]('fields3).key('uuid)
+    RelationModel(atom(Generic[NonEmptyString]), field3Rel)
+      .queries[Fields3Queries](writes(field3Rel), queryByPK(field3Rel), query(field3Rel).multipleByColumns('name).sortBy('year),
+      query(field3Rel).multipleByColumns('year).sortBy('name))
+  }
 }
 
 abstract class SimpleRelations[F[_] : Async](name: String)(implicit M: Monad[F])
@@ -58,19 +66,14 @@ abstract class SimpleRelations[F[_] : Async](name: String)(implicit M: Monad[F])
   def queries3: Fields3Queries[F]
 
   include(crudProps[Fields1, UUID](queries1.updates,
-    a => queries1.byPK(a.uuid).map(_.toIterable), 1,
+    a => queries1.byPK(a.uuid), 1,
     genUpdate[Fields1]((a, b) => b.copy(uuid = a.uuid))), "Fields1")
 
-  include(crudProps[Fields2, UUID](queries2.updates, a => for {
-      oA <- queries2.byPK(a.uuid)
-      l <- queries2.byName(a.name)
-    } yield oA ++ l,
-    2, genUpdate[Fields2]((a, b) => b)), "Fields2")
+  include(crudProps[Fields2, UUID](queries2.updates,
+    a => queries2.byPK(a.uuid) ++ queries2.byName(a.name), 2,
+    genUpdate[Fields2]((a, b) => b)), "Fields2")
 
-  include(crudProps[Fields3, UUID](queries3.updates, a => for {
-      oA <- queries3.byPK(a.uuid)
-      l <- queries3.byName(a.name)
-      l2 <- queries3.byYear(a.year)
-    } yield oA ++ l ++ l2,
-    3, genUpdate[Fields3]((a, b) => b)), "Fields3")
+  include(crudProps[Fields3, UUID](queries3.updates,
+    a => queries3.byPK(a.uuid) ++ queries3.byName(a.name) ++ queries3.byYear(a.year), 3,
+    genUpdate[Fields3]((a, b) => b)), "Fields3")
 }

@@ -8,6 +8,8 @@ import java.util.UUID
 import com.amazonaws.ClientConfiguration
 import com.amazonaws.services.dynamodbv2.{AmazonDynamoDBAsync, AmazonDynamoDBAsyncClient}
 import fs2.interop.cats._
+import io.doolse.simpledba.CatsUtils._
+import io.doolse.simpledba.dynamodb.DynamoDBIO._
 import io.doolse.simpledba._
 import io.doolse.simpledba.dynamodb.{DynamoDBMapper, DynamoDBSession, DynamoDBUtils}
 
@@ -23,15 +25,16 @@ object QuickstartExampleDynamo extends App {
                            carsForUser: RangeQuery[F, Car, UUID, String]
                           )
 
-  val model = RelationModel(
-    relation[User]('user).key('userId),
-    relation[Car]('car).key('id)
+  val userRel = relation[User]('user).key('userId)
+  val carRel = relation[Car]('car).key('id)
+
+  val model = RelationModel(userRel, carRel
   ).queries[Queries](
-    writes('user),
-    writes('car),
-    queryByPK('user),
-    query('user).multipleByColumns('firstName),
-    query('car).multipleByColumns('ownerId).sortBy('make)
+    writes(userRel),
+    writes(carRel),
+    queryByPK(userRel),
+    query(userRel).multipleByColumns('firstName),
+    query(carRel).multipleByColumns('ownerId).sortBy('make)
   )
 
   val mapper = new DynamoDBMapper()
@@ -53,8 +56,8 @@ object QuickstartExampleDynamo extends App {
       _ <- queries.cars.insert(Car(UUID.randomUUID(), "Honda", "Civic", magId))
       _ <- queries.cars.insert(Car(UUID.randomUUID(), "Ford", "Laser", magId))
       _ <- queries.cars.insert(Car(UUID.randomUUID(), "Hyundai", "Accent", magId))
-      cars <- queries.carsForUser(magId, lower = "Ford", higher = Exclusive("Hyundai"))
-      users <- queries.usersByFirstName("Jolse")
+      cars <- queries.carsForUser(magId, lower = "Ford", higher = Exclusive("Hyundai")).runLog
+      users <- queries.usersByFirstName("Jolse").runLog
     } yield (cars ++ users).mkString("\n")).run(session)
   }
 }

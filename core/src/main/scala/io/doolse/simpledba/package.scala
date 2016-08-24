@@ -15,11 +15,11 @@ package object simpledba {
 
   def relation[A](w: Witness) = new Relation[w.T, A, HNil]
 
-  def query(w: Witness) = new QueryBuilder[w.T]
+  def query[K](w: Relation[K, _, _]) = new QueryBuilder[K]
 
-  def queryByPK(w: Witness) = new QueryPK[w.T]
+  def queryByPK[K](w: Relation[K, _, _], nameHint: String = "") = QueryPK[K](nameHint)
 
-  def writes(w: Witness) = new RelationWriter[w.T]
+  def writes[K](w: Relation[K, _, _]) = new RelationWriter[K]
 
   class QueryBuilder[K] {
     // SingletonProductArgs didn't work when used outside of the library
@@ -31,7 +31,7 @@ package object simpledba {
     implicit def qm[L <: HList, K] = new QM[L, QueryBuilder[K]] {
       type Out = QueryMultiple[K, L, HNil]
 
-      def apply(t: QueryBuilder[K]) = new QueryMultiple[K, L, HNil]
+      def apply(t: QueryBuilder[K]) = new QueryMultiple[K, L, HNil]("")
     }
   }
   trait SB[L, A] extends DepFn1[A]
@@ -39,11 +39,12 @@ package object simpledba {
     implicit def sb[L <: HList, CL <: HList, K] = new SB[L, QueryMultiple[K, CL, HNil]] {
       type Out = QueryMultiple[K, CL, L]
 
-      def apply(t: QueryMultiple[K, CL, HNil]) = new QueryMultiple[K, CL, L]
+      def apply(t: QueryMultiple[K, CL, HNil]) = new QueryMultiple[K, CL, L]("")
     }
   }
 
-  implicit class QueryMultipleOps[K, CL <: HList](qm: QueryMultiple[K, CL, HNil]) {
-    def sortBy = new WitnessList[QueryMultiple[K, CL, HNil], SB](qm)
+  implicit class QueryMultipleOps[K, CL <: HList, SL <: HList](qm: QueryMultiple[K, CL, SL]) {
+    def sortBy = new WitnessList[QueryMultiple[K, CL, SL], SB](qm)
+    def hint(nameHint: String) : QueryMultiple[K, CL, SL] = qm.copy(nameHint = nameHint)
   }
 }

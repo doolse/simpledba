@@ -38,9 +38,10 @@ abstract class RangeQueryProperties[F[_] : Monad : Async](implicit rangeable: Ar
                            uuid2: RangeQuery[F, Rangeable, UUID, (UUID, Long)]
                           )
 
-  private val sameSortable = query('rangeable).multipleByColumns('same)
-  val model = RelationModel(relation[Rangeable]('rangeable).key('pk1)).queries[Queries](
-    writes('rangeable),
+  val rangeableRel = relation[Rangeable]('rangeable).key('pk1)
+  private val sameSortable = query(rangeableRel).multipleByColumns('same)
+  val model = RelationModel(rangeableRel).queries[Queries](
+    writes(rangeableRel),
     sameSortable.sortBy('intField),
     sameSortable.sortBy('intField, 'stringField),
     sameSortable.sortBy('stringField),
@@ -77,8 +78,8 @@ abstract class RangeQueryProperties[F[_] : Monad : Async](implicit rangeable: Ar
         case _ => FilterRange(r1, r2)
       }
       run(for {
-        ascend <- q.queryWithOrder(same, range.lower, range.upper, asc = true).map(_.map(lens))
-        descend <- q.queryWithOrder(same, range.lower, range.upper, asc = false).map(_.map(lens))
+        ascend <- q.queryWithOrder(same, range.lower, range.upper, asc = true).map(lens).runLog
+        descend <- q.queryWithOrder(same, range.lower, range.upper, asc = false).map(lens).runLog
       } yield {
         val filtered = vSame.map(lens).filter(r => range.contains(r)(ord))
         val ascExpected = filtered.sorted(ord)

@@ -45,7 +45,6 @@ trait queriesAsLP extends Poly1 {
   (implicit ev: FA <:< RangeQuery[F, T, A, SA], ev2: FB <:< SortableQuery[F, T, B],
    conv: ValueConvert[B, A]) = at[FA @@ FB] { fa =>
     val rq = ev(fa)
-    implicit val C = rq.cb
     SortableQuery[F, T, B](None, (b, ascO) => rq._q(conv(b), NoRange, NoRange, ascO))
   }
 }

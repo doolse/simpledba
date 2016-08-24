@@ -5,6 +5,7 @@ import cats.syntax.all._
 import io.doolse.simpledba._
 import cats.std.list._
 import cats.std.option._
+import fs2.util.Catchable
 
 /**
   * Created by jolz on 26/05/16.
@@ -28,39 +29,41 @@ object TestCreator {
                            queryByFullName: UniqueQuery[F, User, Username]
                           )
 
+  val relInst = relation[Inst]('institution).key('uniqueid)
+  val relUser = relation[User]('users).keys('firstName, 'lastName)
   val model = RelationModel(
     embed[EmbeddedFields],
-    relation[Inst]('institution).key('uniqueid),
-    relation[User]('users).keys('firstName, 'lastName)
+    relInst,
+    relUser
   ).queries[Queries](
-    writes('institution),
-    writes('users),
-    queryByPK('institution),
-    query('users).multipleByColumns('firstName).sortBy('year),
-    query('users).multipleByColumns('lastName),
-    queryByPK('users)
+    writes(relInst),
+    writes(relUser),
+    queryByPK(relInst),
+    query(relUser).multipleByColumns('firstName).sortBy('year),
+    query(relUser).multipleByColumns('lastName),
+    queryByPK(relUser)
   )
 
   val orig = Inst(1L, EmbeddedFields("pass", enabled = true))
   val updated = Inst(2L, EmbeddedFields("pass", enabled = false))
   val updatedAgain = Inst(2L, EmbeddedFields("changed", enabled = true))
 
-  def doTest[F[_] : Monad](q: Queries[F]) = {
+  def doTest[F[_] : Monad : Catchable](q: Queries[F]) = {
     import q._
     for {
       _ <- writeUsers.insert(User("Jolse", "Maginnis", 1980))
       _ <- writeUsers.insert(User("Emma", "Maginnis", 1982))
       _ <- writeUsers.insert(User("Jolse", "Mahinnis", 1985))
       _ <- writeInst.insert(orig)
-      res2 <- instByPK(1L)
-      res <- instByPK.query(517573426L)
+      res2 <- instByPK(1L).runLast
+      res <- instByPK.query(517573426L).runLast
       _ <- writeInst.update(orig, updated)
-      res3 <- instByPK.query(2L)
+      res3 <- instByPK.query(2L).runLast
       _ <- writeInst.update(updated, updatedAgain)
-      res4 <- instByPK.query(2L)
-      all <- queryByLastName.queryWithOrder("Maginnis", true)
-      allFirst <- querybyFirstName.queryWithOrder("Jolse", false)
-      fullPK <- queryByFullName.query(Username("Jolse", "Maginnis"))
+      res4 <- instByPK.query(2L).runLast
+      all <- queryByLastName.queryWithOrder("Maginnis", true).runLog
+      allFirst <- querybyFirstName.queryWithOrder("Jolse", false).runLog
+      fullPK <- queryByFullName.query(Username("Jolse", "Maginnis")).runLast
       _ <- res4.map(writeInst.delete).sequence
     } yield {
       s"""

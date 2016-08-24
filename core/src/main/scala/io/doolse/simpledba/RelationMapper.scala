@@ -14,7 +14,8 @@ import poly._
 
 
 object RelationMapper {
-  case class TableNameDetails(existingTables: Set[String], baseName: String, pkNames: Seq[String], skNames: Seq[String])
+
+  case class TableNameDetails(existingTables: Set[String], baseName: String, nameHint: String, pkNames: Seq[String], skNames: Seq[String])
 
   case class SimpleMapperConfig(tableNamer: TableNameDetails => String)
 
@@ -22,11 +23,16 @@ object RelationMapper {
   def prefixTableNamer(prefix: String) =
     (td: TableNameDetails) => {
       val bn = prefix + td.baseName
-      if (td.existingTables(bn)) {
-        (2 to 1000).iterator.map(n => s"${bn}_$n")
-          .find(n => !td.existingTables(n))
-          .getOrElse(sys.error(s"Couldn't generate a unique table name for ${bn}"))
-      } else bn
+      val existing = td.existingTables
+      if (!existing(bn)) bn
+      else {
+        val withHint = bn + td.nameHint
+        if (!existing(withHint)) withHint
+        else
+          (2 to 1000).iterator.map(n => s"${withHint}_$n")
+            .find(n => !existing(n))
+            .getOrElse(sys.error(s"Couldn't generate a unique table name for $withHint"))
+      }
     }
 
   val defaultMapperConfig = SimpleMapperConfig(prefixTableNamer(""))
@@ -40,9 +46,9 @@ abstract class RelationMapper[F[_]] {
   type KeyMapperPoly <: Poly1
   type QueriesPoly <: Poly3
 
-  val config : MapperConfig
+  val config: MapperConfig
 
-  def stdColumnMaker : MappingCreator[ColumnAtom]
+  def stdColumnMaker: MappingCreator[ColumnAtom]
 
   def verifyModel[R <: HList, Q <: HList, C2, As[_[_]]]
   (rm: RelationModel[R, Q, As], p: String => Unit = Console.err.println)
@@ -58,9 +64,10 @@ abstract class RelationMapper[F[_]] {
     new BuiltQueries[As[F]] {
       type DDL = DDLStatement
 
-      def throwError[A] : A = sys.error(if (errors.isEmpty) "Verification succeeded" else "Verification failed")
+      def throwError[A]: A = sys.error(if (errors.isEmpty) "Verification succeeded" else "Verification failed")
 
       def queries = throwError
+
       def ddl = throwError
     }
   }
