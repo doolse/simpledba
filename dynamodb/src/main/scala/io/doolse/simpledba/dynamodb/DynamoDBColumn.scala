@@ -9,7 +9,7 @@ import scala.collection.JavaConverters._
   * Created by jolz on 5/05/16.
   */
 
-case class DynamoDBColumn[T](from: AttributeValue => T, to: T => AttributeValue,
+case class DynamoDBColumn[T](from: Option[AttributeValue] => Option[T], to: T => AttributeValue,
                              attributeType: ScalarAttributeType, diff: (T, T) => AttributeValueUpdate,
                              sortablePart: T => String, range: (T, T))
 
@@ -18,8 +18,10 @@ object DynamoDBColumn {
   val EmptyStringValue = "\u0000"
   val EmptyStringSetValue = "\u0000\u0000"
 
+  def putUpdate[T](to: T => AttributeValue)(oldV: T, newV: T) = new AttributeValueUpdate(to(newV), AttributeAction.PUT)
+
   def create[T](from: AttributeValue => T, to: T => AttributeValue, sortablePart: T => String, range: (T, T), attr: ScalarAttributeType)
-  = DynamoDBColumn(from, to, attr, (oldV: T, newV: T) => new AttributeValueUpdate(to(newV), AttributeAction.PUT), sortablePart, range)
+  = DynamoDBColumn(_.map(from), to, attr, putUpdate(to), sortablePart, range)
 
   implicit val boolColumn = create[Boolean](_.getBOOL, b => new AttributeValue().withBOOL(b),
     b => if (b) "1" else "0", (false, true), ScalarAttributeType.S)
@@ -71,11 +73,23 @@ object DynamoDBColumn {
       s => new AttributeValue(fixEmpty(s.toList).asJava), _.toString(), (Set.empty, Set.empty), ScalarAttributeType.S)
   }
 
-  implicit def optionColumn[A](implicit wrapped: DynamoDBColumn[A]) = create[Option[A]](av => Option(av).filter(_.isNULL == null).map(wrapped.from),
-    oA => oA.map(wrapped.to).getOrElse(new AttributeValue().withNULL(true)),
-    oA => oA.map(wrapped.sortablePart).getOrElse(""), wrapped.range match {
-      case (a, b) => (Some(a), Some(b))
-    }, wrapped.attributeType)
+  implicit def optionColumn[A](implicit wrapped: DynamoDBColumn[A]) = {
+
+    def to(oA: Option[A]) = oA.map(wrapped.to).getOrElse(new AttributeValue().withNULL(true))
+
+    def updateOption(oldV: Option[A], newV: Option[A]) = (oldV,newV) match {
+      case (Some(ex), Some(v)) => wrapped.diff(ex, v)
+      case (ex, v) => putUpdate(to)(ex, v)
+    }
+    DynamoDBColumn[Option[A]](
+      av => Some(wrapped.from(av.filter(_.isNULL == null))),
+      to,
+      wrapped.attributeType,
+      updateOption,
+      oA => oA.map(wrapped.sortablePart).getOrElse(""), wrapped.range match {
+        case (a, b) => (Some(a), Some(b))
+      })
+  }
 
   def int2sortableString(i: Int) : String = {
 //    val u = i - Int.MinValue

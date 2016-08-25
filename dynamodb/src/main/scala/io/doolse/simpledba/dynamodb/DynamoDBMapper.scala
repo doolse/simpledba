@@ -35,7 +35,7 @@ object DynamoDBMapper {
 
   def createMaterializer(m: java.util.Map[String, AttributeValue]) = new ColumnMaterialzer[DynamoDBColumn] {
     def apply[A](name: String, atom: DynamoDBColumn[A]): Option[A] = {
-      Option(m.get(name)).map(av => atom.from(av))
+      atom.from(Option(m.get(name)))
     }
   }
 
@@ -122,7 +122,7 @@ class DynamoDBMapper(val config: SimpleMapperConfig = defaultMapperConfig) exten
     def wrapAtom[S, A](atom: DynamoDBColumn[A], to: (S) => A, from: (A) => S): DynamoDBColumn[S] = {
       val (lr, hr) = atom.range
       DynamoDBColumn[S](
-        atom.from andThen from,
+        a => atom.from(a).map(from),
         atom.to compose to,
         atom.attributeType, (ex, nv) => atom.diff(to(ex), to(nv)), atom.sortablePart compose to, (from(lr), from(hr)))
     }
