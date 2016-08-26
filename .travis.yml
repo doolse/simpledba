@@ -12,7 +12,7 @@ services:
 
 before_install:
   - docker run -d --name cassandra -p 9043:9043 -p 7000:7000 -p 7001:7001 -p 9042:9042 -p 7199:7199 -p 9160:9160 cassandra
-  - docker run --name dynamodb -d -p 8000:8000 gordonstratton/dynamodb-local
+  - docker run --name dynamodb -d -p 8000:8000 tray/dynamodb-local -inMemory
 
 script:
   - sbt clean coverage test coverageReport &&
