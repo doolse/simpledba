@@ -13,6 +13,8 @@ import scala.reflect.ClassTag
 
 trait ColumnMapperVerifierContext[CA[_], E]
 
+case class ColumnListVerifier[Context, In](errors: List[String])
+
 trait ColumnMapperVerifier[Context, In] {
   type OutContext
 
@@ -24,35 +26,33 @@ trait ClassNames[A] {
 }
 
 
+trait ColumnListVerifierLP {
+
+  implicit def noAtomFound[CA[_], E <: HList, S, K <: Symbol, A](implicit tt: ClassTag[S], vc: ClassTag[A], k: Witness.Aux[K])
+  = ColumnListVerifier[ColumnMapperVerifierContext[CA, E], (FieldType[K, A], S)](
+    List(s"${tt.runtimeClass.getName} -> ${k.value.name} : ${vc.runtimeClass.getName} has no atom or embedding"))
+}
+
+object ColumnListVerifier extends ColumnListVerifierLP {
+  implicit def foundCustomAtom[CA[_], E <: HList, S, K <: Symbol, A]
+  (implicit e: Selector[E, A]) = ColumnListVerifier[ColumnMapperVerifierContext[CA, E], (FieldType[K, A], S)](List.empty)
+
+  implicit def foundAtom[CA[_], E, S, K <: Symbol, A](implicit ca: CA[A])
+  = ColumnListVerifier[ColumnMapperVerifierContext[CA, E], (FieldType[K, A], S)](List.empty)
+
+  implicit def hnilCLVerify[C, L <: HNil] = ColumnListVerifier[C, L](List.empty)
+
+  implicit def hconsCLVerify[C, H, T <: HList](implicit hv: ColumnListVerifier[C, H], tv: ColumnListVerifier[C, T])
+  = ColumnListVerifier[C, H :: T](hv.errors ++ tv.errors)
+}
+
 import ColumnMapperVerifier._
 
 trait ColumnMapperVerifierLP {
-  implicit def embedded[CA[_], C, CO, E, E2 <: HList, S, Repr <: HList, WC <: HList]
-  (implicit lg: LabelledGeneric.Aux[S, Repr], zipWith: ZipConst.Aux[S, Repr, WC],
-   verified: ColumnMapperVerifier.Aux[ColumnMapperVerifierContext[CA, E], WC, CO]
-   ,ev: CO <:< ColumnMapperVerifierContext[CA, E2]
-  )
-  = successWithErrors[CA, E, S :: E2, Embed[S]](verified.errors)
-
-  implicit def relation[C, C2, S, KL <: HList, Repr <: HList, ReprKL <: HList, MissingKL <: HList, WC <: HList, K <: Symbol]
-  (implicit lg: LabelledGeneric.Aux[S, Repr], zipWith: ZipConst.Aux[S, Repr, WC],
-   verified: ColumnMapperVerifier.Aux[C, WC, C2],
-   genKeys: Keys.Aux[Repr, ReprKL], reify: Reify.Aux[KL, KL],
-   diffKeys: Diff.Aux[KL, ReprKL, MissingKL], keysToList: ToList[MissingKL, Symbol],
-   relName: Witness.Aux[K])
-  = {
-    val missingKeys = keysToList(diffKeys(reify()))
-    val missingO = missingKeys.headOption.map(_ => s"Relation ${relName.value} does not contain keys - ${missingKeys.mkString(",")}").toList
-    ColumnMapperVerifier[C, Relation[K, S, KL], C2](missingO ++ verified.errors)
-  }
-
-  implicit def noAtomFound[CA[_], E, S, K <: Symbol, A](implicit tt: ClassTag[S], vc: ClassTag[A], k: Witness.Aux[K])
-  = verError[CA, E, (FieldType[K, A], S)](
-    s"${tt.runtimeClass.getName} -> ${k.value.name} : ${vc.runtimeClass.getName} has no atom or embedding")
 
   implicit def noAtomColumn[CA[_], E, S, A](implicit at: ClassTag[A], o: ClassTag[S])
   = verError[CA, E, CustomAtom[S, A]](
-    s"${o.runtimeClass.getName} has not atom for ${at.runtimeClass.getName}"
+    s"${o.runtimeClass.getName} has no atom for ${at.runtimeClass.getName}"
   )
 }
 
@@ -67,6 +67,24 @@ object ColumnMapperVerifier extends ColumnMapperVerifierLP {
     def errors: List[String] = _errors
   }
 
+  implicit def embedded[CA[_], C, CO, E <: HList, S, Repr <: HList, WC <: HList]
+  (implicit lg: LabelledGeneric.Aux[S, Repr], zipWith: ZipConst.Aux[S, Repr, WC],
+   verified: ColumnListVerifier[ColumnMapperVerifierContext[CA, E], WC]
+  )
+  = successWithErrors[CA, E, S :: E, Embed[S]](verified.errors)
+
+  implicit def relation[C, C2, S, KL <: HList, Repr <: HList, ReprKL <: HList, MissingKL <: HList, WC <: HList, K <: Symbol]
+  (implicit lg: LabelledGeneric.Aux[S, Repr], zipWith: ZipConst.Aux[S, Repr, WC],
+   verified: ColumnListVerifier[C, WC],
+   genKeys: Keys.Aux[Repr, ReprKL], reify: Reify.Aux[KL, KL],
+   diffKeys: Diff.Aux[KL, ReprKL, MissingKL], keysToList: ToList[MissingKL, Symbol],
+   relName: Witness.Aux[K])
+  = {
+    val missingKeys = keysToList(diffKeys(reify()))
+    val missingO = missingKeys.headOption.map(_ => s"Relation ${relName.value} does not contain keys - ${missingKeys.mkString(",")}").toList
+    ColumnMapperVerifier[C, Relation[K, S, KL], C2](missingO ++ verified.errors)
+  }
+
   def verError[CA[_], E, A](str: String) = ColumnMapperVerifier[ColumnMapperVerifierContext[CA, E], A, ColumnMapperVerifierContext[CA, E]](List(str))
 
   def simpleSuccess[C, A] = ColumnMapperVerifier[C, A, C](List.empty)
@@ -77,14 +95,8 @@ object ColumnMapperVerifier extends ColumnMapperVerifierLP {
 
   implicit def hnilVerify[C, L <: HNil] = simpleSuccess[C, L]
 
-  implicit def hconsVerify[C, C2, C3, H, T <: HList](implicit hv: Lazy[ColumnMapperVerifier.Aux[C, H, C2]], tv: Lazy[ColumnMapperVerifier.Aux[C2, T, C3]])
-  = ColumnMapperVerifier[C, H :: T, C3](hv.value.errors ++ tv.value.errors)
-
-  implicit def foundAtom[CA[_], E, S, K <: Symbol, A](implicit ca: CA[A])
-  = success[CA, E, E, (FieldType[K, A], S)]
-
-  implicit def foundCustomAtom[CA[_], E <: HList, S, K <: Symbol, A]
-  (implicit e: Selector[E, A]) = success[CA, E, E, (FieldType[K, A], S)]
+  implicit def hconsVerify[C, C2, C3, H, T <: HList](implicit hv: ColumnMapperVerifier.Aux[C, H, C2], tv: ColumnMapperVerifier.Aux[C2, T, C3])
+  = ColumnMapperVerifier[C, H :: T, C3](hv.errors ++ tv.errors)
 
   implicit def foundUnderlyingColumn[CA[_], E <: HList, EOut <: HList, S, A]
   (implicit uc: CA[A]) = success[CA, E, S :: E, CustomAtom[S, A]]
