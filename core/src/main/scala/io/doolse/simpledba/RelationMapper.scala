@@ -15,7 +15,7 @@ import poly._
 
 object RelationMapper {
 
-  case class TableNameDetails(existingTables: Set[String], baseName: String, nameHint: String, pkNames: Seq[String], skNames: Seq[String])
+  case class TableNameDetails(existingTables: Set[String], baseName: String, nameHint: Option[String], pkNames: Seq[String], skNames: Seq[String])
 
   case class SimpleMapperConfig(tableNamer: TableNameDetails => String)
 
@@ -24,11 +24,9 @@ object RelationMapper {
     (td: TableNameDetails) => {
       val bn = prefix + td.baseName
       val existing = td.existingTables
-      if (!existing(bn)) bn
+      val withHint = td.nameHint.map(h => bn + h).getOrElse(bn)
+      if (!existing(withHint)) withHint
       else {
-        val withHint = bn + td.nameHint
-        if (!existing(withHint)) withHint
-        else
           (2 to 1000).iterator.map(n => s"${withHint}_$n")
             .find(n => !existing(n))
             .getOrElse(sys.error(s"Couldn't generate a unique table name for $withHint"))

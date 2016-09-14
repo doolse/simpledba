@@ -15,7 +15,7 @@ trait KeyBasedTable {
   def skNames: Seq[String]
   def priority: Int
 }
-case class QueryCreate[PT, Out](matcher: PT => Boolean, nameHint: String, build: (String,PT) => Out)
+case class QueryCreate[PT, Out](matcher: PT => Boolean, nameHint: Option[String], build: (String,PT) => Out)
 
 trait QueryFolder[Effect[_], DDL, PhysicalTable[_] <: KeyBasedTable, MapQuery <: Poly2] extends Poly3 {
 

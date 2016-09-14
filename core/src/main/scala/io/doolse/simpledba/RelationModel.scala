@@ -33,10 +33,12 @@ class Relation[Name, A, Keys <: HList] extends SingletonProductArgs {
 
 sealed trait RelationReference[K]
 sealed trait RelationQuery[K] extends RelationReference[K] {
-  def nameHint: String
+  def nameHint: Option[String]
 }
-case class QueryPK[K](nameHint: String) extends RelationQuery[K]
-case class QueryMultiple[K, Columns <: HList, SortColumns <: HList](nameHint: String) extends RelationQuery[K]
+case class QueryPK[K](nameHint: Option[String]) extends RelationQuery[K] {
+  def hint(hint: String) = copy[K](nameHint = Some(hint))
+}
+case class QueryMultiple[K, Columns <: HList, SortColumns <: HList](nameHint: Option[String]) extends RelationQuery[K]
 class RelationWriter[K] extends RelationReference[K]
 
 sealed trait RangeValue[+A] {

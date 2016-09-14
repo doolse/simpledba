@@ -17,7 +17,7 @@ package object simpledba {
 
   def query[K](w: Relation[K, _, _]) = new QueryBuilder[K]
 
-  def queryByPK[K](w: Relation[K, _, _], nameHint: String = "") = QueryPK[K](nameHint)
+  def queryByPK[K](w: Relation[K, _, _]) = QueryPK[K](None)
 
   def writes[K](w: Relation[K, _, _]) = new RelationWriter[K]
 
@@ -31,7 +31,7 @@ package object simpledba {
     implicit def qm[L <: HList, K] = new QM[L, QueryBuilder[K]] {
       type Out = QueryMultiple[K, L, HNil]
 
-      def apply(t: QueryBuilder[K]) = new QueryMultiple[K, L, HNil]("")
+      def apply(t: QueryBuilder[K]) = new QueryMultiple[K, L, HNil](None)
     }
   }
   trait SB[L, A] extends DepFn1[A]
@@ -39,12 +39,12 @@ package object simpledba {
     implicit def sb[L <: HList, CL <: HList, K] = new SB[L, QueryMultiple[K, CL, HNil]] {
       type Out = QueryMultiple[K, CL, L]
 
-      def apply(t: QueryMultiple[K, CL, HNil]) = new QueryMultiple[K, CL, L]("")
+      def apply(t: QueryMultiple[K, CL, HNil]) = new QueryMultiple[K, CL, L](None)
     }
   }
 
   implicit class QueryMultipleOps[K, CL <: HList, SL <: HList](qm: QueryMultiple[K, CL, SL]) {
     def sortBy = new WitnessList[QueryMultiple[K, CL, SL], SB](qm)
-    def hint(nameHint: String) : QueryMultiple[K, CL, SL] = qm.copy(nameHint = nameHint)
+    def hint(nameHint: String) : QueryMultiple[K, CL, SL] = qm.copy(nameHint = Some(nameHint))
   }
 }
