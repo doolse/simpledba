@@ -33,12 +33,13 @@ trait ModelVerifierLP2 {
 }
 
 trait ModelVerifierLP extends ModelVerifierLP2 {
-  implicit def mappedOnly[CTX, CA[_], R <: HList, KMT, RelDefs <: HList, E <: HList, Q <: HList, F[_], DDL]
+  implicit def mappedOnly[CTX, CA[_], R <: HList, KMT, RelDefs <: HList, E <: HList, Q <: HList]
   (implicit
    ev: CTX <:< MapAllContext[E, R, CA],
    ev2: CTX <:< KeyMapperContext[Q, KMT, _, _],
    mappedRelations: MapAllRelations.Aux[MapAllContext[E, R, CA], RelDefs],
-   verifyQueries: QueryBuilderVerifier[(QueryBuilderVerifierContext[F, DDL, RelDefs, KMT], Q)])
+   verifyQueries: QueryBuilderVerifier[(QueryBuilderVerifierContext[RelDefs, KMT], Q)]
+   )
   = ModelVerifier[CTX] { ctx =>
     val relDefs = mappedRelations(ctx)
     ("Relations OK, Queries could not be mapped to physical tables", ModelVerifier.bugIfNoError(

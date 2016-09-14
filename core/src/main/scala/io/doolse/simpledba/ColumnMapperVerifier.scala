@@ -28,8 +28,8 @@ trait ClassNames[A] {
 
 trait ColumnListVerifierLP {
 
-  implicit def noAtomFound[CA[_], E <: HList, S, K <: Symbol, A](implicit tt: ClassTag[S], vc: ClassTag[A], k: Witness.Aux[K])
-  = ColumnListVerifier[ColumnMapperVerifierContext[CA, E], (FieldType[K, A], S)](
+  implicit def noAtomFound[CTX, S, K <: Symbol, A](implicit tt: ClassTag[S], vc: ClassTag[A], k: Witness.Aux[K])
+  = ColumnListVerifier[CTX, (FieldType[K, A], S)](
     List(s"${tt.runtimeClass.getName} -> ${k.value.name} : ${vc.runtimeClass.getName} has no atom or embedding"))
 }
 
@@ -73,7 +73,7 @@ object ColumnMapperVerifier extends ColumnMapperVerifierLP {
   )
   = successWithErrors[CA, E, S :: E, Embed[S]](verified.errors)
 
-  implicit def relation[C, C2, S, KL <: HList, Repr <: HList, ReprKL <: HList, MissingKL <: HList, WC <: HList, K <: Symbol]
+  implicit def relation[C, S, KL <: HList, Repr <: HList, ReprKL <: HList, MissingKL <: HList, WC <: HList, K <: Symbol]
   (implicit lg: LabelledGeneric.Aux[S, Repr], zipWith: ZipConst.Aux[S, Repr, WC],
    verified: ColumnListVerifier[C, WC],
    genKeys: Keys.Aux[Repr, ReprKL], reify: Reify.Aux[KL, KL],
@@ -82,7 +82,7 @@ object ColumnMapperVerifier extends ColumnMapperVerifierLP {
   = {
     val missingKeys = keysToList(diffKeys(reify()))
     val missingO = missingKeys.headOption.map(_ => s"Relation ${relName.value} does not contain keys - ${missingKeys.mkString(",")}").toList
-    ColumnMapperVerifier[C, Relation[K, S, KL], C2](missingO ++ verified.errors)
+    ColumnMapperVerifier[C, Relation[K, S, KL], C](missingO ++ verified.errors)
   }
 
   def verError[CA[_], E, A](str: String) = ColumnMapperVerifier[ColumnMapperVerifierContext[CA, E], A, ColumnMapperVerifierContext[CA, E]](List(str))
