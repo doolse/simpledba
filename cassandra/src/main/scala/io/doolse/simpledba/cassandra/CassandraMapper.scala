@@ -43,7 +43,7 @@ class CassandraMapper(val config: SimpleMapperConfig = defaultMapperConfig) exte
   type QueriesPoly = ConvertCassandraQueries.type
 
   val stdColumnMaker = new MappingCreator[CassandraColumn] {
-    def wrapAtom[S, A](atom: CassandraColumn[A], to: (S) => A, from: (A) => S): CassandraColumn[S] = WrappedColumn[S, A](atom, to, from)
+    def wrapAtom[S, A](atom: CassandraColumn[A], ca: CustomAtom[S, A]): CassandraColumn[S] = WrappedColumn[S, A](atom, ca.to, ca.from)
   }
 }
 

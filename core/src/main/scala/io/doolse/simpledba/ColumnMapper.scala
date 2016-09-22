@@ -44,7 +44,7 @@ object ColumnsComposed {
 }
 
 trait MappingCreator[ColumnAtom[_]] {
-  def wrapAtom[S, A](atom: ColumnAtom[A], to: S => A, from: A => S): ColumnAtom[S]
+  def wrapAtom[S, A](atom: ColumnAtom[A], customAtom: CustomAtom[S, A]): ColumnAtom[S]
 
   def makeMapping[S, A](name: String, atom: ColumnAtom[A], get: S => A) = ColumnMapping(name, atom, get)
 
@@ -87,7 +87,7 @@ trait ColumnMapperBuilderLP {
    atom: CA[A]
   ) = ColumnMapperBuilder.mapper[FieldType[K, V], ColumnMapperContext[CA, E], FieldType[K, ColumnMapping[CA, FieldType[K, V], V]] :: HNil, V :: HNil] { t =>
     val ca = ev(selectMapping(t.embeddedMappings))
-    new ColumnMapper(field[K](t.ops.makeMapping(cname.value.name, t.ops.wrapAtom(atom, ca.to, ca.from), (f: FieldType[K, V]) => f: V)) :: HNil,
+    new ColumnMapper(field[K](t.ops.makeMapping(cname.value.name, t.ops.wrapAtom(atom, ca), (f: FieldType[K, V]) => f: V)) :: HNil,
       cv => field[K](cv.head),
       fld => (fld: V) :: HNil)
   }

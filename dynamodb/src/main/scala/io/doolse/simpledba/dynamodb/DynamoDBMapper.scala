@@ -119,12 +119,16 @@ class DynamoDBMapper(val config: SimpleMapperConfig = defaultMapperConfig) exten
   type QueriesPoly = DynamoDBQueries.type
 
   val stdColumnMaker = new MappingCreator[DynamoDBColumn] {
-    def wrapAtom[S, A](atom: DynamoDBColumn[A], to: (S) => A, from: (A) => S): DynamoDBColumn[S] = {
-      val (lr, hr) = atom.range
+    def wrapAtom[S, A](atom: DynamoDBColumn[A], ca: CustomAtom[S, A]): DynamoDBColumn[S] = {
+      val from = ca.from
+      val to = ca.to
+      val range = ca.range.getOrElse {
+        (from(atom.range._1), from(atom.range._2))
+      }
       DynamoDBColumn[S](
         a => atom.from(a).map(from),
         atom.to compose to,
-        atom.attributeType, (ex, nv) => atom.diff(to(ex), to(nv)), atom.sortablePart compose to, (from(lr), from(hr)))
+        atom.attributeType, (ex, nv) => atom.diff(to(ex), to(nv)), atom.sortablePart compose to, range)
     }
   }
 }
