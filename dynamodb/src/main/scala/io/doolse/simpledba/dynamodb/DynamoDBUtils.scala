@@ -7,7 +7,7 @@ import com.amazonaws.services.dynamodbv2.model.{CreateTableRequest, DeleteTableR
 import com.typesafe.config.{Config, ConfigFactory}
 import fs2.Task
 import DynamoDBIO._
-import cats.std.vector._
+import cats.instances.vector._
 import cats.syntax.all._
 import com.amazonaws.auth.profile.ProfileCredentialsProvider
 import com.amazonaws.internal.StaticCredentialsProvider

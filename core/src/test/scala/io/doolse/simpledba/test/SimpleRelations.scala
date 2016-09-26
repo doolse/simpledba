@@ -2,7 +2,7 @@ package io.doolse.simpledba.test
 
 import java.util.UUID
 
-import cats.std.vector._
+import cats.instances.vector._
 import cats.{Id, Monad, ~>}
 import io.doolse.simpledba._
 import org.scalacheck._
@@ -13,6 +13,7 @@ import cats.syntax.all._
 import shapeless.Generic
 import SimpleRelations._
 import fs2._
+import fs2.util.{Async, Catchable}
 import org.scalacheck.Test.Parameters
 
 import scala.concurrent.ExecutionContext
@@ -56,7 +57,7 @@ object SimpleRelations {
   }
 }
 
-abstract class SimpleRelations[F[_] : Async](name: String)(implicit M: Monad[F])
+abstract class SimpleRelations[F[_] : Catchable](name: String)(implicit M: Monad[F])
   extends AbstractRelationsProperties[F](s"$name - Relation Shapes") {
 
   def queries1: Fields1Queries[F]

@@ -1,7 +1,7 @@
 package io.doolse.simpledba.cassandra
 
 import cats.Applicative
-import cats.std.vector._
+import cats.instances.vector._
 import cats.syntax.traverse._
 import com.datastax.driver.core._
 import com.datastax.driver.core.schemabuilder.{Create, SchemaBuilder}

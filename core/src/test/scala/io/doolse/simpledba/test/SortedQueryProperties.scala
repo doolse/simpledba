@@ -4,7 +4,7 @@ import java.util.UUID
 
 import cats.Monad
 import cats.implicits._
-import fs2.Async
+import fs2.util.{Async, Catchable}
 import io.doolse.simpledba._
 import org.scalacheck.Arbitrary._
 import org.scalacheck.Prop._
@@ -17,7 +17,7 @@ import org.scalacheck.{Arbitrary, Prop, Shrink}
 case class Sortable(pk1: UUID, same: UUID, intField: Int, stringField: String, shortField: Short,
                     longField: Long, floatField: Float, doubleField: Double, uuidField: UUID)
 
-abstract class SortedQueryProperties[F[_] : Monad : Async](implicit arb: Arbitrary[Sortable]) extends AbstractRelationsProperties[F]("Sorting") {
+abstract class SortedQueryProperties[F[_] : Monad : Catchable](implicit arb: Arbitrary[Sortable]) extends AbstractRelationsProperties[F]("Sorting") {
 
   case class Queries[F[_]](writes: WriteQueries[F, Sortable],
                            int1: SortableQuery[F, Sortable, UUID],

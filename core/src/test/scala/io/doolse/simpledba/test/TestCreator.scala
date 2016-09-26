@@ -3,8 +3,8 @@ package io.doolse.simpledba.test
 import cats.Monad
 import cats.syntax.all._
 import io.doolse.simpledba._
-import cats.std.list._
-import cats.std.option._
+import cats.instances.list._
+import cats.instances.option._
 import fs2.util.Catchable
 
 /**

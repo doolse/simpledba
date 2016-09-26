@@ -2,10 +2,11 @@ package io.doolse.simpledba
 
 import cats.{Applicative, Functor, Monad, Traverse}
 import cats.syntax.all._
+import cats.instances.vector._
 import shapeless.ops.hlist.Prepend
 import shapeless._
-import fs2.{Async, Stream, concurrent}
-import fs2.util.Catchable
+import fs2.{Stream, concurrent}
+import fs2.util.{Async, Catchable}
 
 /**
   * Created by jolz on 21/05/16.
@@ -104,8 +105,9 @@ trait WriteQueries[F[_], T] {
 
   def update(existing: T, newValue: T): F[Boolean]
 
-  def bulkInsert(l: Seq[T], conc: Int = 8)(implicit A: Async[F]): F[Unit] = {
-    concurrent.join(conc)(Stream(l:_*).map(t => Stream.eval(insert(t)))).run
+  // TODO concurrency
+  def bulkInsert(l: Seq[T], conc: Int = 8)(implicit A: Applicative[F]): F[Unit] = {
+    l.toVector.traverse_(insert)
   }
 }
 
@@ -117,6 +119,6 @@ object WriteQueries {
 
     def update(existing: T, newValue: T): F[Boolean] = (self.update(existing, newValue) |@| other.update(existing, newValue)).map((a, b) => a || b)
 
-    override def bulkInsert(l: Seq[T], conc: Int = 8)(implicit AS: Async[F]): F[Unit] = self.bulkInsert(l) *> other.bulkInsert(l)
+    override def bulkInsert(l: Seq[T], conc: Int = 8)(implicit A: Applicative[F]): F[Unit] = self.bulkInsert(l) *> other.bulkInsert(l)
   }
 }

@@ -4,7 +4,7 @@ import java.util.UUID
 
 import cats.Monad
 import cats.implicits._
-import fs2.Async
+import fs2.util.{Async, Catchable}
 import io.doolse.simpledba._
 import org.scalacheck.{Arbitrary, Prop, Shrink}
 import org.scalacheck.Prop._
@@ -17,7 +17,7 @@ import org.scalacheck.Test.Parameters
 case class Rangeable(pk1: UUID, same: UUID, intField: Int, stringField: String, shortField: Short,
                      longField: Long, floatField: Float, doubleField: Double, uuidField: UUID)
 
-abstract class RangeQueryProperties[F[_] : Monad : Async](implicit rangeable: Arbitrary[Rangeable],
+abstract class RangeQueryProperties[F[_] : Monad : Catchable](implicit rangeable: Arbitrary[Rangeable],
                                                           arbRange: Arbitrary[FilterRange[Rangeable]])
   extends AbstractRelationsProperties[F]("Ranges") {
 
