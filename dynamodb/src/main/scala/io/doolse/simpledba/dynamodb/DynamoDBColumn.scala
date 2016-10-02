@@ -12,7 +12,7 @@ import scala.collection.JavaConverters._
 
 case class DynamoDBColumn[T](from: Option[AttributeValue] => Option[T], to: T => AttributeValue,
                              attributeType: ScalarAttributeType, diff: (T, T) => AttributeValueUpdate,
-                             sortablePart: T => String, range: (T, T))
+                             sortablePart: T => String, range: Option[(T, T)])
 
 object DynamoDBColumn {
 
@@ -22,7 +22,7 @@ object DynamoDBColumn {
   def putUpdate[T](to: T => AttributeValue)(oldV: T, newV: T) = new AttributeValueUpdate(to(newV), AttributeAction.PUT)
 
   def create[T](from: AttributeValue => T, to: T => AttributeValue, sortablePart: T => String, range: (T, T), attr: ScalarAttributeType)
-  = DynamoDBColumn(_.map(from), to, attr, putUpdate(to), sortablePart, range)
+  = DynamoDBColumn(_.map(from), to, attr, putUpdate(to), sortablePart, Some(range))
 
   implicit val boolColumn = create[Boolean](_.getBOOL, b => new AttributeValue().withBOOL(b),
     b => if (b) "1" else "0", (false, true), ScalarAttributeType.S)
@@ -98,7 +98,7 @@ object DynamoDBColumn {
       to,
       wrapped.attributeType,
       updateOption,
-      oA => oA.map(wrapped.sortablePart).getOrElse(""), wrapped.range match {
+      oA => oA.map(wrapped.sortablePart).getOrElse(""), wrapped.range map {
         case (a, b) => (Some(a), Some(b))
       })
   }
