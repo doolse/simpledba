@@ -109,6 +109,10 @@ trait WriteQueries[F[_], T] {
   def bulkInsert(l: Seq[T], conc: Int = 8)(implicit A: Applicative[F]): F[Unit] = {
     l.toVector.traverse_(insert)
   }
+
+  def bulkDelete(l: Seq[T], conc: Int = 8)(implicit A: Applicative[F]): F[Unit] = {
+    l.toVector.traverse_(delete)
+  }
 }
 
 object WriteQueries {
