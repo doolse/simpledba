@@ -5,6 +5,7 @@ import org.scalacheck.Arbitrary.arbString
 import io.doolse.simpledba.{BuiltQueries, Exclusive, FilterRange, Inclusive}
 import io.doolse.simpledba.dynamodb.DynamoDBMapper._
 import io.doolse.simpledba.dynamodb.{DynamoDBColumn, DynamoDBMapper, DynamoDBSession, DynamoDBUtils}
+import io.doolse.simpledba.dynamodb.DynamoDBIO._
 import io.doolse.simpledba.test.Rangeable
 import org.scalacheck.Arbitrary
 import org.scalacheck.derive.MkArbitrary

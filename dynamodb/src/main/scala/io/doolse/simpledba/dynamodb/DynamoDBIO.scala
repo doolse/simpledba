@@ -4,8 +4,7 @@ import com.amazonaws.AmazonWebServiceRequest
 import com.amazonaws.handlers.AsyncHandler
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBAsync
 import com.amazonaws.services.dynamodbv2.model._
-import fs2.Strategy
-import fs2.Task
+import fs2.{Scheduler, Strategy, Task}
 import io.doolse.simpledba.dynamodb.DynamoDBIO._
 
 import scala.concurrent.ExecutionContext
@@ -15,6 +14,7 @@ import scala.concurrent.ExecutionContext
   */
 object DynamoDBIO {
   implicit val strat = Strategy.fromExecutionContext(ExecutionContext.global)
+  implicit val scheduler = Scheduler.fromFixedDaemonPool(4)
 
   type AsyncCall[R <: AmazonWebServiceRequest, A] = AmazonDynamoDBAsync => (R, AsyncHandler[R, A]) => java.util.concurrent.Future[A]
 
@@ -34,6 +34,7 @@ object DynamoDBIO {
   val deleteItemAsync: AsyncCall[DeleteItemRequest, DeleteItemResult] = _.deleteItemAsync
   val putItemAsync: AsyncCall[PutItemRequest, PutItemResult] = _.putItemAsync
   val updateItemAsync: AsyncCall[UpdateItemRequest, UpdateItemResult] = _.updateItemAsync
+  val describeTableAsync: AsyncCall[DescribeTableRequest, DescribeTableResult] = _.describeTableAsync
   val listTablesAsync: AsyncCall[ListTablesRequest, ListTablesResult] = _.listTablesAsync
   val deleteTableAsync: AsyncCall[DeleteTableRequest, DeleteTableResult] = _.deleteTableAsync
   val createTableAsync: AsyncCall[CreateTableRequest, CreateTableResult] = _.createTableAsync

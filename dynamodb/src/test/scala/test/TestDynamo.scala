@@ -5,6 +5,7 @@ import com.amazonaws.services.dynamodbv2.{AmazonDynamoDBAsync, AmazonDynamoDBAsy
 import io.doolse.simpledba.dynamodb.stdImplicits._
 import io.doolse.simpledba.dynamodb.{DynamoDBMapper, DynamoDBSession, DynamoDBUtils}
 import io.doolse.simpledba.test.TestCreator
+import io.doolse.simpledba.dynamodb.DynamoDBIO._
 /**
   * Created by jolz on 10/05/16.
   */
