@@ -75,9 +75,9 @@ case object NoRange extends RangeValue[Nothing] { def fold[B](i: B, x: B) = None
 case class Inclusive[A](a: A) extends RangeValue[A] { def fold[B](i: B, x: B) = Some((a, i)) }
 case class Exclusive[A](a: A) extends RangeValue[A] { def fold[B](i: B, x: B) = Some((a, x)) }
 
-case class UniqueQuery[F[_], T, Key](query: Key => Stream[F, T], queryAll: Stream[F, T]) {
-  def apply(kv: Key) = query(kv)
-  def as[K](implicit vc: ValueConvert[K, Key]) = copy[F, T, K](query = query compose vc)
+case class UniqueQuery[F[_], T, Key](query: Stream[F, Key] => Stream[F, T], queryAll: Stream[F, T]) {
+  def apply(kv: Key) = query(Stream.apply[F, Key](kv))
+  def as[K](implicit vc: ValueConvert[K, Key]) = copy[F, T, K](query = query.compose(_.map(vc)))
 }
 
 case class SortableQuery[F[_], T, Key](ascending: Option[Boolean], _q: (Key, Option[Boolean]) => Stream[F, T]) {

@@ -31,6 +31,7 @@ object DynamoDBIO {
   val queryAsync: AsyncCall[QueryRequest, QueryResult] = _.queryAsync
   val scanAsync: AsyncCall[ScanRequest, ScanResult] = _.scanAsync
   val getItemAsync: AsyncCall[GetItemRequest, GetItemResult] = _.getItemAsync
+  val batchGetItemAsync: AsyncCall[BatchGetItemRequest, BatchGetItemResult] = _.batchGetItemAsync
   val deleteItemAsync: AsyncCall[DeleteItemRequest, DeleteItemResult] = _.deleteItemAsync
   val putItemAsync: AsyncCall[PutItemRequest, PutItemResult] = _.putItemAsync
   val updateItemAsync: AsyncCall[UpdateItemRequest, UpdateItemResult] = _.updateItemAsync

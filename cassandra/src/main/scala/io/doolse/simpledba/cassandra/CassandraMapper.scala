@@ -188,9 +188,13 @@ object MapQuery extends Poly2 {
         Stream.eval[Effect, ResultSet] { ReaderT { s => s.prepareAndBind(selectAll, Seq.empty) } }
       )
 
-      def doQuery(v: PKV): Stream[Effect, T] = rsStream (
-        Stream.eval[Effect, ResultSet] { ReaderT { s => s.prepareAndBind(select, valsToBinding(pkPhysV(v))) } }
-      )
+      def doQuery(sv: Stream[Effect, PKV]): Stream[Effect, T] = sv.flatMap { v =>
+        rsStream(
+          Stream.eval[Effect, ResultSet] {
+            ReaderT { s => s.prepareAndBind(select, valsToBinding(pkPhysV(v))) }
+          }
+        )
+      }
       UniqueQuery[Effect, T, PKV](doQuery, queryAll)
     })
   }

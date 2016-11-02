@@ -58,6 +58,17 @@ object DynamoDBMapper {
       else chunk ++ scanResultStream(qr.withExclusiveStartKey(result.getLastEvaluatedKey))
     }
   }
+
+  def batchResultStream(qr: BatchGetItemRequest): Stream[Effect, (String, java.util.Map[String, AttributeValue])] = {
+    Stream.eval[Effect, BatchGetItemResult](ReaderT {
+      _.request(batchGetItemAsync, qr)
+    }).flatMap { result =>
+      val chunk = Stream.chunk(Chunk.seq(result.getResponses.asScala.toSeq.flatMap { case (t,l) => l.asScala.map(i => (t, i)) }))
+      if (result.getUnprocessedKeys.isEmpty) chunk
+      else chunk ++ batchResultStream(qr.withRequestItems(result.getUnprocessedKeys))
+    }
+  }
+
 }
 
 trait QueryParam {
@@ -297,12 +308,15 @@ object mapQuery extends Poly2 {
       }
       val pkIndexes = dt.pkNames.map(pkNames.indexOf)
       val skIndexes = dt.skNames.map(pkNames.indexOf)
-      def doQuery(v: PKV): Stream[Effect, T] = {
-        Stream.eval[Effect, GetItemResult](ReaderT { s =>
+      def doQuery(sv: Stream[Effect, PKV]): Stream[Effect, T] = sv.vectorChunkN(32).flatMap { vv =>
+        val keyAndAttrs = new KeysAndAttributes()
+        vv.foreach { v =>
           val pkOrigSeq = pkVals(v)
           val fullKeySeq = Seq(dt.realPK(pkIndexes.map(pkOrigSeq))) ++ dt.fullSK(false, skIndexes.map(pkOrigSeq))
-          s.request(getItemAsync, new GetItemRequest(tableName, asAttrMap(fullKeySeq))) }).flatMap {
-          gir => Option(gir.getItem).map(createMaterializer).flatMap(dt.materializer).map(Stream.emit).getOrElse(Stream.empty)
+          keyAndAttrs.withKeys(asAttrMap(fullKeySeq))
+        }
+        batchResultStream(new BatchGetItemRequest(Map(tableName -> keyAndAttrs).asJava)).map(_._2).map(createMaterializer).map(dt.materializer).collect {
+          case Some(a) => a
         }
       }
       UniqueQuery[Effect, T, PKV](doQuery, scanAll)
