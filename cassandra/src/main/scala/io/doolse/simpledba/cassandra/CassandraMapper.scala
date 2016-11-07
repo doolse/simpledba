@@ -111,11 +111,14 @@ object CassandraTableBuilder {
           def insertWithVals(vals: Seq[PhysicalValue[CassandraColumn]], s: CassandraSession) =
             s.prepareAndBind(insertQ, valsToBinding(vals)).map(_ => ())
 
-          def delete(t: T): Effect[Unit] = ReaderT { s => deleteWithKey(helper.extractKey(t), s) }
+          def bulkDelete(ts: Stream[Effect, T]): Effect[Unit] = ts.evalMap { t => ReaderT
+          { s : CassandraSession => deleteWithKey(helper.extractKey(t), s) } } run
 
-          def insert(t: T): Effect[Unit] = ReaderT { cs =>
-            insertWithVals(helper.toPhysicalValues(t), cs)
-          }
+          def bulkInsert(ts: Stream[Effect, T]): Effect[Unit] = ts.evalMap { t =>
+            ReaderT { cs : CassandraSession =>
+              insertWithVals(helper.toPhysicalValues(t), cs)
+            }
+          } run
 
           def update(existing: T, newValue: T): Effect[Boolean] = ReaderT { s =>
             helper.changeChecker(existing, newValue).map {

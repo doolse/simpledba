@@ -59,13 +59,22 @@ object DynamoDBMapper {
     }
   }
 
-  def batchResultStream(qr: BatchGetItemRequest): Stream[Effect, (String, java.util.Map[String, AttributeValue])] = {
+  def batchGetResultStream(qr: BatchGetItemRequest): Stream[Effect, (String, java.util.Map[String, AttributeValue])] = {
     Stream.eval[Effect, BatchGetItemResult](ReaderT {
       _.request(batchGetItemAsync, qr)
     }).flatMap { result =>
       val chunk = Stream.chunk(Chunk.seq(result.getResponses.asScala.toSeq.flatMap { case (t,l) => l.asScala.map(i => (t, i)) }))
       if (result.getUnprocessedKeys.isEmpty) chunk
-      else chunk ++ batchResultStream(qr.withRequestItems(result.getUnprocessedKeys))
+      else chunk ++ batchGetResultStream(qr.withRequestItems(result.getUnprocessedKeys))
+    }
+  }
+
+  def batchWriteResultStream(qr: BatchWriteItemRequest): Stream[Effect, Unit] = {
+    Stream.eval[Effect, BatchWriteItemResult](ReaderT {
+      _.request(batchWriteItemAsync, qr)
+    }).flatMap { result =>
+      if (result.getUnprocessedItems.isEmpty) Stream.emit()
+      else batchWriteResultStream(qr.withRequestItems(result.getUnprocessedItems))
     }
   }
 
@@ -191,13 +200,15 @@ object DynamoTableBuilder {
         def extraFields(key: PKV :: SKV :: HNil): Seq[PhysicalValue[DynamoDBColumn]] = compositeValue(PK, helper.physPkColumns(key.head)).toSeq ++
           compositeValue(SK, helper.physSkColumns(key.tail.head))
 
-        def delete(t: T): Effect[Unit] = ReaderT {
-          _.request(deleteItemAsync, new DeleteItemRequest(tableName, keysAsAttributes(helper.extractKey(t)))).map(_ => ())
-        }
+        def bulkDelete(t: Stream[Effect, T]): Effect[Unit] = t.vectorChunkN(25).flatMap { dels =>
+          val wrs = dels.map(t => new WriteRequest(new DeleteRequest(keysAsAttributes(helper.extractKey(t)))))
+          batchWriteResultStream(new BatchWriteItemRequest(Map(tableName -> wrs.asJava).asJava))
+        } run
 
-        def insert(t: T): Effect[Unit] = ReaderT {
-          _.request(putItemAsync, new PutItemRequest(tableName, asAttrMap(toPhysicalValues(t)))).map(_ => ())
-        }
+        def bulkInsert(t: Stream[Effect, T]): Effect[Unit] = t.vectorChunkN(25).flatMap { dels =>
+          val wrs = dels.map(t => new WriteRequest(new PutRequest(asAttrMap(toPhysicalValues(t)))))
+          batchWriteResultStream(new BatchWriteItemRequest(Map(tableName -> wrs.asJava).asJava))
+        } run
 
         def update(existing: T, newValue: T): Effect[Boolean] = ReaderT { s =>
           helper.changeChecker(existing, newValue).map {
@@ -315,7 +326,7 @@ object mapQuery extends Poly2 {
           val fullKeySeq = Seq(dt.realPK(pkIndexes.map(pkOrigSeq))) ++ dt.fullSK(false, skIndexes.map(pkOrigSeq))
           keyAndAttrs.withKeys(asAttrMap(fullKeySeq))
         }
-        batchResultStream(new BatchGetItemRequest(Map(tableName -> keyAndAttrs).asJava)).map(_._2).map(createMaterializer).map(dt.materializer).collect {
+        batchGetResultStream(new BatchGetItemRequest(Map(tableName -> keyAndAttrs).asJava)).map(_._2).map(createMaterializer).map(dt.materializer).collect {
           case Some(a) => a
         }
       }

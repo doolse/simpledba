@@ -33,6 +33,7 @@ object DynamoDBIO {
   val getItemAsync: AsyncCall[GetItemRequest, GetItemResult] = _.getItemAsync
   val batchGetItemAsync: AsyncCall[BatchGetItemRequest, BatchGetItemResult] = _.batchGetItemAsync
   val deleteItemAsync: AsyncCall[DeleteItemRequest, DeleteItemResult] = _.deleteItemAsync
+  val batchWriteItemAsync: AsyncCall[BatchWriteItemRequest, BatchWriteItemResult] = _.batchWriteItemAsync
   val putItemAsync: AsyncCall[PutItemRequest, PutItemResult] = _.putItemAsync
   val updateItemAsync: AsyncCall[UpdateItemRequest, UpdateItemResult] = _.updateItemAsync
   val describeTableAsync: AsyncCall[DescribeTableRequest, DescribeTableResult] = _.describeTableAsync

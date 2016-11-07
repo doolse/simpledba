@@ -10,6 +10,7 @@ import org.scalacheck.Arbitrary._
 import org.scalacheck.Prop._
 import org.scalacheck.Test.Parameters
 import org.scalacheck.{Arbitrary, Prop, Shrink}
+import fs2.Stream
 
 /**
   * Created by jolz on 21/06/16.
@@ -58,14 +59,14 @@ abstract class SortedQueryProperties[F[_] : Monad : Catchable](implicit arb: Arb
 
   val queries: Queries[F]
 
-  implicit val shrinkSortable = Shrink[Sortable](_ => Stream.empty)
+  implicit val shrinkSortable = Shrink[Sortable](_ => scala.Stream.empty)
 
   case class OrderQuery[A](lens: Sortable => A, query: SortableQuery[F, Sortable, UUID])(implicit val o: Ordering[A])
 
   def checkOrder[A](same: UUID, v: Vector[Sortable], sortQ: Seq[(String, OrderQuery[_])]) = {
     val vSame = v.map(_.copy(same = same))
     for {
-      _ <- queries.writes.bulkInsert(vSame)
+      _ <- queries.writes.bulkInsert(Stream(vSame: _*))
       p = sortQ.map {
         case (name, oq @ OrderQuery(lens, q)) => run(for {
           ascend <- q.queryWithOrder(same, asc = true).map(lens).runLog

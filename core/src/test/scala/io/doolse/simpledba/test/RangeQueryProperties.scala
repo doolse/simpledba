@@ -5,6 +5,7 @@ import java.util.UUID
 import cats.Monad
 import cats.implicits._
 import fs2.util.{Async, Catchable}
+import fs2.Stream
 import io.doolse.simpledba._
 import org.scalacheck.{Arbitrary, Prop, Shrink}
 import org.scalacheck.Prop._
@@ -60,8 +61,8 @@ abstract class RangeQueryProperties[F[_] : Monad : Catchable](implicit rangeable
 
   val queries: Queries[F]
 
-  implicit val shrinkRange = Shrink[Rangeable](_ => Stream.empty)
-  implicit val shrinkRangeVal = Shrink[FilterRange[Rangeable]](_ => Stream.empty)
+  implicit val shrinkRange = Shrink[Rangeable](_ => scala.Stream.empty)
+  implicit val shrinkRangeVal = Shrink[FilterRange[Rangeable]](_ => scala.Stream.empty)
 
   case class RangeCheck[A](lens: Rangeable => A, query: RangeQuery[F, Rangeable, UUID, A])(implicit val o: Ordering[A])
 
@@ -90,7 +91,7 @@ abstract class RangeQueryProperties[F[_] : Monad : Catchable](implicit rangeable
     }
 
     for {
-      _ <- queries.writes.bulkInsert(vSame)
+      _ <- queries.writes.bulkInsert(Stream(vSame : _*))
       p = rangeQ.map {
         case (name, oq) => processRangeCheck(name, oq)
       }

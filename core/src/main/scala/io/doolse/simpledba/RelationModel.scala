@@ -99,30 +99,23 @@ case class RangeQuery[F[_], T, Key, Sort](ascending: Option[Boolean], _q: (Key, 
 
 trait WriteQueries[F[_], T] {
   self =>
-  def delete(t: T): F[Unit]
+  def delete(t: T): F[Unit] = bulkDelete(Stream(t))
 
-  def insert(t: T): F[Unit]
+  def insert(t: T): F[Unit] = bulkInsert(Stream(t))
 
   def update(existing: T, newValue: T): F[Boolean]
 
-  // TODO concurrency
-  def bulkInsert(l: Seq[T], conc: Int = 8)(implicit A: Applicative[F]): F[Unit] = {
-    l.toVector.traverse_(insert)
-  }
+  def bulkInsert(l: Stream[F, T]): F[Unit]
 
-  def bulkDelete(l: Seq[T], conc: Int = 8)(implicit A: Applicative[F]): F[Unit] = {
-    l.toVector.traverse_(delete)
-  }
+  def bulkDelete(l: Stream[F, T]): F[Unit]
 }
 
 object WriteQueries {
   def combine[F[_], T](self: WriteQueries[F, T], other: WriteQueries[F, T])(implicit A: Applicative[F]) = new WriteQueries[F, T] {
-    def delete(t: T): F[Unit] = self.delete(t) *> other.delete(t)
-
-    def insert(t: T): F[Unit] = self.insert(t) *> other.insert(t)
-
     def update(existing: T, newValue: T): F[Boolean] = (self.update(existing, newValue) |@| other.update(existing, newValue)).map((a, b) => a || b)
 
-    override def bulkInsert(l: Seq[T], conc: Int = 8)(implicit A: Applicative[F]): F[Unit] = self.bulkInsert(l) *> other.bulkInsert(l)
+    override def bulkInsert(l: Stream[F, T]): F[Unit] = self.bulkInsert(l) *> other.bulkInsert(l)
+
+    override def bulkDelete(l: Stream[F, T]): F[Unit] = self.bulkDelete(l) *> other.bulkDelete(l)
   }
 }
