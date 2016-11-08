@@ -142,7 +142,7 @@ class DynamoDBMapper(val config: SimpleMapperConfig = defaultMapperConfig) exten
     def wrapAtom[S, A](atom: DynamoDBColumn[A], ca: CustomAtom[S, A]): DynamoDBColumn[S] = {
       val from = ca.from
       val to = ca.to
-      val range = ca.range
+      val range = atom.range.flatMap(ca.range)
       DynamoDBColumn[S](
         a => atom.from(a).map(from),
         atom.to compose to,
@@ -253,7 +253,7 @@ object DynamoTableBuilder {
       def fullSK(lower: Boolean, firstPV: Seq[PhysicalValue[DynamoDBColumn]]) = {
         def asPhysValue[A](m: ColumnMapping[DynamoDBColumn, T, A]) = {
           val a = m.atom
-          val (l, r) = a.range.get
+          val (l, r) = a.range.getOrElse(sys.error(s"Cannot user $m in sort key"))
           PhysicalValue(m.name, a, if (lower) r else l)
         }
         val allSK = firstPV ++ helper.skColumns.drop(firstPV.length).map(cm => asPhysValue(cm))

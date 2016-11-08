@@ -9,16 +9,16 @@ import shapeless.{::, DepFn0, DepFn1, Generic, HList, HNil, SingletonProductArgs
 package object simpledba {
   def embed[A] = new Embed[A]
 
-  def atom[S, A](to: S => A, from: A => S) = new CustomAtom(to, from, None)
+  def atom[S, A](to: S => A, from: A => S) = CustomAtom(to, from)
 
   def atom[S, A](gen: Generic[S])(implicit ev: gen.Repr <:< (A :: HNil), ev2: (A :: HNil) <:< gen.Repr)
-  = new CustomAtom[S, A](s => ev(gen.to(s)).head, a => gen.from(a :: HNil), None)
+  = CustomAtom[S, A](s => ev(gen.to(s)).head, a => gen.from(a :: HNil))
 
   trait PartialApplyFA[M[_]] {
     def apply[S, A](ca: CustomAtom[S, A])(implicit F: Functor[M]) : CustomAtom[M[S], M[A]]
   }
   def functorAtom[M[_]] = new PartialApplyFA[M] {
-    def apply[S, A](ca: CustomAtom[S, A])(implicit F: Functor[M]): CustomAtom[M[S], M[A]] = CustomAtom(t => F.map(t)(ca.to), f => F.map(f)(ca.from), None)
+    def apply[S, A](ca: CustomAtom[S, A])(implicit F: Functor[M]): CustomAtom[M[S], M[A]] = CustomAtom(t => F.map(t)(ca.to), f => F.map(f)(ca.from))
   }
 
   def relation[A](w: Witness) = new Relation[w.T, A, HNil]
