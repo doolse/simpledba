@@ -112,6 +112,20 @@ trait WriteQueries[F[_], T] {
   def bulkInsert(l: Stream[F, T]): F[Unit]
 
   def bulkDelete(l: Stream[F, T]): F[Unit]
+
+  def insertUpdateOrDelete(o: Option[T], n: Option[T])(implicit M: Monad[F]): F[Boolean] = (o,n) match {
+    case (Some(o), Some(n)) => update(o,n)
+    case (None, Some(n)) => M.map(insert(n))(_ => true)
+    case (Some(o), None) => M.map(delete(o))(_ => true)
+    case _ => M.pure(false)
+  }
+
+  def bulkDiff(oldVals: Set[T], newVals: Set[T])(implicit M: Monad[F]): F[Boolean] = {
+    val deletes = oldVals &~ newVals
+    val inserts = newVals &~ oldVals
+    if (deletes.isEmpty && inserts.isEmpty) M.pure(false) else
+      bulkDelete(Stream.emits(deletes.toVector)) *> bulkInsert(Stream.emits(inserts.toVector)).map(_ => true)
+  }
 }
 
 object WriteQueries {
