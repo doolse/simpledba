@@ -1,7 +1,7 @@
 package io.doolse.simpledba.cassandra
 
 import cats.Eval
-import cats.data.{ReaderT, Xor}
+import cats.data.ReaderT
 import cats.syntax.all._
 import com.datastax.driver.core.schemabuilder.{Create, SchemaBuilder}
 import com.datastax.driver.core.{DataType, ResultSet, Row}
@@ -122,8 +122,8 @@ object CassandraTableBuilder {
 
           def update(existing: T, newValue: T): Effect[Boolean] = ReaderT { s =>
             helper.changeChecker(existing, newValue).map {
-              case Xor.Right((oldKey, newKey, vals)) => deleteWithKey(oldKey, s) *> insertWithVals(vals, s)
-              case Xor.Left((fk, diff)) =>
+              case Right((oldKey, newKey, vals)) => deleteWithKey(oldKey, s) *> insertWithVals(vals, s)
+              case Left((fk, diff)) =>
                 val assignments = diff.map(vd => vd.atom.assigner(vd.name, vd.existing, vd.newValue))
                 s.prepareAndBind(updateQ.copy(assignments = assignments.map(_._1)), assignments.map(_._2) ++ keyBindings(fk))
             } map (_.map(_ => true)) getOrElse Task.now(false)

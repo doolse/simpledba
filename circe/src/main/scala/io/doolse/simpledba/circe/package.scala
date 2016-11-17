@@ -2,6 +2,7 @@ package io.doolse.simpledba
 
 import io.circe._
 import io.circe.parser.parse
+import cats.syntax.either._
 
 /**
   * Created by jolz on 3/06/16.

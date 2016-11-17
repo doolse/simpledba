@@ -1,6 +1,5 @@
 package io.doolse.simpledba
 
-import cats.data.Xor
 import shapeless.labelled._
 import shapeless.ops.hlist.{At, IsHCons, Mapper, ToList, ToTraversable, Zip, ZipWith}
 import shapeless.ops.record.{SelectAll, Selector}
@@ -76,7 +75,7 @@ trait ColumnListHelper[CA[_], T, FullKey] {
 
   def toPhysicalValues: T => Seq[PhysicalValue[CA]]
 
-  def changeChecker: (T, T) => Option[Xor[(FullKey, List[ValueDifference[CA]]), (FullKey, FullKey, List[PhysicalValue[CA]])]]
+  def changeChecker: (T, T) => Option[Either[(FullKey, List[ValueDifference[CA]]), (FullKey, FullKey, List[PhysicalValue[CA]])]]
 }
 
 trait ColumnListHelperBuilder[CA[_], T, CR <: HList, CVL <: HList, FullKey] extends DepFn2[ColumnMapper[T, CR, CVL], CVL => FullKey] {
@@ -100,14 +99,14 @@ object ColumnListHelperBuilder {
       val toPhysicalValues = colsToValues compose toColumns
       val extractKey = toColumns andThen toKeys
 
-      val changeChecker: (T, T) => Option[Xor[(FullKey, List[ValueDifference[CA]]), (FullKey, FullKey, List[PhysicalValue[CA]])]] = (existing, newValue) => {
+      val changeChecker: (T, T) => Option[Either[(FullKey, List[ValueDifference[CA]]), (FullKey, FullKey, List[PhysicalValue[CA]])]] = (existing, newValue) => {
         if (existing == newValue) None
         else Some {
           val exCols = toColumns(existing)
           val newCols = toColumns(newValue)
           val oldKey = toKeys(exCols)
           val newKey = toKeys(newCols)
-          if (oldKey == newKey) Xor.left(oldKey, differ(columns, (exCols, newCols))) else Xor.right(oldKey, newKey, colsToValues(newCols))
+          if (oldKey == newKey) Left(oldKey, differ(columns, (exCols, newCols))) else Right(oldKey, newKey, colsToValues(newCols))
         }
       }
     }

@@ -53,15 +53,13 @@ object CassandraIO {
   def executeAsync(stmt: Statement, session: Session) = asyncStmt(session.executeAsync(stmt), stmt2String(stmt))
 
   def async[A](lf: ListenableFuture[A], fromEE: ExecutionException => Throwable) = Task.async[A] { k =>
-    lf.addListener(new Runnable {
-      override def run(): Unit = k {
-        Try(lf.get()) match {
-          case Success(a) ⇒ Right(a)
-          case Failure(ee: ExecutionException) ⇒ Left(fromEE(ee))
-          case Failure(x) ⇒ Left(x)
-        }
+    lf.addListener(() => k {
+      Try(lf.get()) match {
+        case Success(a) ⇒ Right(a)
+        case Failure(ee: ExecutionException) ⇒ Left(fromEE(ee))
+        case Failure(x) ⇒ Left(x)
       }
-    }, Implicits.global)
+    }, ExecutionContext.global)
   }
 
   def asyncStmt[A](lf: ListenableFuture[A], stmt: => String) =

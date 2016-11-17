@@ -85,6 +85,11 @@ object DynamoDBColumn {
       s => new AttributeValue(fixEmpty(s.toList).asJava), _.toString(), (Vector.empty, Vector.empty), ScalarAttributeType.S)
   }
 
+  implicit def uuidMapColumn[A](implicit valColumn: DynamoDBColumn[A]) = {
+    create[Map[UUID, A]](v => v.getM.asScala.map { case (k,v) => (UUID.fromString(k), valColumn.from(Some(v)).get)}.toMap,
+      { m => new AttributeValue() }, _.toString, (Map.empty, Map.empty), ScalarAttributeType.S)
+  }
+
   implicit def optionColumn[A](implicit wrapped: DynamoDBColumn[A]) = {
 
     def to(oA: Option[A]) = oA.map(wrapped.to).getOrElse(new AttributeValue().withNULL(true))

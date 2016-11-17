@@ -1,6 +1,6 @@
 package io.doolse.simpledba.dynamodb
 
-import cats.data.{ReaderT, Xor}
+import cats.data.ReaderT
 import com.amazonaws.services.dynamodbv2.model.{Stream => _, _}
 import fs2._
 import fs2.interop.cats._
@@ -212,10 +212,10 @@ object DynamoTableBuilder {
 
         def update(existing: T, newValue: T): Effect[Boolean] = ReaderT { s =>
           helper.changeChecker(existing, newValue).map {
-            case Xor.Left((k, changes)) =>
+            case Left((k, changes)) =>
               s.request(updateItemAsync, new UpdateItemRequest(tableName, keysAsAttributes(k),
                 changes.map(c => asValueUpdate(c)).toMap.asJava))
-            case Xor.Right((oldKey, newk, vals)) =>
+            case Right((oldKey, newk, vals)) =>
               s.request(deleteItemAsync, new DeleteItemRequest(tableName, keysAsAttributes(oldKey))) <*
                 s.request(putItemAsync, new PutItemRequest(tableName, asAttrMap(vals ++ extraFields(newk))))
           } map (_.map(_ => true)) getOrElse Task.now(false)
