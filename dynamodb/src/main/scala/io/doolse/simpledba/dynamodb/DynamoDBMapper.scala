@@ -179,7 +179,7 @@ object DynamoTableBuilder {
 
 
       def compositeValue(prefix: String, vals: Seq[PhysicalValue[DynamoDBColumn]]): Option[PhysicalValue[DynamoDBColumn]] = if (vals.length > 1) {
-        Some(PhysicalValue(prefix + "_Composite", DynamoDBColumn.stringColumn, vals.map(pv => pv.atom.asInstanceOf[DynamoDBKeyColumn[pv.A]].sortablePart(pv.v)).mkString(",")))
+        Some(PhysicalValue(prefix + "_Composite", DynamoDBColumn.stringColumn, vals.map(pv => pv.atom.asInstanceOf[DynamoDBSortableColumn[pv.A]].sortablePart(pv.v)).mkString(",")))
       } else None
 
 
@@ -222,7 +222,7 @@ object DynamoTableBuilder {
 
         val keyColumn = pkAtom
         val sortKeyList = skAtom
-        val sortDef = (List(keyColumn) ++ sortKeyList).map(c => new AttributeDefinition(c.name, c.atom.asInstanceOf[DynamoDBKeyColumn[_]].attributeType))
+        val sortDef = (List(keyColumn) ++ sortKeyList).map(c => new AttributeDefinition(c.name, c.atom.asInstanceOf[DynamoDBScalarColumn[_]].attributeType))
         val keyDef = new KeySchemaElement(keyColumn.name, KeyType.HASH)
         val sortKeyDef = sortKeyList.map(c => new KeySchemaElement(c.name, KeyType.RANGE))
         new CreateTableRequest(sortDef.asJava, tableName, (List(keyDef) ++ sortKeyDef).asJava, new ProvisionedThroughput(1L, 1L))
@@ -240,7 +240,7 @@ object DynamoTableBuilder {
 
       def fullSK(lower: Boolean, firstPV: Seq[PhysicalValue[DynamoDBColumn]]) = {
         def asPhysValue[A](m: ColumnMapping[DynamoDBColumn, T, A]) = {
-          val a = m.atom.asInstanceOf[DynamoDBKeyColumn[T]]
+          val a = m.atom.asInstanceOf[DynamoDBSortableColumn[T]]
           val (l, r) = a.range
           PhysicalValue[DynamoDBColumn, T](m.name, a, if (lower) r else l)
         }
