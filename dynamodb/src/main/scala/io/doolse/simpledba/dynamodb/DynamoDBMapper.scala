@@ -34,8 +34,8 @@ object DynamoDBMapper {
   }
 
   def createMaterializer(m: java.util.Map[String, AttributeValue]) = new ColumnMaterialzer[DynamoDBColumn] {
-    def apply[A](name: String, atom: DynamoDBColumn[A]): Option[A] = {
-      atom.from(Option(m.get(name)))
+    def apply[A](name: String, atom: DynamoDBColumn[A]): A = {
+      atom.from(Option(m.get(name))).getOrElse(atom.default)
     }
   }
 
@@ -137,18 +137,6 @@ class DynamoDBMapper(val config: SimpleMapperConfig = defaultMapperConfig) exten
   type DDLStatement = DynamoDBDDL
   type KeyMapperPoly = DynamoDBKeyMapper.type
   type QueriesPoly = DynamoDBQueries.type
-
-  val stdColumnMaker = new MappingCreator[DynamoDBColumn] {
-    def wrapAtom[S, A](atom: DynamoDBColumn[A], ca: CustomAtom[S, A]): DynamoDBColumn[S] = {
-      val from = ca.from
-      val to = ca.to
-      val range = atom.range.flatMap(ca.range)
-      DynamoDBColumn[S](
-        a => atom.from(a).map(from),
-        atom.to compose to,
-        atom.attributeType, (ex, nv) => atom.diff(to(ex), to(nv)), atom.sortablePart compose to, range)
-    }
-  }
 }
 
 trait DynamoTable[T] extends KeyBasedTable {
@@ -160,7 +148,7 @@ trait DynamoTable[T] extends KeyBasedTable {
 
   def skNames: Seq[String]
 
-  def materializer: ColumnMaterialzer[DynamoDBColumn] => Option[T]
+  def materializer: ColumnMaterialzer[DynamoDBColumn] => T
 
   def realPK(logical: Seq[PhysicalValue[DynamoDBColumn]]): PhysicalValue[DynamoDBColumn]
 
@@ -191,7 +179,7 @@ object DynamoTableBuilder {
 
 
       def compositeValue(prefix: String, vals: Seq[PhysicalValue[DynamoDBColumn]]): Option[PhysicalValue[DynamoDBColumn]] = if (vals.length > 1) {
-        Some(PhysicalValue(prefix + "_Composite", DynamoDBColumn.stringColumn, vals.map(pv => pv.atom.sortablePart(pv.v)).mkString(",")))
+        Some(PhysicalValue(prefix + "_Composite", DynamoDBColumn.stringColumn, vals.map(pv => pv.atom.asInstanceOf[DynamoDBKeyColumn[pv.A]].sortablePart(pv.v)).mkString(",")))
       } else None
 
 
@@ -234,7 +222,7 @@ object DynamoTableBuilder {
 
         val keyColumn = pkAtom
         val sortKeyList = skAtom
-        val sortDef = (List(keyColumn) ++ sortKeyList).map(c => new AttributeDefinition(c.name, c.atom.attributeType))
+        val sortDef = (List(keyColumn) ++ sortKeyList).map(c => new AttributeDefinition(c.name, c.atom.asInstanceOf[DynamoDBKeyColumn[_]].attributeType))
         val keyDef = new KeySchemaElement(keyColumn.name, KeyType.HASH)
         val sortKeyDef = sortKeyList.map(c => new KeySchemaElement(c.name, KeyType.RANGE))
         new CreateTableRequest(sortDef.asJava, tableName, (List(keyDef) ++ sortKeyDef).asJava, new ProvisionedThroughput(1L, 1L))
@@ -245,16 +233,16 @@ object DynamoTableBuilder {
 
       val skNames: Seq[String] = helper.skColumns.map(_.name)
 
-      def materializer: (ColumnMaterialzer[DynamoDBColumn]) => Option[T] = helper.materializer
+      def materializer: (ColumnMaterialzer[DynamoDBColumn]) => T = helper.materializer
 
       def realPK(logical: Seq[PhysicalValue[DynamoDBColumn]]): PhysicalValue[DynamoDBColumn] =
         compositeValue(PK, logical).orElse(logical.headOption).get
 
       def fullSK(lower: Boolean, firstPV: Seq[PhysicalValue[DynamoDBColumn]]) = {
         def asPhysValue[A](m: ColumnMapping[DynamoDBColumn, T, A]) = {
-          val a = m.atom
-          val (l, r) = a.range.getOrElse(sys.error(s"Cannot user $m in sort key"))
-          PhysicalValue(m.name, a, if (lower) r else l)
+          val a = m.atom.asInstanceOf[DynamoDBKeyColumn[T]]
+          val (l, r) = a.range
+          PhysicalValue[DynamoDBColumn, T](m.name, a, if (lower) r else l)
         }
         val allSK = firstPV ++ helper.skColumns.drop(firstPV.length).map(cm => asPhysValue(cm))
         compositeValue(SK, allSK).orElse(allSK.headOption)
@@ -314,9 +302,7 @@ object mapQuery extends Poly2 {
     def pkMatch[T](table: DynamoTable[T]) = (table.pkNames ++ table.skNames).toSet == pkNamesSet
     QueryCreate[DynamoTable[T], UniqueQuery[Effect, T, PKV]](pkMatch, q.nameHint, { (tableName, dt) =>
       val columns = rd.columns
-      val scanAll = scanResultStream(new ScanRequest(tableName)).map(createMaterializer).map(dt.materializer).collect {
-        case Some(a) => a
-      }
+      val scanAll = scanResultStream(new ScanRequest(tableName)).map(createMaterializer).map(dt.materializer)
       val pkIndexes = dt.pkNames.map(pkNames.indexOf)
       val skIndexes = dt.skNames.map(pkNames.indexOf)
       def doQuery(sv: Stream[Effect, PKV]): Stream[Effect, T] = sv.vectorChunkN(32).flatMap { vv =>
@@ -326,9 +312,7 @@ object mapQuery extends Poly2 {
           val fullKeySeq = Seq(dt.realPK(pkIndexes.map(pkOrigSeq))) ++ dt.fullSK(false, skIndexes.map(pkOrigSeq))
           keyAndAttrs.withKeys(asAttrMap(fullKeySeq))
         }
-        batchGetResultStream(new BatchGetItemRequest(Map(tableName -> keyAndAttrs).asJava)).map(_._2).map(createMaterializer).map(dt.materializer).collect {
-          case Some(a) => a
-        }
+        batchGetResultStream(new BatchGetItemRequest(Map(tableName -> keyAndAttrs).asJava)).map(_._2).map(createMaterializer).map(dt.materializer)
       }
       UniqueQuery[Effect, T, PKV](doQuery, scanAll)
     })
@@ -356,9 +340,7 @@ object mapQuery extends Poly2 {
         val matcher = KeyMatch(table.realPK(pkVals(c)), doRange(false, ">=", ">", lr), doRange(true, "<=", "<", ur))
         val qr = matcher.forRequest(new QueryRequest(tn))
         val qr2 = asc.map(a => qr.withScanIndexForward(a)).getOrElse(qr)
-        resultStream(qr2).map(map => table.materializer(createMaterializer(map))).collect {
-          case Some(a) => a
-        }
+        resultStream(qr2).map(map => table.materializer(createMaterializer(map)))
       }
       RangeQuery(None, doQuery)
     })

@@ -46,17 +46,7 @@ object ColumnListVerifier extends ColumnListVerifierLP {
   = ColumnListVerifier[C, H :: T](hv.errors ++ tv.errors)
 }
 
-import ColumnMapperVerifier._
-
-trait ColumnMapperVerifierLP {
-
-  implicit def noAtomColumn[CA[_], E, S, A](implicit at: ClassTag[A], o: ClassTag[S])
-  = verError[CA, E, CustomAtom[S, A]](
-    s"${o.runtimeClass.getName} has no atom for ${at.runtimeClass.getName}"
-  )
-}
-
-object ColumnMapperVerifier extends ColumnMapperVerifierLP {
+object ColumnMapperVerifier {
   type Aux[Context, In, ContextOut0] = ColumnMapperVerifier[Context, In] {
     type ContextOut = ContextOut0
   }
@@ -97,9 +87,6 @@ object ColumnMapperVerifier extends ColumnMapperVerifierLP {
 
   implicit def hconsVerify[C, C2, C3, H, T <: HList](implicit hv: ColumnMapperVerifier.Aux[C, H, C2], tv: ColumnMapperVerifier.Aux[C2, T, C3])
   = ColumnMapperVerifier[C, H :: T, C3](hv.errors ++ tv.errors)
-
-  implicit def foundUnderlyingColumn[CA[_], E <: HList, EOut <: HList, S, A]
-  (implicit uc: CA[A]) = success[CA, E, S :: E, CustomAtom[S, A]]
 }
 
 object ClassNames {

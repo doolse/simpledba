@@ -28,10 +28,6 @@ object MapAllRelations {
 
   private object columnMapAll extends Poly2 {
 
-    implicit def customAtom[S, A, E <: HList, R <: HList, CA[_]] = at[CustomAtom[S, A], MapAllContext[E, R, CA]] {
-      case (custom, mapContext) => mapContext.changeEmbedding(m => field[S](custom) :: m)
-    }
-
     implicit def embed[A, E <: HList, R <: HList, C <: HList, CV <: HList, CA[_]](implicit gm: GenericMapping.Aux[A, CA, E, C, CV])
     = at[Embed[A], MapAllContext[E, R, CA]] {
       case (_, ctx) => MapAllContext(gm.embed(ctx.ctx), ctx.relations)

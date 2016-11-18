@@ -43,9 +43,7 @@ object ColumnsComposed {
   }
 }
 
-trait MappingCreator[ColumnAtom[_]] {
-  def wrapAtom[S, A](atom: ColumnAtom[A], customAtom: CustomAtom[S, A]): ColumnAtom[S]
-
+class MappingCreator[ColumnAtom[_]] {
   def makeMapping[S, A](name: String, atom: ColumnAtom[A], get: S => A) = ColumnMapping(name, atom, get)
 
   def composer[S, S2](f: S2 => S): ColumnComposer[S, S2] = new ColumnComposer[S, S2] {
@@ -76,20 +74,6 @@ trait ColumnMapperBuilderLP {
     new ColumnMapper(composer(otherMapper.columns, t.ops.composer(identity)),
       cv => field[K](otherMapper.fromColumns(cv)),
       fld => otherMapper.toColumns(fld: V))
-  }
-
-  implicit def singleIsoColumn[CA[_], E <: HList, K <: Symbol, V, A,
-  VCM, C0 <: HList, CV0 <: HList, CZ <: HList, COut <: HList]
-  (implicit
-   selectMapping: Selector.Aux[E, V, VCM],
-   cname: Witness.Aux[K],
-   ev: VCM <:< CustomAtom[V, A],
-   atom: CA[A]
-  ) = ColumnMapperBuilder.mapper[FieldType[K, V], ColumnMapperContext[CA, E], FieldType[K, ColumnMapping[CA, FieldType[K, V], V]] :: HNil, V :: HNil] { t =>
-    val ca = ev(selectMapping(t.embeddedMappings))
-    new ColumnMapper(field[K](t.ops.makeMapping(cname.value.name, t.ops.wrapAtom(atom, ca), (f: FieldType[K, V]) => f: V)) :: HNil,
-      cv => field[K](cv.head),
-      fld => (fld: V) :: HNil)
   }
 }
 

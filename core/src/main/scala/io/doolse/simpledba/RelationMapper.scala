@@ -46,7 +46,13 @@ abstract class RelationMapper[F[_]] {
 
   val config: MapperConfig
 
-  def stdColumnMaker: MappingCreator[ColumnAtom]
+  def makeMapping[S, A](name: String, atom: ColumnAtom[A], get: S => A) = ColumnMapping(name, atom, get)
+
+  def composer[S, S2](f: S2 => S): ColumnComposer[S, S2] = new ColumnComposer[S, S2] {
+    def apply[CA[_], A](cm: ColumnMapping[CA, S, A]): ColumnMapping[CA, S2, A] = cm.copy(get = cm.get compose f)
+  }
+
+  def stdColumnMaker = new MappingCreator[ColumnAtom]
 
   def verifyModel[R <: HList, Q <: HList, C2, As[_[_]]]
   (rm: RelationModel[R, Q, As], p: String => Unit = Console.err.println)

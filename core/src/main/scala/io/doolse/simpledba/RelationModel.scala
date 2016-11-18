@@ -26,11 +26,7 @@ object RelationModel {
 }
 
 class Embed[A]
-class CustomAtom[S, A](val to: S => A, val from: A => S, val range: Tuple2[A,A] => Option[(S, S)])
-object CustomAtom {
-  def apply[S, A](to: S => A, from: A => S) : CustomAtom[S, A] = new CustomAtom(to, from, t => Some((from(t._1), from(t._2))))
-  def ranged[S, A](to: S => A, from: A => S, range: Option[(S, S)]) = new CustomAtom(to, from, (_ : (A,A)) => range)
-}
+
 class Relation[Name, A, Keys <: HList] extends SingletonProductArgs {
   def key(w: Witness) = new Relation[Name, A, w.T :: Keys]
   def keysProduct[L <: HList](keys: L)(implicit p: Prepend[L, Keys]) = new Relation[Name, A, p.Out]

@@ -29,7 +29,7 @@ object CassandraMapper {
   def valsToBinding(s: Seq[PhysicalValue[CassandraColumn]]) = s.map(pv => pv.atom.binding(pv.v))
 
   def rowMaterializer(r: Row) = new ColumnMaterialzer[CassandraColumn] {
-    def apply[A](name: String, atom: CassandraColumn[A]): Option[A] = atom.byName(r, name)
+    def apply[A](name: String, atom: CassandraColumn[A]): A = atom.byName(r, name).get
   }
 
 }
@@ -41,10 +41,6 @@ class CassandraMapper(val config: SimpleMapperConfig = defaultMapperConfig) exte
   type DDLStatement = CassandraDDL
   type KeyMapperPoly = CassandraKeyMapper.type
   type QueriesPoly = ConvertCassandraQueries.type
-
-  val stdColumnMaker = new MappingCreator[CassandraColumn] {
-    def wrapAtom[S, A](atom: CassandraColumn[A], ca: CustomAtom[S, A]): CassandraColumn[S] = WrappedColumn[S, A](atom, ca.to, ca.from)
-  }
 }
 
 trait CassandraTable[T] extends KeyBasedTable {
@@ -179,13 +175,13 @@ object MapQuery extends Poly2 {
       ct.pkNames == pkNames
     }
     QueryCreate[CassandraTable[T], UniqueQuery[Effect, T, PKV]](pkMatcher, q.nameHint, { (table,_) =>
-      val materialize = materializer(columns) andThen (_.map(rd.mapper.fromColumns)) compose rowMaterializer
+      val materialize = materializer(columns) andThen rd.mapper.fromColumns compose rowMaterializer
       val allNames = allCols.map(_.name)
       val selectAll = CassandraSelect(table, allNames, Seq.empty, Seq.empty, false)
       val select = CassandraSelect(table, allNames, exactMatch(pkCols), Seq.empty, false)
 
       val rsStream = (s: Stream[Effect, ResultSet]) => s.flatMap(rs => CassandraIO.rowsStream(rs).translate(task2Effect))
-      .map(materialize).collect { case Some(e) => e }
+      .map(materialize)
 
       val queryAll = rsStream (
         Stream.eval[Effect, ResultSet] { ReaderT { s => s.prepareAndBind(selectAll, Seq.empty) } }
@@ -227,7 +223,7 @@ object MapQuery extends Poly2 {
       val oAsc = skCols.map(cm => (cm.name, true))
       val oDesc = oAsc.map(o => (o._1, false))
       val (allCols, _) = allColsLookup(columns)
-      val materialize = materializer(columns) andThen (_.map(rd.mapper.fromColumns))
+      val materialize = materializer(columns) andThen rd.mapper.fromColumns
       val baseSelect = CassandraSelect(tn, allCols.map(_.name), exactMatch(pkCols), Seq.empty, false)
 
       def doQuery(c: ColsVals, lr: RangeValue[SortVals], ur: RangeValue[SortVals], asc: Option[Boolean]): Stream[Effect, T] = {
@@ -245,7 +241,7 @@ object MapQuery extends Poly2 {
             s.prepareAndBind(select, valsToBinding(pkPhysV(c) ++ lv ++ uv))
           }
         }.flatMap(rs => CassandraIO.rowsStream(rs).translate(task2Effect))
-          .map(r => materialize(rowMaterializer(r))).collect { case Some(e) => e }
+          .map(r => materialize(rowMaterializer(r)))
       }
       RangeQuery(None, doQuery)
     })

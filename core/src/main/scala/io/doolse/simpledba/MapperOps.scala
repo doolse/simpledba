@@ -31,12 +31,12 @@ object ColumnsAsSeq {
 }
 
 trait ColumnMaterialzer[ColumnAtom[_]] {
-  def apply[A](name: String, atom: ColumnAtom[A]): Option[A]
+  def apply[A](name: String, atom: ColumnAtom[A]): A
 }
 
 trait MaterializeFromColumns[CA[_], CR] extends DepFn1[CR] {
   type OutValue
-  type Out = ColumnMaterialzer[CA] => Option[OutValue]
+  type Out = ColumnMaterialzer[CA] => OutValue
 }
 
 object MaterializeFromColumns {
@@ -46,13 +46,13 @@ object MaterializeFromColumns {
   implicit def hnil[CA[_]] = new MaterializeFromColumns[CA, HNil] {
     type OutValue = HNil
 
-    def apply(cr: HNil) = _ => Some(HNil)
+    def apply(cr: HNil) = _ => HNil
   }
 
   implicit def hcons[CA[_], H, T <: HList, HV, TV <: HList](implicit hm: Aux[CA, H, HV], tm: Aux[CA, T, TV]): Aux[CA, H :: T, HV :: TV] = new MaterializeFromColumns[CA, H :: T] {
     type OutValue = HV :: TV
 
-    def apply(t: H :: T) = m => hm(t.head).apply(m).flatMap(hv => tm(t.tail).apply(m).map(tv => hv :: tv))
+    def apply(t: H :: T) = m => hm(t.head).apply(m) :: tm(t.tail).apply(m)
   }
 
   implicit def column[CA[_], S, V]: Aux[CA, ColumnMapping[CA, S, V], V] = new MaterializeFromColumns[CA, ColumnMapping[CA, S, V]] {
@@ -69,7 +69,7 @@ object MaterializeFromColumns {
 }
 
 trait ColumnListHelper[CA[_], T, FullKey] {
-  def materializer: ColumnMaterialzer[CA] => Option[T]
+  def materializer: ColumnMaterialzer[CA] => T
 
   def extractKey: T => FullKey
 
@@ -94,7 +94,7 @@ object ColumnListHelperBuilder {
       val columns = mapper.columns
       val toColumns = mapper.toColumns
       val fromColumns = mapper.fromColumns
-      val materializer = materializeAll(columns) andThen (_.map(fromColumns))
+      val materializer = materializeAll(columns) andThen fromColumns
       val colsToValues = allVals(columns)
       val toPhysicalValues = colsToValues compose toColumns
       val extractKey = toColumns andThen toKeys

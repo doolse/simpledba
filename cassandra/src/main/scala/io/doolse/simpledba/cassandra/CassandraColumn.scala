@@ -4,6 +4,7 @@ import java.util.{Date, UUID}
 
 import com.datastax.driver.core.querybuilder.{Assignment, QueryBuilder}
 import com.datastax.driver.core.{DataType, Row, TypeCodec}
+import io.doolse.simpledba.IsoAtom
 
 /**
   * Created by jolz on 21/05/16.
@@ -66,4 +67,5 @@ object CassandraColumn {
   implicit val doubleCol = converted(DataType.cdouble(), TypeCodec.cdouble(), Double2double)
 
   implicit def optionalCol[A](implicit col: CassandraColumn[A]): CassandraColumn[Option[A]] = OptionalColumn(col)
+  implicit def isoColumn[A, B](implicit iso: IsoAtom[A, B], oc: CassandraColumn[B]): CassandraColumn[A] = WrappedColumn[A, B](oc, iso.from, iso.to)
 }

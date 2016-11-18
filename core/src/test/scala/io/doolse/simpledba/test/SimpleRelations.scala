@@ -45,13 +45,13 @@ object SimpleRelations {
 
   lazy val fields2Model = {
     val field2Rel = relation[Fields2]('fields2).key('uuid)
-    RelationModel(atom(Generic[NonEmptyString]), field2Rel)
+    RelationModel(field2Rel)
       .queries[Fields2Queries](writes(field2Rel), queryByPK(field2Rel), query(field2Rel).multipleByColumns('name))
   }
 
   lazy val fields3Model = {
     val field3Rel = relation[Fields3]('fields3).key('uuid)
-    RelationModel(atom(Generic[NonEmptyString]), field3Rel)
+    RelationModel(field3Rel)
       .queries[Fields3Queries](writes(field3Rel), queryByPK(field3Rel), query(field3Rel).multipleByColumns('name).sortBy('year),
       query(field3Rel).multipleByColumns('year).sortBy('name))
   }
