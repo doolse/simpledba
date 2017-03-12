@@ -14,7 +14,7 @@ package object cassandra {
 
   object stdImplicits {
     implicit val taskMonad : Monad[Task] = fs2.interop.cats.monadToCats[Task]
-    implicit val dynamoDBEffectMonad : Monad[Effect] = Kleisli.catsDataMonadReaderForKleisli
+    implicit val cassandraEffectMonad : Monad[Effect] = Kleisli.catsDataMonadReaderForKleisli
     implicit val asyncInstance : Catchable[Effect] = fs2.interop.cats.kleisliCatchableInstance
   }
 }

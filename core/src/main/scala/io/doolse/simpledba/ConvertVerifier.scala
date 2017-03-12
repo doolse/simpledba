@@ -15,11 +15,18 @@ import scala.reflect.runtime.universe.TypeTag
 trait ConvertVerifierContext[F[_], As[_[_]]]
 case class ConvertVerifier[In, CTX](errors: In => List[String])
 
+trait ConvertVerifierLP {
+  implicit def fallbackConvert[In, CTX] = ConvertVerifier[In, CTX](i => List(i.toString()))
+}
+
 object ConvertVerifier {
 
   case class QueryName[In](name: String)
 
-  trait QueryNameLP {
+  trait QueryNameLP2 {
+    implicit def realFallback[In] = QueryName[In]("UNKNOWN")
+  }
+  trait QueryNameLP extends QueryNameLP2 {
     implicit def fallback[In](implicit tt: TypeTag[In]) = QueryName[In](tt.tpe.toString)
   }
   object QueryName extends QueryNameLP {

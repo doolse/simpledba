@@ -41,7 +41,10 @@ abstract class RelationMapper[F[_]] {
   type DDLStatement
   type ColumnAtom[A]
   type MapperConfig
+
+  // (RelationReference[K], RelationDef[T, CR, KL, CVL]) -> MappedTable
   type KeyMapperPoly <: Poly1
+  //  RelationWithQueries, HList(MappedTable), MapperConfig -> BuiltQueries.Aux[QOut, DDL]
   type QueriesPoly <: Poly3
 
   val config: MapperConfig

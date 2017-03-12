@@ -1,0 +1,205 @@
+package io.doolse.simpledba.jdbc
+
+import java.sql.{Connection, PreparedStatement, ResultSet}
+
+import cats.Now
+import cats.data.ReaderT
+import fs2._
+import fs2.interop.cats._
+import cats.syntax.cartesian._
+import io.doolse.simpledba.RelationMapper._
+import io.doolse.simpledba.jdbc.JDBCMapper._
+import io.doolse.simpledba.{RangeValue, _}
+import shapeless._
+import shapeless.ops.hlist.{Diff, Mapper, Partition, Prepend, ToList}
+import shapeless.ops.record.Keys
+
+/**
+  * Created by jolz on 12/03/17.
+  */
+
+
+object JDBCMapper {
+  type Effect[A] = ReaderT[Task, JDBCSession, A]
+  type JDBCDDL = JDBCCreateTable
+}
+
+class JDBCMapper(val config: JDBCMapperConfig = JDBCMapperConfig.defaultJDBCMapperConfig) extends RelationMapper[Effect] {
+  type MapperConfig = JDBCMapperConfig
+  type DDLStatement = JDBCDDL
+  type ColumnAtom[A] = JDBCColumn[A]
+  type KeyMapperPoly = JDBCKeyMapper.type
+  type QueriesPoly = JDBCQueries.type
+}
+
+object JDBCQueryMap extends Poly1 {
+  implicit def pkQuery[K, T, CR <: HList, PKL <: HList, CVL <: HList,
+  KL <: HList, SKL <: HList, AllKL <: HList, PKV]
+  (implicit
+   allColsKeys: Keys.Aux[CR, AllKL],
+   pkColsLookup: ColumnsAsSeq.Aux[CR, PKL, T, JDBCColumn, PKV],
+   allColsLookup: ColumnsAsSeq.Aux[CR, AllKL, T, JDBCColumn, CVL],
+   materializer: MaterializeFromColumns.Aux[JDBCColumn, CR, CVL]
+  )
+  = at[(QueryPK[K], RelationDef[T, CR, PKL, CVL])] { case (q, rd) =>
+    val columns = rd.columns
+    val table = rd.baseName
+    val (allCols, allValsP) = allColsLookup(columns)
+    val (pkCols, pkPhysV) = pkColsLookup(columns)
+    val pkNames = pkCols.map(_.name)
+    val materialize = materializer(columns) andThen rd.mapper.fromColumns compose JDBCIO.rowMaterializer
+    val allNames = allCols.map(_.name)
+    val selectAll = JDBCSelect(table, allNames, Seq.empty, Seq.empty, false)
+    val select = JDBCSelect(table, allNames, JDBCPreparedQuery.exactMatch(pkCols), Seq.empty, false)
+
+    val rsStream = (s: Stream[Effect, ResultSet]) => s.flatMap(rs => JDBCIO.rowsStream(rs)).map(materialize)
+
+    val queryAll = rsStream(
+      Stream.eval[Effect, ResultSet] {
+        ReaderT { s => s.prepare(selectAll).map(_.executeQuery()) }
+      }
+    )
+
+    def doQuery(sv: Stream[Effect, PKV]): Stream[Effect, T] = sv.flatMap { v =>
+      rsStream(
+        Stream.eval[Effect, ResultSet] {
+          ReaderT { s => s.execQuery(select, pkPhysV(v)) }
+        }
+      )
+    }
+
+    UniqueQuery[Effect, T, PKV](doQuery, queryAll)
+  }
+
+
+  implicit def rangeQuery[K, Cols <: HList, SortCols <: HList, Q, T, RD, CR <: HList, CVL <: HList,
+  PKL <: HList, KL <: HList, SKL <: HList, CRK <: HList,
+  ColsVals <: HList, SortVals <: HList]
+  (implicit
+   allKeys: Keys.Aux[CR, CRK],
+   allColsLookup: ColumnsAsSeq.Aux[CR, CRK, T, JDBCColumn, CVL],
+   pkColsLookup: ColumnsAsSeq.Aux[CR, Cols, T, JDBCColumn, ColsVals],
+   skColsLookup: ColumnsAsSeq.Aux[CR, SortCols, T, JDBCColumn, SortVals],
+   materializer: MaterializeFromColumns.Aux[JDBCColumn, CR, CVL]
+  )
+  = at[(QueryMultiple[K, Cols, SortCols], RelationDef[T, CR, PKL, CVL])] { case (q, rd) =>
+    val columns = rd.columns
+    val tn = rd.baseName
+    val (pkCols, pkPhysV) = pkColsLookup(columns)
+    val (skCols, skPhysV) = skColsLookup(columns)
+    val pkNames = pkCols.map(_.name)
+    val skNames = skCols.map(_.name)
+
+    val oAsc = skCols.map(cm => (cm.name, true))
+    val oDesc = oAsc.map(o => (o._1, false))
+    val (allCols, _) = allColsLookup(columns)
+    val materialize = materializer(columns) andThen rd.mapper.fromColumns
+    val baseSelect = JDBCSelect(tn, allCols.map(_.name), JDBCPreparedQuery.exactMatch(pkCols), Seq.empty, false)
+
+    def doQuery(c: ColsVals, lr: RangeValue[SortVals], ur: RangeValue[SortVals], asc: Option[Boolean]): Stream[Effect, T] = {
+      Stream.eval[Effect, ResultSet] {
+        ReaderT { s =>
+          def processOp(op: Option[(SortVals, String => JDBCWhereClause)]) = op.map { case (sv, f) =>
+            val vals = skPhysV(sv)
+            (vals.map(v => f(v.name)), vals)
+          }.getOrElse(Seq.empty, Seq.empty)
+
+          val (lw, lv) = processOp(lr.fold(GTE, GT))
+          val (uw, uv) = processOp(ur.fold(LTE, LT))
+          val ordering = asc.map(a => if (a) oAsc else oDesc).getOrElse(Seq.empty)
+          val select = baseSelect.copy(where = baseSelect.where ++ lw ++ uw, ordering = ordering)
+          s.execQuery(select, pkPhysV(c) ++ lv ++ uv)
+        }
+      }.flatMap(rs => JDBCIO.rowsStream(rs))
+        .map(r => materialize(JDBCIO.rowMaterializer(r)))
+    }
+    RangeQuery(None, doQuery)
+  }
+
+  implicit def writes[K, T, CR <: HList, PKL <: HList, CVL <: HList, PKV, AllK <: HList]
+  (implicit
+   allColKeys: Keys.Aux[CR, AllK],
+   allCols: ColumnsAsSeq[CR, AllK, T, JDBCColumn],
+   pkColLookup: ColumnsAsSeq.Aux[CR, PKL, T, JDBCColumn, PKV],
+   keyVals: ValueExtractor.Aux[CR, CVL, PKL :: HNil, PKV :: HNil],
+   helperB: ColumnListHelperBuilder[JDBCColumn, T, CR, CVL, PKV :: HNil]
+  )
+  = at[(RelationWriter[K], RelationDef[T, CR, PKL, CVL])] { case (_, rd) =>
+    val tableName = rd.baseName
+    val mapper = rd.mapper
+    val columnsRecord = mapper.columns
+    val (columns, _) = allCols(columnsRecord)
+    val (pkCols, pkPhys) = pkColLookup(columnsRecord)
+    val extractKey = keyVals()
+    val helper = helperB(mapper, extractKey)
+
+    new WriteQueries[Effect, T] {
+      val keyEq = JDBCPreparedQuery.exactMatch(pkCols)
+      val updateQ = JDBCUpdate(tableName, Seq.empty, keyEq)
+      val deleteQ = JDBCDelete(tableName, keyEq)
+      val insertQ = JDBCInsert(tableName, columns.map(_.name))
+
+      def keyBindings(key: PKV :: HNil) = pkPhys(key.head)
+
+      def insertWithVals(vals: Seq[PhysicalValue[JDBCColumn]], s: JDBCSession) =
+        s.prepareAndBind(insertQ, vals).map(_.execute())
+
+      def deleteWithKey(key: PKV :: HNil, s: JDBCSession): Task[Unit] =
+        s.execWrite(deleteQ, keyBindings(key)).map(_ => ())
+
+      def bulkDelete(l: Stream[Effect, T]): Effect[Unit] = l.evalMap { t =>
+        ReaderT { cs: JDBCSession => deleteWithKey(helper.extractKey(t), cs) }
+      } run
+
+      def bulkInsert(ts: Stream[Effect, T]): Effect[Unit] = ts.evalMap { t =>
+        ReaderT { cs: JDBCSession => insertWithVals(helper.toPhysicalValues(t), cs) }
+      } run
+
+      def update(existing: T, newValue: T): Effect[Boolean] = ReaderT { s =>
+        helper.changeChecker(existing, newValue).map {
+          case Right((oldKey, newKey, vals)) => deleteWithKey(oldKey, s) *> insertWithVals(vals, s)
+          case Left((fk, diff)) =>
+            val bVals = diff.map(vd => PhysicalValue(vd.name, vd.atom, vd.newValue)) ++ keyBindings(fk)
+            s.execWrite(updateQ.copy(assignments = diff.map(_.name)), bVals)
+        } map (_.map(_ => true)) getOrElse Task.now(false)
+      }
+    }: WriteQueries[Effect, T]
+  }
+}
+
+object JDBCQueries extends Poly3 {
+  implicit def convertAll[Q <: HList, Tables <: HList, QOUT <: HList, OutTables <: HList]
+  (implicit
+   qmap: Mapper.Aux[JDBCQueryMap.type, Q, QOUT],
+   jdbcTables: Partition.Aux[Tables, JDBCCreateTable, OutTables, _],
+   toList: ToList[OutTables, JDBCCreateTable]
+  )
+  = at[Q, Tables, JDBCMapperConfig] {
+    (q, tables, config) => BuiltQueries[QOUT, JDBCDDL](qmap(q), Now(toList(jdbcTables.filter(tables))))
+  }
+}
+
+object JDBCKeyMapper extends Poly1 {
+
+  implicit def byPK[K, T, CR <: HList, KL <: HList, CVL <: HList] = at[(QueryPK[K], RelationDef[T, CR, KL, CVL])] {
+    case (q, relation) => ""
+  }
+
+  implicit def queryMulti[K, Cols <: HList, SortCols <: HList, T, CR <: HList, KL <: HList, CVL <: HList]
+  = at[(QueryMultiple[K, Cols, SortCols], RelationDef[T, CR, KL, CVL])] {
+    case (q, relation) => ""
+  }
+
+  implicit def writes[K, T, CR <: HList, KL <: HList, CVL <: HList, AllK <: HList]
+  (implicit
+   allColKeys: Keys.Aux[CR, AllK],
+   allCols: ColumnsAsSeq[CR, AllK, T, JDBCColumn],
+   pkCols: ColumnsAsSeq[CR, KL, T, JDBCColumn])
+  = at[(RelationWriter[K], RelationDef[T, CR, KL, CVL])] {
+    case (q, relation) =>
+      val (cols, _) = allCols(relation.columns)
+      val (pk, _) = pkCols(relation.columns)
+      JDBCCreateTable(relation.baseName, cols.map(c => (c.name, c.atom.columnType)), pk.map(_.name))
+  }
+
+}
