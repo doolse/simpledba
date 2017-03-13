@@ -24,12 +24,30 @@ object JDBCMapper {
   type JDBCDDL = JDBCCreateTable
 }
 
-class JDBCMapper(val config: JDBCMapperConfig = JDBCMapperConfig.defaultJDBCMapperConfig) extends RelationMapper[Effect] {
-  type MapperConfig = JDBCMapperConfig
+class JDBCMapper(val config: SimpleMapperConfig = defaultMapperConfig) extends RelationMapper[Effect] {
+  type MapperConfig = SimpleMapperConfig
   type DDLStatement = JDBCDDL
   type ColumnAtom[A] = JDBCColumn[A]
   type KeyMapperPoly = JDBCKeyMapper.type
   type QueriesPoly = JDBCQueries.type
+}
+
+case class TableWithIndexes(table: JDBCCreateTable)
+
+trait JDBCTableBuilder[T, CR <: HList, PKL <: HList] {
+  def apply(relation: RelationDef[T, CR, PKL, _]): JDBCCreateTable
+}
+
+object JDBCTableBuilder {
+  implicit def tableForRelation[T, CR <: HList, CVL <: HList, PKL <: HList, AllK <: HList](implicit
+                                allColKeys: Keys.Aux[CR, AllK],
+                                allCols: ColumnsAsSeq[CR, AllK, T, JDBCColumn],
+                                pkCols: ColumnsAsSeq[CR, PKL, T, JDBCColumn]) : JDBCTableBuilder[T, CR, PKL]
+  = (relation: RelationDef[T, CR, PKL, _]) => {
+    val (cols, _) = allCols(relation.columns)
+    val (pk, _) = pkCols(relation.columns)
+    JDBCCreateTable(relation.baseName, cols.map(c => (c.name, c.atom.columnType)), pk.map(_.name))
+  }
 }
 
 object JDBCQueryMap extends Poly1 {
@@ -47,18 +65,17 @@ object JDBCQueryMap extends Poly1 {
     val (allCols, allValsP) = allColsLookup(columns)
     val (pkCols, pkPhysV) = pkColsLookup(columns)
     val pkNames = pkCols.map(_.name)
-    val materialize = materializer(columns) andThen rd.mapper.fromColumns compose JDBCIO.rowMaterializer
+    val materialize = materializer(columns) andThen rd.mapper.fromColumns
     val allNames = allCols.map(_.name)
     val selectAll = JDBCSelect(table, allNames, Seq.empty, Seq.empty, false)
     val select = JDBCSelect(table, allNames, JDBCPreparedQuery.exactMatch(pkCols), Seq.empty, false)
 
-    val rsStream = (s: Stream[Effect, ResultSet]) => s.flatMap(rs => JDBCIO.rowsStream(rs)).map(materialize)
+    def rsStream(s: Stream[Effect, ResultSet]) = for {
+      c <- Stream.eval[Effect, JDBCSQLConfig](ReaderT { s => Task.now(s.config) } )
+      rs <- s.flatMap(JDBCIO.rowsStream)
+    } yield materialize(JDBCIO.rowMaterializer(c, rs))
 
-    val queryAll = rsStream(
-      Stream.eval[Effect, ResultSet] {
-        ReaderT { s => s.prepare(selectAll).map(_.executeQuery()) }
-      }
-    )
+    val queryAll = rsStream(Stream.eval { ReaderT { s => s.prepare(selectAll).map(_.executeQuery()) } })
 
     def doQuery(sv: Stream[Effect, PKV]): Stream[Effect, T] = sv.flatMap { v =>
       rsStream(
@@ -96,8 +113,9 @@ object JDBCQueryMap extends Poly1 {
     val materialize = materializer(columns) andThen rd.mapper.fromColumns
     val baseSelect = JDBCSelect(tn, allCols.map(_.name), JDBCPreparedQuery.exactMatch(pkCols), Seq.empty, false)
 
-    def doQuery(c: ColsVals, lr: RangeValue[SortVals], ur: RangeValue[SortVals], asc: Option[Boolean]): Stream[Effect, T] = {
-      Stream.eval[Effect, ResultSet] {
+    def doQuery(c: ColsVals, lr: RangeValue[SortVals], ur: RangeValue[SortVals], asc: Option[Boolean]): Stream[Effect, T] = for {
+      config <- Stream.eval[Effect, JDBCSQLConfig](ReaderT { s => Task.now(s.config) } )
+      rs <- Stream.eval[Effect, ResultSet] {
         ReaderT { s =>
           def processOp(op: Option[(SortVals, String => JDBCWhereClause)]) = op.map { case (sv, f) =>
             val vals = skPhysV(sv)
@@ -111,8 +129,7 @@ object JDBCQueryMap extends Poly1 {
           s.execQuery(select, pkPhysV(c) ++ lv ++ uv)
         }
       }.flatMap(rs => JDBCIO.rowsStream(rs))
-        .map(r => materialize(JDBCIO.rowMaterializer(r)))
-    }
+    } yield materialize(JDBCIO.rowMaterializer(config, rs))
     RangeQuery(None, doQuery)
   }
 
@@ -142,17 +159,19 @@ object JDBCQueryMap extends Poly1 {
       def keyBindings(key: PKV :: HNil) = pkPhys(key.head)
 
       def insertWithVals(vals: Seq[PhysicalValue[JDBCColumn]], s: JDBCSession) =
-        s.prepareAndBind(insertQ, vals).map(_.execute())
+        s.execWrite(insertQ, vals)
+
+      def truncate = ReaderT { s => s.execWrite(JDBCTruncate(tableName), Seq.empty).map(_ => ()) }
 
       def deleteWithKey(key: PKV :: HNil, s: JDBCSession): Task[Unit] =
         s.execWrite(deleteQ, keyBindings(key)).map(_ => ())
 
       def bulkDelete(l: Stream[Effect, T]): Effect[Unit] = l.evalMap { t =>
-        ReaderT { cs: JDBCSession => deleteWithKey(helper.extractKey(t), cs) }
+        ReaderT { s: JDBCSession => deleteWithKey(helper.extractKey(t), s) }
       } run
 
       def bulkInsert(ts: Stream[Effect, T]): Effect[Unit] = ts.evalMap { t =>
-        ReaderT { cs: JDBCSession => insertWithVals(helper.toPhysicalValues(t), cs) }
+        ReaderT { s: JDBCSession => insertWithVals(helper.toPhysicalValues(t), s) }
       } run
 
       def update(existing: T, newValue: T): Effect[Boolean] = ReaderT { s =>
@@ -168,38 +187,35 @@ object JDBCQueryMap extends Poly1 {
 }
 
 object JDBCQueries extends Poly3 {
-  implicit def convertAll[Q <: HList, Tables <: HList, QOUT <: HList, OutTables <: HList]
+  implicit def convertAll[Q <: HList, Tables <: HList, QOUT <: HList, OutTables <: HList, Config]
   (implicit
    qmap: Mapper.Aux[JDBCQueryMap.type, Q, QOUT],
-   jdbcTables: Partition.Aux[Tables, JDBCCreateTable, OutTables, _],
-   toList: ToList[OutTables, JDBCCreateTable]
+   toList: ToList[Tables, TableWithIndexes]
   )
-  = at[Q, Tables, JDBCMapperConfig] {
-    (q, tables, config) => BuiltQueries[QOUT, JDBCDDL](qmap(q), Now(toList(jdbcTables.filter(tables))))
+  = at[Q, Tables, Config] {
+    (q, tables, config) =>
+      val distinctTables = toList(tables).map(_.table).distinct
+      BuiltQueries[QOUT, JDBCDDL](qmap(q), Now(distinctTables))
   }
 }
 
 object JDBCKeyMapper extends Poly1 {
 
-  implicit def byPK[K, T, CR <: HList, KL <: HList, CVL <: HList] = at[(QueryPK[K], RelationDef[T, CR, KL, CVL])] {
-    case (q, relation) => ""
+  implicit def byPK[K, T, CR <: HList, KL <: HList, CVL <: HList]
+  (implicit tableBuilder: JDBCTableBuilder[T, CR, KL]) = at[(QueryPK[K], RelationDef[T, CR, KL, CVL])] {
+    case (q, relation) => TableWithIndexes(tableBuilder(relation))
   }
 
   implicit def queryMulti[K, Cols <: HList, SortCols <: HList, T, CR <: HList, KL <: HList, CVL <: HList]
+  (implicit tableBuilder: JDBCTableBuilder[T, CR, KL])
   = at[(QueryMultiple[K, Cols, SortCols], RelationDef[T, CR, KL, CVL])] {
-    case (q, relation) => ""
+    case (q, relation) => TableWithIndexes(tableBuilder(relation))
   }
 
   implicit def writes[K, T, CR <: HList, KL <: HList, CVL <: HList, AllK <: HList]
-  (implicit
-   allColKeys: Keys.Aux[CR, AllK],
-   allCols: ColumnsAsSeq[CR, AllK, T, JDBCColumn],
-   pkCols: ColumnsAsSeq[CR, KL, T, JDBCColumn])
+  (implicit tableBuilder: JDBCTableBuilder[T, CR, KL])
   = at[(RelationWriter[K], RelationDef[T, CR, KL, CVL])] {
-    case (q, relation) =>
-      val (cols, _) = allCols(relation.columns)
-      val (pk, _) = pkCols(relation.columns)
-      JDBCCreateTable(relation.baseName, cols.map(c => (c.name, c.atom.columnType)), pk.map(_.name))
+    case (q, relation) => TableWithIndexes(tableBuilder(relation))
   }
 
 }

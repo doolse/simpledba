@@ -18,11 +18,15 @@ object JDBCIO {
   def openConnection(config: Config = ConfigFactory.load()) = {
     val jdbcConfig = config.getConfig("simpledba.jdbc")
     val jdbcUrl = jdbcConfig.getString("url")
+    val dialect = jdbcConfig.getString("dialect") match {
+      case "hsqldb" => JDBCSQLConfig.hsqldbConfig
+      case "postgres" => JDBCSQLConfig.postgresConfig
+    }
     val con = if (jdbcConfig.hasPath("credentials")) {
       val cc = jdbcConfig.getConfig("credentials")
       DriverManager.getConnection(jdbcUrl, cc.getString("username"), cc.getString("password"))
     } else DriverManager.getConnection(jdbcUrl)
-    JDBCSession(con, JDBCMapperConfig.defaultJDBCMapperConfig)
+    JDBCSession(con, dialect)
   }
 
   def rowsStream[F[_]](rs: ResultSet): Stream[F, ResultSet] = {
@@ -30,20 +34,20 @@ object JDBCIO {
     else Stream.emit(rs) ++ Stream.suspend(rowsStream(rs))
   }
 
-  def rowMaterializer(r: ResultSet) = new ColumnMaterialzer[JDBCColumn] {
-    def apply[A](name: String, atom: JDBCColumn[A]): A = atom.byName(r, name).get
+  def rowMaterializer(c: JDBCSQLConfig, r: ResultSet) = new ColumnMaterialzer[JDBCColumn] {
+    def apply[A](name: String, atom: JDBCColumn[A]): A = atom.byName(c, r, name).get
   }
 
 }
 
-case class JDBCSession(connection: Connection, config: JDBCMapperConfig, logger: (() ⇒ String) ⇒ Unit = _ => (),
-                            statementCache : scala.collection.concurrent.Map[Any, Task[PreparedStatement]]
+case class JDBCSession(connection: Connection, config: JDBCSQLConfig, logger: (() ⇒ String) ⇒ Unit = _ => (),
+                       statementCache : scala.collection.concurrent.Map[Any, Task[PreparedStatement]]
                             = new ConcurrentHashMap[Any, Task[PreparedStatement]]().asScala) {
 
   def prepare(q: JDBCPreparedQuery): Task[PreparedStatement] = {
     lazy val prepared = {
       logger(() => "Preparing: "+JDBCPreparedQuery.asSQL(q, config))
-      Task.now(connection.prepareStatement(JDBCPreparedQuery.asSQL(q, config)))
+      Task.delay(connection.prepareStatement(JDBCPreparedQuery.asSQL(q, config)))
     }
     statementCache.getOrElseUpdate(q, prepared)
   }
@@ -56,7 +60,7 @@ case class JDBCSession(connection: Connection, config: JDBCMapperConfig, logger:
           "Statement: " + JDBCPreparedQuery.asSQL(q, config) + " with values " + vals
       }
       s.zipWithIndex.foreach {
-        case (pv, i) => pv.atom.bind(ps, i+1, pv.v)
+        case (pv, i) => pv.atom.bind(config, ps, i+1, pv.v)
       }
       ps
     }
@@ -67,7 +71,9 @@ case class JDBCSession(connection: Connection, config: JDBCMapperConfig, logger:
 }
 
 sealed trait JDBCPreparedQuery
+case class JDBCDropTable(name: String) extends JDBCPreparedQuery
 case class JDBCCreateTable(name: String, columns: Seq[(String, SQLType)], primaryKey: Seq[String]) extends JDBCPreparedQuery
+case class JDBCTruncate(name: String) extends JDBCPreparedQuery
 case class JDBCInsert(table:String, columns: Seq[String]) extends JDBCPreparedQuery
 case class JDBCUpdate(table:String, assignments: Seq[String], where: Seq[JDBCWhereClause]) extends JDBCPreparedQuery
 case class JDBCDelete(table: String, where: Seq[JDBCWhereClause]) extends JDBCPreparedQuery
@@ -83,31 +89,42 @@ case class LTE(column: String) extends JDBCWhereClause
 object JDBCPreparedQuery {
 
 
-  def whereClause(w: Seq[JDBCWhereClause], mc: JDBCMapperConfig): String = {
-    def singleCC(c: String, op: String) = s"${mc.escapeColumnName(c)} ${op} ?"
-    def clauseToString(c: JDBCWhereClause) = c match {
-      case EQ(column) => singleCC(column, "=")
-      case GT(column) => singleCC(column, ">")
-      case GTE(column) => singleCC(column, ">=")
-      case LT(column) => singleCC(column, "<")
-      case LTE(column) => singleCC(column, "<=")
-    }
-    if (w.isEmpty) "" else s"WHERE ${w.map(clauseToString).mkString(" AND ")}"
-  }
 
-  def asSQL(q: JDBCPreparedQuery, mc: JDBCMapperConfig) = q match {
-    case JDBCSelect(t, c, w, o, l) => s"SELECT ${c.map(mc.escapeColumnName).mkString(",")} FROM ${mc.escapeTableName(t)} ${whereClause(w, mc)}"
-    case JDBCInsert(t, c) => s"INSERT INTO ${mc.escapeTableName(t)} ${brackets(c.map(mc.escapeColumnName))} VALUES ${brackets(c.map(_ => "?"))}"
-    case JDBCDelete(t, w) => s"DELETE FROM ${mc.escapeTableName(t)} ${whereClause(w, mc)}"
-    case JDBCUpdate(t, a, w) =>
-      val asgns = a.map(c => s"${mc.escapeColumnName(c)} = ?")
-      s"UPDATE ${mc.escapeTableName(t)} SET ${asgns.mkString(",")} ${whereClause(w, mc)}"
-    case JDBCCreateTable(t, c, pk) =>
-      val colStrings = c.map {
-        case (cn, ct) => s"${mc.escapeColumnName(cn)} ${mc.sqlTypeToString(ct)}"
+
+  def asSQL(q: JDBCPreparedQuery, mc: JDBCSQLConfig) = {
+    def whereClause(w: Seq[JDBCWhereClause]): String = {
+      def singleCC(c: String, op: String) = s"${mc.escapeColumnName(c)} ${op} ?"
+      def clauseToString(c: JDBCWhereClause) = c match {
+        case EQ(column) => singleCC(column, "=")
+        case GT(column) => singleCC(column, ">")
+        case GTE(column) => singleCC(column, ">=")
+        case LT(column) => singleCC(column, "<")
+        case LTE(column) => singleCC(column, "<=")
       }
-      val withPK = colStrings :+ s"PRIMARY KEY${brackets(pk.map(mc.escapeColumnName))}"
-      s"CREATE TABLE ${mc.escapeTableName(t)} ${brackets(withPK)}"
+      if (w.isEmpty) "" else s"WHERE ${w.map(clauseToString).mkString(" AND ")}"
+    }
+
+    def orderBy(oc: Seq[(String, Boolean)]): String = {
+      def orderClause(t: (String, Boolean)) = s"${mc.escapeColumnName(t._1)} ${if (t._2) "ASC" else "DESC"}"
+      if (oc.isEmpty) "" else s"ORDER BY ${oc.map(orderClause).mkString(",")}"
+    }
+
+    q match {
+      case JDBCSelect(t, c, w, o, l) => s"SELECT ${c.map(mc.escapeColumnName).mkString(",")} FROM ${mc.escapeTableName(t)} ${whereClause(w)} ${orderBy(o)}"
+      case JDBCInsert(t, c) => s"INSERT INTO ${mc.escapeTableName(t)} ${brackets(c.map(mc.escapeColumnName))} VALUES ${brackets(c.map(_ => "?"))}"
+      case JDBCDelete(t, w) => s"DELETE FROM ${mc.escapeTableName(t)} ${whereClause(w)}"
+      case JDBCUpdate(t, a, w) =>
+        val asgns = a.map(c => s"${mc.escapeColumnName(c)} = ?")
+        s"UPDATE ${mc.escapeTableName(t)} SET ${asgns.mkString(",")} ${whereClause(w)}"
+      case JDBCCreateTable(t, c, pk) =>
+        val colStrings = c.map {
+          case (cn, ct) => s"${mc.escapeColumnName(cn)} ${mc.sqlTypeToString(ct)}"
+        }
+        val withPK = colStrings :+ s"PRIMARY KEY${brackets(pk.map(mc.escapeColumnName))}"
+        s"CREATE TABLE ${mc.escapeTableName(t)} ${brackets(withPK)}"
+      case JDBCTruncate(t) => s"TRUNCATE TABLE ${mc.escapeTableName(t)}"
+      case dt: JDBCDropTable => mc.dropTableSQL(dt)
+    }
   }
 
   def exactMatch[T](s: Seq[ColumnMapping[JDBCColumn, T, _]]) = s.map(c => EQ(c.name))

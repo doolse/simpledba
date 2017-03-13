@@ -26,17 +26,17 @@ object SimpleRelations {
 
   case class Fields1(uuid: UUID)
 
-  case class Fields2(uuid: UUID, name: NonEmptyString)
+  case class Fields2(uuid: UUID, name: SafeString)
 
-  case class Fields3(uuid: UUID, name: NonEmptyString, year: Int)
+  case class Fields3(uuid: UUID, name: SafeString, year: Int)
 
   case class Fields1Queries[F[_]](updates: WriteQueries[F, Fields1], byPK: UniqueQuery[F, Fields1, UUID])
 
   case class Fields2Queries[F[_]](updates: WriteQueries[F, Fields2], byPK: UniqueQuery[F, Fields2, UUID],
-                                  byName: SortableQuery[F, Fields2, NonEmptyString])
+                                  byName: SortableQuery[F, Fields2, SafeString])
 
   case class Fields3Queries[F[_]](updates: WriteQueries[F, Fields3], byPK: UniqueQuery[F, Fields3, UUID],
-                                  byName: RangeQuery[F, Fields3, NonEmptyString, Int], byYear: SortableQuery[F, Fields3, Int])
+                                  byName: RangeQuery[F, Fields3, SafeString, Int], byYear: SortableQuery[F, Fields3, Int])
 
   lazy val fields1Model = {
     val field1Rel = relation[Fields1]('fields1).key('uuid)

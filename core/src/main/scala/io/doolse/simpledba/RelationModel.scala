@@ -105,6 +105,8 @@ trait WriteQueries[F[_], T] {
 
   def update(existing: T, newValue: T): F[Boolean]
 
+  def truncate : F[Unit]
+
   def bulkInsert(l: Stream[F, T]): F[Unit]
 
   def bulkDelete(l: Stream[F, T]): F[Unit]
@@ -129,6 +131,8 @@ object WriteQueries {
     def update(existing: T, newValue: T): F[Boolean] = (self.update(existing, newValue) |@| other.update(existing, newValue)).map((a, b) => a || b)
 
     override def bulkInsert(l: Stream[F, T]): F[Unit] = self.bulkInsert(l) *> other.bulkInsert(l)
+
+    override def truncate = self.truncate *> other.truncate
 
     override def bulkDelete(l: Stream[F, T]): F[Unit] = self.bulkDelete(l) *> other.bulkDelete(l)
   }

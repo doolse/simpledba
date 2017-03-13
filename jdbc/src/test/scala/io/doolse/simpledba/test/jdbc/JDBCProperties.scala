@@ -18,7 +18,7 @@ trait JDBCProperties {
   lazy val mapper = new JDBCMapper()
 
   def setup[Q](bq: BuiltQueries.Aux[Q, JDBCCreateTable]) = {
-    JDBCUtils.createSchema(session.copy(logger = msg => Console.out.println(msg())), bq.ddl).unsafeRun
+    JDBCUtils.createSchema(session.copy(logger = msg => Console.out.println(msg())), bq.ddl, drop = true).unsafeRun
     bq.queries
   }
 

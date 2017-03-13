@@ -23,6 +23,7 @@ object CrudProperties {
 
       property("createReadDelete") = forAll { (a: A) =>
         for {
+          _ <- writes.truncate
           _ <- writes.insert(a)
           count <- countAll(a)
           _ <- writes.delete(a)
@@ -35,6 +36,7 @@ object CrudProperties {
 
       property("update") = forAll(genUpdate) { case (a1, a2) =>
         for {
+          _ <- writes.truncate
           _ <- writes.insert(a1)
           changed <- writes.update(a1, a2)
           countOrig <- countAll(a1)

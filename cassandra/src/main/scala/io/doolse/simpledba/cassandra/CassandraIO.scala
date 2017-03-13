@@ -169,6 +169,10 @@ case class CassandraSelect(table: String, columns: Seq[String], where: Seq[Cassa
   }
 }
 
+case class CassandraTruncate(table: String) extends PreparableStatement {
+  def build = QueryBuilder.truncate(table)
+}
+
 case class CassandraInsert(table: String, columns: Seq[String]) extends PreparableStatement {
   def build = {
     val ins = QueryBuilder.insertInto(table)

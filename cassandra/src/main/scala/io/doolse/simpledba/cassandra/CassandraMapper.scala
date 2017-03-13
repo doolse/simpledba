@@ -101,6 +101,7 @@ object CassandraTableBuilder {
 
           def keyBindings(key: PKV :: SKV :: HNil) = valsToBinding(pkPhys(key.head) ++ skPhys(key.tail.head))
 
+          def truncate = ReaderT { s => s.prepareAndBind(CassandraTruncate(tableName), Seq.empty).map(_ => ()) }
           def deleteWithKey(key: PKV :: SKV :: HNil, s: CassandraSession): Task[Unit] =
             s.prepareAndBind(deleteQ, keyBindings(key)).map(_ => ())
 

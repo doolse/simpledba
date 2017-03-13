@@ -188,6 +188,8 @@ object DynamoTableBuilder {
         def extraFields(key: PKV :: SKV :: HNil): Seq[PhysicalValue[DynamoDBColumn]] = compositeValue(PK, helper.physPkColumns(key.head)).toSeq ++
           compositeValue(SK, helper.physSkColumns(key.tail.head))
 
+        def truncate = ReaderT.pure(false)
+
         def bulkDelete(t: Stream[Effect, T]): Effect[Unit] = t.vectorChunkN(25).flatMap { dels =>
           val wrs = dels.map(t => new WriteRequest(new DeleteRequest(keysAsAttributes(helper.extractKey(t)))))
           batchWriteResultStream(new BatchWriteItemRequest(Map(tableName -> wrs.asJava).asJava))
