@@ -5,6 +5,8 @@ import shapeless.ops.hlist.{At, IsHCons, Mapper, ToList, ToTraversable, Zip, Zip
 import shapeless.ops.record.{SelectAll, Selector}
 import shapeless.{::, DepFn0, DepFn1, DepFn2, HList, HNil, Nat, Poly1, Poly2, record}
 
+import scala.annotation.tailrec
+
 /**
   * Created by jolz on 8/06/16.
   */
@@ -86,7 +88,6 @@ object ColumnListHelperBuilder {
   implicit def helper[CA[_], T, CR <: HList, CVL <: HList, FullKey]
   (implicit
    allVals: PhysicalValues.Aux[CA, CR, CVL, List[PhysicalValue[CA]]],
-   differ: ValueDifferences.Aux[CA, CR, CVL, CVL, List[ValueDifference[CA]]],
    materializeAll: MaterializeFromColumns.Aux[CA, CR, CVL]
   ) = new ColumnListHelperBuilder[CA, T, CR, CVL, FullKey] {
     def apply(mapper: ColumnMapper[T, CR, CVL], toKeys: (CVL) => FullKey): ColumnListHelper[CA, T, FullKey]
@@ -106,7 +107,7 @@ object ColumnListHelperBuilder {
           val newCols = toColumns(newValue)
           val oldKey = toKeys(exCols)
           val newKey = toKeys(newCols)
-          if (oldKey == newKey) Left(oldKey, differ(columns, (exCols, newCols))) else Right(oldKey, newKey, colsToValues(newCols))
+          if (oldKey == newKey) Left(oldKey, ValueDifference.diff(toPhysicalValues(existing), toPhysicalValues(newValue))) else Right(oldKey, newKey, colsToValues(newCols))
         }
       }
     }
@@ -302,44 +303,26 @@ trait ValueDifference[CA[_]] {
 
 
 object ValueDifference {
-  def apply[CA[_], S, A0](cm: (ColumnMapping[CA, S, A0], A0, A0)): Option[ValueDifference[CA]] = cm match {
-    case (_, v1, v2) if v1 == v2 => None
-    case (cm, v1, v2) => Some(new ValueDifference[CA] {
-      type A = A0
-      def name = cm.name
-      def existing = v1
-      def newValue = v2
-      def atom = cm.atom
-    })
-  }
-}
-
-trait ValueDifferences[CA[_], CR, A, B] extends DepFn2[CR, (A, B)]
-
-object ValueDifferences {
-  type Aux[CA[_], CR, A, B, Out0] = ValueDifferences[CA, CR, A, B] {type Out = Out0 }
-
-  object valueDiff extends Poly1 {
-    implicit def mapToPhysical[CA[_], S, A] = at[(ColumnMapping[CA, S, A], A, A)] (ValueDifference.apply[CA, S, A])
-
-    implicit def fieldValue[CA[_], A, K, V](implicit c: Case.Aux[(V, A, A), Option[ValueDifference[CA]]])
-    = at[(FieldType[K, V], A, A)](cv => c(cv._1: V, cv._2, cv._3) : Option[ValueDifference[CA]])
+  def apply[CA[_], A0](pv: PhysicalValue[CA], v1: A0, v2:A0): ValueDifference[CA] = new ValueDifference[CA] {
+    type A = A0
+    def name = pv.name
+    def existing = v1
+    def newValue = v2
+    def atom = pv.atom.asInstanceOf[CA[A]]
   }
 
-  implicit def zippedDiff[CA[_], CR <: HList, VL1 <: HList, VL2 <: HList, Z <: HList]
-  (implicit zipped: Zip.Aux[CR :: VL1 :: VL2 :: HNil, Z], mapper: Mapper[valueDiff.type, Z])
-  : Aux[CA, CR, VL1, VL2, mapper.Out] = new ValueDifferences[CA, CR, VL1, VL2] {
-    type Out = mapper.Out
-
-    def apply(t: CR, u: (VL1, VL2)) = mapper(zipped(t :: u._1 :: u._2 :: HNil))
-  }
-
-  implicit def diffsAsList[CA[_], CR, A, B, OutL <: HList]
-  (implicit vd: Aux[CA, CR, A, B, OutL], toList: ToList[OutL, Option[ValueDifference[CA]]])
-  : Aux[CA, CR, A, B, List[ValueDifference[CA]]] = new ValueDifferences[CA, CR, A, B] {
-    type Out = List[ValueDifference[CA]]
-
-    def apply(t: CR, u: (A, B)) = toList(vd(t, u)).flatten
+  def diff[CA[_]](vl1: List[PhysicalValue[CA]], vl2: List[PhysicalValue[CA]]): List[ValueDifference[CA]] = {
+    @tailrec
+    def go(vl1: List[PhysicalValue[CA]], vl2: List[PhysicalValue[CA]], acc: List[ValueDifference[CA]]): List[ValueDifference[CA]] = {
+      if (vl1.isEmpty && vl2.isEmpty) acc else {
+        val h1 = vl1.head
+        val v1 = h1.v
+        val v2 = vl2.head.v
+        val acc2 = if (v1 == v2) acc else acc.::(ValueDifference(h1, v1, v2))
+        go(vl1.tail, vl2.tail, acc2)
+      }
+    }
+    go(vl1, vl2, Nil)
   }
 }
 

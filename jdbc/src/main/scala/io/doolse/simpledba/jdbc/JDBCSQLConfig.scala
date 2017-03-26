@@ -44,6 +44,7 @@ object JDBCSQLConfig {
     case SMALLINT => "SMALLINT"
     case FLOAT => "FLOAT"
     case DOUBLE => "DOUBLE"
+    case TIMESTAMP => "TIMESTAMP"
   }
 
   val hsqlTypeNames : SQLType => String = ({

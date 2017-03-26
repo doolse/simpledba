@@ -72,9 +72,9 @@ abstract class SimpleRelations[F[_] : Catchable](name: String)(implicit M: Monad
 
   include(crudProps[Fields2, UUID](queries2.updates,
     a => queries2.byPK(a.uuid) ++ queries2.byName(a.name), 2,
-    genUpdate[Fields2]((a, b) => b)), "Fields2")
+    genUpdate[Fields2]((a, b) => b.copy(uuid = a.uuid) )), "Fields2")
 
   include(crudProps[Fields3, UUID](queries3.updates,
     a => queries3.byPK(a.uuid) ++ queries3.byName(a.name) ++ queries3.byYear(a.year), 3,
-    genUpdate[Fields3]((a, b) => b)), "Fields3")
+    genUpdate[Fields3]((a, b) => b.copy(uuid = a.uuid))), "Fields3")
 }

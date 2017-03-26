@@ -1,12 +1,13 @@
 package io.doolse.simpledba.cassandra
 
-import cats.Eval
+import cats.{Eval, Monad}
 import cats.data.ReaderT
 import cats.syntax.all._
 import com.datastax.driver.core.schemabuilder.{Create, SchemaBuilder}
 import com.datastax.driver.core.{DataType, ResultSet, Row}
 import fs2._
 import fs2.interop.cats._
+import fs2.util.Catchable
 import io.doolse.simpledba.RelationMapper._
 import io.doolse.simpledba.cassandra.CassandraIO._
 import io.doolse.simpledba.cassandra.CassandraMapper._
@@ -94,6 +95,9 @@ object CassandraTableBuilder {
         }
 
         def writer(tableName: String) = new WriteQueries[Effect, T] {
+          val C = implicitly[Catchable[Effect]]
+          val M = implicitly[Monad[Effect]]
+
           val keyEq = exactMatch(pkCols ++ skCols)
           val insertQ = CassandraInsert(tableName, columns.map(_.name))
           val updateQ = CassandraUpdate(tableName, Seq.empty, keyEq)
@@ -102,29 +106,26 @@ object CassandraTableBuilder {
           def keyBindings(key: PKV :: SKV :: HNil) = valsToBinding(pkPhys(key.head) ++ skPhys(key.tail.head))
 
           def truncate = ReaderT { s => s.prepareAndBind(CassandraTruncate(tableName), Seq.empty).map(_ => ()) }
-          def deleteWithKey(key: PKV :: SKV :: HNil, s: CassandraSession): Task[Unit] =
-            s.prepareAndBind(deleteQ, keyBindings(key)).map(_ => ())
 
-          def insertWithVals(vals: Seq[PhysicalValue[CassandraColumn]], s: CassandraSession) =
-            s.prepareAndBind(insertQ, valsToBinding(vals)).map(_ => ())
+          def deleteWithKey(key: PKV :: SKV :: HNil) =
+            Stream(CassandraWriteOperation(deleteQ, keyBindings(key)))
 
-          def bulkDelete(ts: Stream[Effect, T]): Effect[Unit] = ts.evalMap { t => ReaderT
-          { s : CassandraSession => deleteWithKey(helper.extractKey(t), s) } } run
+          def insertWithVals(vals: Seq[PhysicalValue[CassandraColumn]]) =
+            Stream(CassandraWriteOperation(insertQ, valsToBinding(vals)))
 
-          def bulkInsert(ts: Stream[Effect, T]): Effect[Unit] = ts.evalMap { t =>
-            ReaderT { cs : CassandraSession =>
-              insertWithVals(helper.toPhysicalValues(t), cs)
-            }
-          } run
+          def batchWrite = writePipe
 
-          def update(existing: T, newValue: T): Effect[Boolean] = ReaderT { s =>
+          def deleteOperation(t: T) = deleteWithKey(helper.extractKey(t))
+
+          def insertOperation(t: T) = insertWithVals(helper.toPhysicalValues(t))
+
+          def updateOperation(existing: T,newValue: T): Stream[Effect, WriteOperation] = {
             helper.changeChecker(existing, newValue).map {
-              case Right((oldKey, newKey, vals)) => deleteWithKey(oldKey, s) *> insertWithVals(vals, s)
+              case Right((oldKey, newKey, vals)) => deleteWithKey(oldKey) ++ insertWithVals(vals)
               case Left((fk, diff)) =>
                 val assignments = diff.map(vd => vd.atom.assigner(vd.name, vd.existing, vd.newValue))
-                s.prepareAndBind(updateQ.copy(assignments = assignments.map(_._1)), assignments.map(_._2) ++ keyBindings(fk))
-            } map (_.map(_ => true)) getOrElse Task.now(false)
-
+                Stream(CassandraWriteOperation(updateQ.copy(assignments = assignments.map(_._1)), assignments.map(_._2) ++ keyBindings(fk)))
+            } getOrElse Stream.empty
           }
         }
       }

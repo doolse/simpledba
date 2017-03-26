@@ -9,8 +9,9 @@ import com.datastax.driver.core.querybuilder._
 import com.datastax.driver.core.querybuilder.Select.{Selection, SelectionOrAlias, Where}
 import com.google.common.util.concurrent.ListenableFuture
 import com.typesafe.config.{Config, ConfigFactory}
-import fs2.{Chunk, Strategy, Stream, Task}
+import fs2.{Chunk, Pipe, Strategy, Stream, Task}
 import fs2.util.~>
+import io.doolse.simpledba.WriteOperation
 import io.doolse.simpledba.cassandra.CassandraMapper.Effect
 
 import scala.collection.mutable
@@ -25,6 +26,11 @@ import scala.collection.JavaConverters._
 object CassandraIO {
 
   implicit val strat = Strategy.fromExecutionContext(ExecutionContext.global)
+
+  val writePipe: Pipe[Effect, WriteOperation, Int] = _.evalMap {
+    case CassandraWriteOperation(q, vals) => Kleisli { (s: CassandraSession) => s.prepareAndBind(q, vals).map(_ => 1) }
+  }
+
 
   def initSimpleSession(config: Config = ConfigFactory.load()) = {
     val cassConfig = config.getConfig("simpledba.cassandra")
@@ -43,8 +49,8 @@ object CassandraIO {
   }
 
   def stmt2String(s: Statement): String = s match {
-    case bs : BoundStatement => bs.preparedStatement.getQueryString
-    case rs : RegularStatement => rs.getQueryString
+    case bs: BoundStatement => bs.preparedStatement.getQueryString
+    case rs: RegularStatement => rs.getQueryString
     case s => s.toString()
   }
 
@@ -97,23 +103,23 @@ sealed trait PreparableStatement {
 }
 
 case class CassandraSession(session: Session, logger: (() ⇒ String) ⇒ Unit = _ => (),
-                            statementCache : scala.collection.concurrent.Map[Any, Task[PreparedStatement]]
-                         = new ConcurrentHashMap[Any, Task[PreparedStatement]]().asScala) {
+                            statementCache: scala.collection.concurrent.Map[Any, Task[PreparedStatement]]
+                            = new ConcurrentHashMap[Any, Task[PreparedStatement]]().asScala) {
 
   def executeLater(stmt: Statement): Task[ResultSet] = {
     logger(() => CassandraIO.stmt2String(stmt))
     CassandraIO.executeLater(stmt, session)
   }
 
-  def prepareAndBind[A <: PreparableStatement](a: A, b: Seq[AnyRef]): Task[ResultSet] = {
+  def prepareAndBind(a: PreparableStatement, b: Seq[AnyRef]): Task[ResultSet] = {
     lazy val prepared = {
       val built = a.build
-      logger(() => "Preparing: "+CassandraIO.stmt2String(built))
+      logger(() => "Preparing: " + CassandraIO.stmt2String(built))
       CassandraIO.asyncStmt(session.prepareAsync(built), built.getQueryString)
     }
     statementCache.getOrElseUpdate(a, prepared).flatMap {
       ps =>
-        logger(() => "Binding "+b.mkString(", ")+" to "+ps.getQueryString)
+        logger(() => "Binding " + b.mkString(", ") + " to " + ps.getQueryString)
         CassandraIO.executeAsync(ps.bind(b: _*), session)
     }
   }
@@ -124,19 +130,23 @@ sealed trait CassandraAssignment {
 }
 
 case class SetAssignment(column: String) extends CassandraAssignment {
-  def toAssignment(v: Any): Assignment = QueryBuilder.set(column,v)
+  def toAssignment(v: Any): Assignment = QueryBuilder.set(column, v)
 }
 
 sealed trait CassandraClause {
   def toClause(v: Seq[AnyRef]): Clause
+
   def markers: Seq[AnyRef]
+
   def toPrepared: Clause = toClause(markers)
 }
 
 abstract class CompositeClause(f: (java.util.List[String], java.util.List[AnyRef]) => Clause) extends CassandraClause {
   val names: Seq[String]
+
   def toClause(v: Seq[AnyRef]) = f(names.map(CassandraIO.escapeReserved).asJava, v.asJava)
-  def markers : Seq[AnyRef] = names.map(_ => QueryBuilder.bindMarker())
+
+  def markers: Seq[AnyRef] = names.map(_ => QueryBuilder.bindMarker())
 }
 
 case class CassandraGT(names: Seq[String]) extends CompositeClause(QueryBuilder.gt)
@@ -148,9 +158,12 @@ case class CassandraLTE(names: Seq[String]) extends CompositeClause(QueryBuilder
 case class CassandraLT(names: Seq[String]) extends CompositeClause(QueryBuilder.lt)
 
 case class CassandraEQ(name: String) extends CassandraClause {
-  def toClause(v: Seq[AnyRef]) =  QueryBuilder.eq(CassandraIO.escapeReserved(name), v(0))
+  def toClause(v: Seq[AnyRef]) = QueryBuilder.eq(CassandraIO.escapeReserved(name), v(0))
+
   def markers = Seq(QueryBuilder.bindMarker)
 }
+
+case class CassandraWriteOperation(q: PreparableStatement, vals: Seq[AnyRef]) extends WriteOperation
 
 case class CassandraSelect(table: String, columns: Seq[String], where: Seq[CassandraClause], ordering: Seq[(String, Boolean)], limit: Boolean) extends PreparableStatement {
   def build: RegularStatement = {
@@ -164,7 +177,7 @@ case class CassandraSelect(table: String, columns: Seq[String], where: Seq[Cassa
     val marker = QueryBuilder.bindMarker()
     where.foreach(c => s.where(c.toPrepared))
     if (limit) s.limit(marker)
-    if (orderings.nonEmpty) s.orderBy(orderings : _*)
+    if (orderings.nonEmpty) s.orderBy(orderings: _*)
     s
   }
 }
@@ -194,6 +207,7 @@ case class CassandraUpdate(table: String, assignments: Seq[CassandraAssignment],
 
 case class CassandraDelete(table: String, where: Seq[CassandraClause]) extends PreparableStatement {
   def addClause(c: CassandraClause, w: Delete.Where) = w.and(c.toPrepared)
+
   def build = {
     val del = QueryBuilder.delete().all().from(table)
     val delWhere = del.where()

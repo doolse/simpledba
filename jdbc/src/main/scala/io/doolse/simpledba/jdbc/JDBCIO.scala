@@ -5,7 +5,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 import scala.collection.JavaConverters._
 import fs2._
-import io.doolse.simpledba.{ColumnMapping, ColumnMaterialzer, PhysicalValue}
+import io.doolse.simpledba.{ColumnMapping, ColumnMaterialzer, PhysicalValue, WriteOperation}
 import JDBCUtils.brackets
 import com.typesafe.config.{Config, ConfigFactory}
 
@@ -17,6 +17,7 @@ object JDBCIO {
 
   def openConnection(config: Config = ConfigFactory.load()) = {
     val jdbcConfig = config.getConfig("simpledba.jdbc")
+    val logger = if (!jdbcConfig.hasPath("log")) None else Some((msg: () => String) => Console.out.println(msg()))
     val jdbcUrl = jdbcConfig.getString("url")
     val dialect = jdbcConfig.getString("dialect") match {
       case "hsqldb" => JDBCSQLConfig.hsqldbConfig
@@ -26,7 +27,7 @@ object JDBCIO {
       val cc = jdbcConfig.getConfig("credentials")
       DriverManager.getConnection(jdbcUrl, cc.getString("username"), cc.getString("password"))
     } else DriverManager.getConnection(jdbcUrl)
-    JDBCSession(con, dialect)
+    JDBCSession(con, dialect, logger = logger.getOrElse(_ => ()))
   }
 
   def rowsStream[F[_]](rs: ResultSet): Stream[F, ResultSet] = {
@@ -34,8 +35,8 @@ object JDBCIO {
     else Stream.emit(rs) ++ Stream.suspend(rowsStream(rs))
   }
 
-  def rowMaterializer(c: JDBCSQLConfig, r: ResultSet) = new ColumnMaterialzer[JDBCColumn] {
-    def apply[A](name: String, atom: JDBCColumn[A]): A = atom.byName(c, r, name).get
+  def rowMaterializer(c: JDBCSession, r: ResultSet) = new ColumnMaterialzer[JDBCColumn] {
+    def apply[A](name: String, atom: JDBCColumn[A]): A = atom.byName(c, r, name).getOrElse(sys.error(s"Mapping error - column '$name' contains a NULL"))
   }
 
 }
@@ -52,23 +53,39 @@ case class JDBCSession(connection: Connection, config: JDBCSQLConfig, logger: ((
     statementCache.getOrElseUpdate(q, prepared)
   }
 
+  def doBind(ps: PreparedStatement, s: Seq[PhysicalValue[JDBCColumn]]): PreparedStatement = {
+    s.zipWithIndex.foreach {
+      case (pv, i) => pv.atom.bind(this, ps, i+1, pv.v)
+    }
+    ps
+  }
+
   def prepareAndBind(q: JDBCPreparedQuery, s: Seq[PhysicalValue[JDBCColumn]]): Task[PreparedStatement] = {
-    prepare(q).map { ps =>
+    prepare(q).map{ ps =>
       logger {
         () =>
           val vals = s.map(pv => pv.name+"="+pv.v).mkString(",")
           "Statement: " + JDBCPreparedQuery.asSQL(q, config) + " with values " + vals
       }
-      s.zipWithIndex.foreach {
-        case (pv, i) => pv.atom.bind(config, ps, i+1, pv.v)
-      }
-      ps
+      doBind(ps, s)
     }
   }
 
   def execQuery(q: JDBCPreparedQuery, s: Seq[PhysicalValue[JDBCColumn]]): Task[ResultSet] = prepareAndBind(q, s).map(_.executeQuery())
   def execWrite(q: JDBCPreparedQuery, s: Seq[PhysicalValue[JDBCColumn]]): Task[Boolean] = prepareAndBind(q, s).map(_.execute())
+
+  def execBatch(q: JDBCPreparedQuery, bvals: Seq[Seq[PhysicalValue[JDBCColumn]]]): Task[Unit] = prepare(q).map { ps =>
+    logger(() => s"Batch statement: ${JDBCPreparedQuery.asSQL(q, config)}")
+    bvals.foreach { s =>
+      logger { () => s"Values ${s.map(pv => pv.name + "=" + pv.v).mkString(",")}" }
+      doBind(ps, s).addBatch()
+    }
+    ps.executeBatch()
+    ()
+  }
 }
+
+case class JDBCWrite(q: JDBCPreparedQuery, s: Seq[PhysicalValue[JDBCColumn]]) extends WriteOperation
 
 sealed trait JDBCPreparedQuery
 case class JDBCDropTable(name: String) extends JDBCPreparedQuery

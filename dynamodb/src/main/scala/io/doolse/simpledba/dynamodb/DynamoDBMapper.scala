@@ -1,5 +1,6 @@
 package io.doolse.simpledba.dynamodb
 
+import cats.Monad
 import cats.data.ReaderT
 import com.amazonaws.services.dynamodbv2.model.{Stream => _, _}
 import fs2._
@@ -11,6 +12,7 @@ import io.doolse.simpledba.dynamodb.DynamoDBIO._
 import io.doolse.simpledba.dynamodb.DynamoDBMapper._
 import shapeless._
 import cats.syntax.all._
+import fs2.util.Catchable
 import shapeless.ops.hlist.{Diff, Prepend}
 
 import scala.collection.JavaConverters._
@@ -66,15 +68,6 @@ object DynamoDBMapper {
       val chunk = Stream.chunk(Chunk.seq(result.getResponses.asScala.toSeq.flatMap { case (t,l) => l.asScala.map(i => (t, i)) }))
       if (result.getUnprocessedKeys.isEmpty) chunk
       else chunk ++ batchGetResultStream(qr.withRequestItems(result.getUnprocessedKeys))
-    }
-  }
-
-  def batchWriteResultStream(qr: BatchWriteItemRequest): Stream[Effect, Unit] = {
-    Stream.eval[Effect, BatchWriteItemResult](ReaderT {
-      _.request(batchWriteItemAsync, qr)
-    }).flatMap { result =>
-      if (result.getUnprocessedItems.isEmpty) Stream.emit()
-      else batchWriteResultStream(qr.withRequestItems(result.getUnprocessedItems))
     }
   }
 
@@ -185,30 +178,31 @@ object DynamoTableBuilder {
 
       def writer(tableName: String) = new WriteQueries[Effect, T] {
 
+        val C = implicitly[Catchable[Effect]]
+        val M = implicitly[Monad[Effect]]
+
         def extraFields(key: PKV :: SKV :: HNil): Seq[PhysicalValue[DynamoDBColumn]] = compositeValue(PK, helper.physPkColumns(key.head)).toSeq ++
           compositeValue(SK, helper.physSkColumns(key.tail.head))
 
         def truncate = ReaderT.pure(false)
 
-        def bulkDelete(t: Stream[Effect, T]): Effect[Unit] = t.vectorChunkN(25).flatMap { dels =>
-          val wrs = dels.map(t => new WriteRequest(new DeleteRequest(keysAsAttributes(helper.extractKey(t)))))
-          batchWriteResultStream(new BatchWriteItemRequest(Map(tableName -> wrs.asJava).asJava))
-        } run
+        def batchWrite = writePipe
 
-        def bulkInsert(t: Stream[Effect, T]): Effect[Unit] = t.vectorChunkN(25).flatMap { dels =>
-          val wrs = dels.map(t => new WriteRequest(new PutRequest(asAttrMap(toPhysicalValues(t)))))
-          batchWriteResultStream(new BatchWriteItemRequest(Map(tableName -> wrs.asJava).asJava))
-        } run
+        def deleteForKey(key: PKV :: SKV :: HNil ) = Stream(DynamoDBBatchable(tableName, new WriteRequest(new DeleteRequest(keysAsAttributes(key)))))
 
-        def update(existing: T, newValue: T): Effect[Boolean] = ReaderT { s =>
+        def insertForVals(vals: Seq[PhysicalValue[DynamoDBColumn]]) =
+          Stream(DynamoDBBatchable(tableName, new WriteRequest(new PutRequest(asAttrMap(vals)))))
+
+        def deleteOperation(t: T) = deleteForKey(helper.extractKey(t))
+
+        def insertOperation(t: T) = insertForVals(toPhysicalValues(t))
+
+        def updateOperation(existing: T,newValue: T) = {
           helper.changeChecker(existing, newValue).map {
-            case Left((k, changes)) =>
-              s.request(updateItemAsync, new UpdateItemRequest(tableName, keysAsAttributes(k),
-                changes.map(c => asValueUpdate(c)).toMap.asJava))
-            case Right((oldKey, newk, vals)) =>
-              s.request(deleteItemAsync, new DeleteItemRequest(tableName, keysAsAttributes(oldKey))) <*
-                s.request(putItemAsync, new PutItemRequest(tableName, asAttrMap(vals ++ extraFields(newk))))
-          } map (_.map(_ => true)) getOrElse Task.now(false)
+            case Left((k, changes)) => Stream(DynamoDBUpdate(new UpdateItemRequest(tableName, keysAsAttributes(k),
+                changes.map(c => asValueUpdate(c)).toMap.asJava)))
+            case Right((oldKey, newk, vals)) => deleteForKey(oldKey) ++ insertForVals(vals ++ extraFields(newk))
+          } getOrElse Stream.empty
         }
       }
 
