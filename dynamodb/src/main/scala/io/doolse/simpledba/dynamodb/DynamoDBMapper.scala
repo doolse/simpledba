@@ -1,7 +1,7 @@
 package io.doolse.simpledba.dynamodb
 
 import cats.Monad
-import cats.data.ReaderT
+import cats.data.{ReaderT, WriterT}
 import com.amazonaws.services.dynamodbv2.model.{Stream => _, _}
 import fs2._
 import fs2.interop.cats._
@@ -23,9 +23,6 @@ import scala.collection.JavaConverters._
 
 
 object DynamoDBMapper {
-  type Effect[A] = ReaderT[Task, DynamoDBSession, A]
-  type DynamoDBDDL = CreateTableRequest
-
 
   def asAttrMap(l: Seq[PhysicalValue[DynamoDBColumn]]) = l.map(physical2Attribute).toMap.asJava
 
@@ -42,7 +39,7 @@ object DynamoDBMapper {
   }
 
   def resultStream(qr: QueryRequest): Stream[Effect, java.util.Map[String, AttributeValue]] = {
-    Stream.eval[Effect, QueryResult](ReaderT {
+    Stream.eval[Effect, QueryResult](queryDynamo {
       _.request(queryAsync, qr)
     }).flatMap { result =>
       val chunk = Stream.chunk(Chunk.seq(result.getItems.asScala))
@@ -52,7 +49,7 @@ object DynamoDBMapper {
   }
 
   def scanResultStream(qr: ScanRequest): Stream[Effect, java.util.Map[String, AttributeValue]] = {
-    Stream.eval[Effect, ScanResult](ReaderT {
+    Stream.eval[Effect, ScanResult](queryDynamo {
       _.request(scanAsync, qr)
     }).flatMap { result =>
       val chunk = Stream.chunk(Chunk.seq(result.getItems.asScala))
@@ -62,7 +59,7 @@ object DynamoDBMapper {
   }
 
   def batchGetResultStream(qr: BatchGetItemRequest): Stream[Effect, (String, java.util.Map[String, AttributeValue])] = {
-    Stream.eval[Effect, BatchGetItemResult](ReaderT {
+    Stream.eval[Effect, BatchGetItemResult](queryDynamo {
       _.request(batchGetItemAsync, qr)
     }).flatMap { result =>
       val chunk = Stream.chunk(Chunk.seq(result.getResponses.asScala.toSeq.flatMap { case (t,l) => l.asScala.map(i => (t, i)) }))
@@ -123,7 +120,7 @@ case class KeyMatch(pk: PhysicalValue[DynamoDBColumn], sk1: Option[(PhysicalValu
   def asMap = asAttrMap(List(pk) ++ sk1.map(_._1) ++ sk2.map(_._1))
 }
 
-class DynamoDBMapper(val config: SimpleMapperConfig = defaultMapperConfig) extends RelationMapper[DynamoDBMapper.Effect] {
+class DynamoDBMapper(val config: SimpleMapperConfig = defaultMapperConfig) extends RelationMapper[Effect] {
 
   type ColumnAtom[A] = DynamoDBColumn[A]
   type MapperConfig = SimpleMapperConfig
@@ -184,26 +181,28 @@ object DynamoTableBuilder {
         def extraFields(key: PKV :: SKV :: HNil): Seq[PhysicalValue[DynamoDBColumn]] = compositeValue(PK, helper.physPkColumns(key.head)).toSeq ++
           compositeValue(SK, helper.physSkColumns(key.tail.head))
 
-        def truncate = ReaderT.pure(false)
+        def truncate = M.pure(false)
 
-        def batchWrite = writePipe
-
-        def deleteForKey(key: PKV :: SKV :: HNil ) = Stream(DynamoDBBatchable(tableName, new WriteRequest(new DeleteRequest(keysAsAttributes(key)))))
-
-        def insertForVals(vals: Seq[PhysicalValue[DynamoDBColumn]]) =
-          Stream(DynamoDBBatchable(tableName, new WriteRequest(new PutRequest(asAttrMap(vals)))))
-
-        def deleteOperation(t: T) = deleteForKey(helper.extractKey(t))
-
-        def insertOperation(t: T) = insertForVals(toPhysicalValues(t))
-
-        def updateOperation(existing: T,newValue: T) = {
-          helper.changeChecker(existing, newValue).map {
-            case Left((k, changes)) => Stream(DynamoDBUpdate(new UpdateItemRequest(tableName, keysAsAttributes(k),
-                changes.map(c => asValueUpdate(c)).toMap.asJava)))
-            case Right((oldKey, newk, vals)) => deleteForKey(oldKey) ++ insertForVals(vals ++ extraFields(newk))
-          } getOrElse Stream.empty
+        def deleteForKey(key: PKV :: SKV :: HNil ) = writeDynamo {
+          DynamoDBBatchable(tableName, new WriteRequest(new DeleteRequest(keysAsAttributes(key))))
         }
+
+        def insertForVals(vals: Seq[PhysicalValue[DynamoDBColumn]]) = writeDynamo {
+          DynamoDBBatchable(tableName, new WriteRequest(new PutRequest(asAttrMap(vals))))
+        }
+
+        def delete(t: T) = deleteForKey(helper.extractKey(t))
+
+        def insert(t: T) = insertForVals(toPhysicalValues(t))
+
+        def update(existing: T,newValue: T) = {
+          helper.changeChecker(existing, newValue).map {
+            case Left((k, changes)) => writeDynamo { DynamoDBUpdate(new UpdateItemRequest(tableName, keysAsAttributes(k),
+                changes.map(c => asValueUpdate(c)).toMap.asJava)) }
+            case Right((oldKey, newk, vals)) => deleteForKey(oldKey) >> insertForVals(vals ++ extraFields(newk))
+          } map (_.map(_ => true)) getOrElse M.pure(false)
+        }
+
       }
 
 

@@ -1,40 +1,25 @@
 package io.doolse.simpledba.jdbc
 
-import java.sql.{Connection, PreparedStatement, ResultSet}
+import java.sql.ResultSet
 
+import cats.data.{Kleisli, ReaderT}
 import cats.{Monad, Now}
-import cats.data.ReaderT
+import cats.syntax.all._
 import fs2._
 import fs2.interop.cats._
-import cats.syntax.cartesian._
 import fs2.util.Catchable
+import io.doolse.simpledba.CatsUtils._
 import io.doolse.simpledba.RelationMapper._
-import io.doolse.simpledba.jdbc.JDBCMapper._
 import io.doolse.simpledba.{RangeValue, _}
+import io.doolse.simpledba.jdbc._
 import shapeless._
-import shapeless.ops.hlist.{Diff, Mapper, Partition, Prepend, ToList}
+import shapeless.ops.hlist.{Mapper, ToList}
 import shapeless.ops.record.Keys
 
 /**
   * Created by jolz on 12/03/17.
   */
 
-
-object JDBCMapper {
-  type Effect[A] = ReaderT[Task, JDBCSession, A]
-  type JDBCDDL = JDBCCreateTable
-
-  val writePipe : Pipe[Effect, WriteOperation, Int] = { ws =>
-    ws.rechunkN(1000).chunks.evalMap { chunk =>
-      val batches = chunk.map {
-        case JDBCWrite(q, v) => (q, v)
-      }.toVector.groupBy(_._1).toSeq
-      ReaderT { (s:JDBCSession) =>
-        Task.traverse(batches) { b => s.execBatch(b._1, b._2.map(_._2)) }
-      }
-    }.flatMap { v => Stream.emits(v.map(_ => 1))}
-  }
-}
 
 class JDBCMapper(val config: SimpleMapperConfig = defaultMapperConfig) extends RelationMapper[Effect] {
   type MapperConfig = SimpleMapperConfig
@@ -83,17 +68,17 @@ object JDBCQueryMap extends Poly1 {
     val select = JDBCSelect(table, allNames, JDBCPreparedQuery.exactMatch(pkCols), Seq.empty, false)
 
     def rsStream(s: Stream[Effect, ResultSet]) = for {
-      c <- Stream.eval[Effect, JDBCSession](ReaderT.ask)
+      c <- Stream.eval[Effect, JDBCSession](Kleisli.ask[JDBCWriter, JDBCSession])
       rs <- s.flatMap(JDBCIO.rowsStream)
     } yield materialize(JDBCIO.rowMaterializer(c, rs))
 
-    val queryAll = rsStream(Stream.eval { ReaderT { s => s.prepare(selectAll).map(_.executeQuery()) } })
+    val queryAll = rsStream(
+      Stream.eval(JDBCIO.sessionIO(_.prepare(selectAll).map(_.executeQuery())))
+    )
 
     def doQuery(sv: Stream[Effect, PKV]): Stream[Effect, T] = sv.flatMap { v =>
       rsStream(
-        Stream.eval[Effect, ResultSet] {
-          ReaderT { s => s.execQuery(select, pkPhysV(v)) }
-        }
+        Stream.eval[Effect, ResultSet](JDBCIO.sessionIO(_.execQuery(select, pkPhysV(v))))
       )
     }
 
@@ -127,8 +112,7 @@ object JDBCQueryMap extends Poly1 {
 
     def doQuery(c: ColsVals, lr: RangeValue[SortVals], ur: RangeValue[SortVals], asc: Option[Boolean]): Stream[Effect, T] = for {
       sess <- Stream.eval[Effect, JDBCSession](ReaderT.ask)
-      rs <- Stream.eval[Effect, ResultSet] {
-        ReaderT { s =>
+      rs <- Stream.eval[Effect, ResultSet] { JDBCIO.sessionIO { s =>
           def processOp(op: Option[(SortVals, String => JDBCWhereClause)]) = op.map { case (sv, f) =>
             val vals = skPhysV(sv)
             (vals.map(v => f(v.name)), vals)
@@ -170,29 +154,29 @@ object JDBCQueryMap extends Poly1 {
       val deleteQ = JDBCDelete(tableName, keyEq)
       val insertQ = JDBCInsert(tableName, columns.map(_.name))
 
-      def batchWrite = writePipe
-
       def keyBindings(key: PKV :: HNil) = pkPhys(key.head)
 
-      def insertOperation(t: T): Stream[Effect, WriteOperation] = Stream(JDBCWrite(insertQ, helper.toPhysicalValues(t)))
+      def insert(t: T) = JDBCIO.write(JDBCWrite(insertQ, helper.toPhysicalValues(t)))
 
-      def truncate = ReaderT { s => s.execWrite(JDBCTruncate(tableName), Seq.empty).map(_ => ()) }
+//      def insertOperation(t: T): Stream[Effect, WriteOperation] = Stream()
 
-      def deleteOperation(t: T): Stream[Effect, WriteOperation] = deleteWithKey(helper.extractKey(t))
+      def truncate = JDBCIO.sessionIO(_.execWrite(JDBCTruncate(tableName), Seq.empty).map(_ => ()))
 
-      def deleteWithKey(key: PKV :: HNil): Stream[Effect, WriteOperation] = Stream(JDBCWrite(deleteQ, keyBindings(key)))
+      def delete(t: T) = deleteWithKey(helper.extractKey(t))
+
+      def deleteWithKey(key: PKV :: HNil) = JDBCIO.write(JDBCWrite(deleteQ, keyBindings(key)))
 
 //      def bulkDelete(l: Stream[Effect, T]): Effect[Unit] = l.evalMap { t =>
 //        ReaderT { s: JDBCSession => deleteWithKey(helper.extractKey(t), s) }
 //      } run
 
-      def updateOperation(existing: T, newValue: T) = {
+      def update(existing: T, newValue: T) = {
         helper.changeChecker(existing, newValue).map {
-          case Right((oldKey, newKey, vals)) => deleteWithKey(oldKey) ++ Stream(JDBCWrite(insertQ, vals))
+          case Right((oldKey, newKey, vals)) => deleteWithKey(oldKey) >> JDBCIO.write(JDBCWrite(insertQ, vals))
           case Left((fk, diff)) =>
             val bVals = diff.map(vd => PhysicalValue(vd.name, vd.atom, vd.newValue)) ++ keyBindings(fk)
-            Stream(JDBCWrite(updateQ.copy(assignments = diff.map(_.name)), bVals))
-        } getOrElse Stream.empty
+            JDBCIO.write(JDBCWrite(updateQ.copy(assignments = diff.map(_.name)), bVals))
+        } map (_.map(_ => true)) getOrElse M.pure(false)
       }
     }: WriteQueries[Effect, T]
   }

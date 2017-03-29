@@ -4,7 +4,7 @@ import com.amazonaws.services.dynamodbv2.model.CreateTableRequest
 import org.scalacheck.Arbitrary.arbString
 import io.doolse.simpledba.{BuiltQueries, Exclusive, FilterRange, Inclusive}
 import io.doolse.simpledba.dynamodb.DynamoDBMapper._
-import io.doolse.simpledba.dynamodb.{DynamoDBColumn, DynamoDBMapper, DynamoDBSession, DynamoDBUtils}
+import io.doolse.simpledba.dynamodb.{DynamoDBColumn, DynamoDBMapper, DynamoDBSession, DynamoDBUtils, Effect}
 import io.doolse.simpledba.dynamodb.DynamoDBIO._
 import io.doolse.simpledba.test.Rangeable
 import org.scalacheck.Arbitrary
@@ -41,5 +41,5 @@ trait DynamoDBProperties {
     bq.queries
   }
 
-  def run[A](fa: Effect[A]): A = scala.concurrent.blocking { fa.run(session).unsafeRun }
+  def run[A](fa: Effect[A]): A = scala.concurrent.blocking { runWrites(fa).run(session).unsafeRun }
 }

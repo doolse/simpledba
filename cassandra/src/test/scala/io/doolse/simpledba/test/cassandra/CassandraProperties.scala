@@ -2,7 +2,7 @@ package io.doolse.simpledba.test.cassandra
 
 import com.datastax.driver.core.schemabuilder.Create
 import io.doolse.simpledba.BuiltQueries
-import io.doolse.simpledba.cassandra.CassandraMapper._
+import io.doolse.simpledba.cassandra._
 import io.doolse.simpledba.cassandra.{CassandraMapper, CassandraIO, CassandraUtils, CassandraSession}
 
 /**
@@ -25,6 +25,6 @@ trait CassandraProperties {
     bq.queries
   }
 
-  def run[A](fa: Effect[A]): A = scala.concurrent.blocking { fa.run(sessionConfig).unsafeRun }
+  def run[A](fa: Effect[A]): A = scala.concurrent.blocking { CassandraIO.runWrites(fa).run(sessionConfig).unsafeRun }
 
 }

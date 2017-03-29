@@ -21,7 +21,7 @@ case class DistinctRangeable(vals: Vector[Rangeable])
 case class Rangeable(pk1: UUID, same: UUID, intField: Int, stringField: SafeString, shortField: Short,
                      longField: Long, floatField: Float, doubleField: Double, uuidField: UUID)
 
-abstract class RangeQueryProperties[F[_] : Monad : Catchable](implicit rangeable: Arbitrary[Rangeable],
+abstract class RangeQueryProperties[F[_] : Monad : Catchable : Flushable](implicit rangeable: Arbitrary[Rangeable],
                                                           arbRange: Arbitrary[FilterRange[Rangeable]])
   extends AbstractRelationsProperties[F]("Ranges") {
 
@@ -101,8 +101,7 @@ abstract class RangeQueryProperties[F[_] : Monad : Catchable](implicit rangeable
     }
 
     for {
-      _ <- queries.writes.truncate
-      _ <- queries.writes.bulkInsert(Stream.emits(vSame))
+      _ <- (queries.writes.truncate >> queries.writes.bulkInsert(Stream.emits(vSame))).flush
       p = rangeQ.map {
         case (name, oq) => processRangeCheck(name, oq)
       }

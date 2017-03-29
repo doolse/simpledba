@@ -35,7 +35,7 @@ object CompositeRelations {
 }
 
 
-abstract class CompositeRelations[F[_] : Catchable](name: String)(implicit M: Monad[F]) extends AbstractRelationsProperties[F](s"$name - Composite") {
+abstract class CompositeRelations[F[_] : Catchable](name: String)(implicit M: Monad[F], F:Flushable[F]) extends AbstractRelationsProperties[F](s"$name - Composite") {
 
   val queries2 : Queries2[F]
 

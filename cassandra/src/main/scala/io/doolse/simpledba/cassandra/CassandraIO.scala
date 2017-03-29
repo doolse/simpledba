@@ -2,17 +2,17 @@ package io.doolse.simpledba.cassandra
 
 import java.util.concurrent.{ConcurrentHashMap, ExecutionException}
 
-import cats.data.Kleisli
+import cats.data.{Kleisli, WriterT}
 import com.datastax.driver.core._
 import com.datastax.driver.core.policies.{DCAwareRoundRobinPolicy, DowngradingConsistencyRetryPolicy, LoggingRetryPolicy, TokenAwarePolicy}
 import com.datastax.driver.core.querybuilder._
 import com.datastax.driver.core.querybuilder.Select.{Selection, SelectionOrAlias, Where}
 import com.google.common.util.concurrent.ListenableFuture
 import com.typesafe.config.{Config, ConfigFactory}
-import fs2.{Chunk, Pipe, Strategy, Stream, Task}
+import fs2.{Chunk, Pipe, Sink, Strategy, Stream, Task}
 import fs2.util.~>
-import io.doolse.simpledba.WriteOperation
-import io.doolse.simpledba.cassandra.CassandraMapper.Effect
+import fs2.interop.cats._
+import io.doolse.simpledba.CatsUtils._
 
 import scala.collection.mutable
 import scala.concurrent.ExecutionContext
@@ -27,8 +27,8 @@ object CassandraIO {
 
   implicit val strat = Strategy.fromExecutionContext(ExecutionContext.global)
 
-  val writePipe: Pipe[Effect, WriteOperation, Int] = _.evalMap {
-    case CassandraWriteOperation(q, vals) => Kleisli { (s: CassandraSession) => s.prepareAndBind(q, vals).map(_ => 1) }
+  val writePipe: Sink[Effect, CassandraWriteOperation] = _.evalMap {
+    case CassandraWriteOperation(q, vals) => cassQuery(_.prepareAndBind(q, vals).map(_ => ()))
   }
 
 
@@ -72,7 +72,7 @@ object CassandraIO {
     async[A](lf, ee => new CassandraIOException(s"Failed executing - $stmt - cause ${ee.getMessage}", ee.getCause))
 
   val task2Effect = new (Task ~> Effect) {
-    def apply[A](f: Task[A]): Effect[A] = Kleisli(_ => f)
+    def apply[A](f: Task[A]): Effect[A] = Kleisli(_ => WriterT.lift(f))
   }
 
   def rowsStream(rs: ResultSet)(implicit strat: fs2.Strategy): Stream[Task, Row] = {
@@ -95,6 +95,17 @@ object CassandraIO {
 
   def escapeReserved(name: String) =
     if (reservedColumns(name.toLowerCase())) '"' + name + '"' else name
+
+  def cassQuery[A](f: CassandraSession => Task[A]): Effect[A] =
+    Kleisli(s => WriterT.lift(f(s)))
+
+  def cassWrite(w: CassandraWriteOperation): Effect[Unit] = Kleisli.lift(WriterT.tell(Stream(w)))
+
+  def runWrites[A](fa: Effect[A]): Kleisli[Task, CassandraSession, A] = Kleisli {
+    s => fa.run(s).run.flatMap {
+      case (ws, a) => ws.throughv(writePipe).run.run(s).run.map(_ => a)
+    }
+  }
 
 }
 
@@ -163,7 +174,7 @@ case class CassandraEQ(name: String) extends CassandraClause {
   def markers = Seq(QueryBuilder.bindMarker)
 }
 
-case class CassandraWriteOperation(q: PreparableStatement, vals: Seq[AnyRef]) extends WriteOperation
+case class CassandraWriteOperation(q: PreparableStatement, vals: Seq[AnyRef])
 
 case class CassandraSelect(table: String, columns: Seq[String], where: Seq[CassandraClause], ordering: Seq[(String, Boolean)], limit: Boolean) extends PreparableStatement {
   def build: RegularStatement = {

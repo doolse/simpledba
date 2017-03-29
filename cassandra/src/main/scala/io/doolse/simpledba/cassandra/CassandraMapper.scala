@@ -8,6 +8,7 @@ import com.datastax.driver.core.{DataType, ResultSet, Row}
 import fs2._
 import fs2.interop.cats._
 import fs2.util.Catchable
+import io.doolse.simpledba.CatsUtils._
 import io.doolse.simpledba.RelationMapper._
 import io.doolse.simpledba.cassandra.CassandraIO._
 import io.doolse.simpledba.cassandra.CassandraMapper._
@@ -22,9 +23,6 @@ import shapeless.ops.record._
   */
 
 object CassandraMapper {
-  type Effect[A] = ReaderT[Task, CassandraSession, A]
-  type CassandraDDL = (String, Create)
-
   def exactMatch[T](s: Seq[ColumnMapping[CassandraColumn, T, _]]) = s.map(c => CassandraEQ(c.name))
 
   def valsToBinding(s: Seq[PhysicalValue[CassandraColumn]]) = s.map(pv => pv.atom.binding(pv.v))
@@ -105,28 +103,27 @@ object CassandraTableBuilder {
 
           def keyBindings(key: PKV :: SKV :: HNil) = valsToBinding(pkPhys(key.head) ++ skPhys(key.tail.head))
 
-          def truncate = ReaderT { s => s.prepareAndBind(CassandraTruncate(tableName), Seq.empty).map(_ => ()) }
+          def truncate = cassWrite(CassandraWriteOperation(CassandraTruncate(tableName), Seq.empty))
 
           def deleteWithKey(key: PKV :: SKV :: HNil) =
-            Stream(CassandraWriteOperation(deleteQ, keyBindings(key)))
+            cassWrite(CassandraWriteOperation(deleteQ, keyBindings(key)))
 
           def insertWithVals(vals: Seq[PhysicalValue[CassandraColumn]]) =
-            Stream(CassandraWriteOperation(insertQ, valsToBinding(vals)))
+            cassWrite(CassandraWriteOperation(insertQ, valsToBinding(vals)))
 
-          def batchWrite = writePipe
+          def delete(t: T) = deleteWithKey(helper.extractKey(t))
 
-          def deleteOperation(t: T) = deleteWithKey(helper.extractKey(t))
+          def insert(t: T) = insertWithVals(helper.toPhysicalValues(t))
 
-          def insertOperation(t: T) = insertWithVals(helper.toPhysicalValues(t))
-
-          def updateOperation(existing: T,newValue: T): Stream[Effect, WriteOperation] = {
+          def update(existing: T,newValue: T) = {
             helper.changeChecker(existing, newValue).map {
-              case Right((oldKey, newKey, vals)) => deleteWithKey(oldKey) ++ insertWithVals(vals)
+              case Right((oldKey, newKey, vals)) => deleteWithKey(oldKey) >> insertWithVals(vals)
               case Left((fk, diff)) =>
                 val assignments = diff.map(vd => vd.atom.assigner(vd.name, vd.existing, vd.newValue))
-                Stream(CassandraWriteOperation(updateQ.copy(assignments = assignments.map(_._1)), assignments.map(_._2) ++ keyBindings(fk)))
-            } getOrElse Stream.empty
+                cassWrite(CassandraWriteOperation(updateQ.copy(assignments = assignments.map(_._1)), assignments.map(_._2) ++ keyBindings(fk)))
+            } map (_.map(_ => true)) getOrElse M.pure(false)
           }
+
         }
       }
     }
@@ -186,13 +183,13 @@ object MapQuery extends Poly2 {
       .map(materialize)
 
       val queryAll = rsStream (
-        Stream.eval[Effect, ResultSet] { ReaderT { s => s.prepareAndBind(selectAll, Seq.empty) } }
+        Stream.eval[Effect, ResultSet] { cassQuery(_.prepareAndBind(selectAll, Seq.empty)) }
       )
 
       def doQuery(sv: Stream[Effect, PKV]): Stream[Effect, T] = sv.flatMap { v =>
         rsStream(
           Stream.eval[Effect, ResultSet] {
-            ReaderT { s => s.prepareAndBind(select, valsToBinding(pkPhysV(v))) }
+            cassQuery { _.prepareAndBind(select, valsToBinding(pkPhysV(v))) }
           }
         )
       }
@@ -230,7 +227,7 @@ object MapQuery extends Poly2 {
 
       def doQuery(c: ColsVals, lr: RangeValue[SortVals], ur: RangeValue[SortVals], asc: Option[Boolean]): Stream[Effect, T] = {
         Stream.eval[Effect, ResultSet] {
-          ReaderT { s =>
+          cassQuery { s =>
             def processOp(op: Option[(SortVals, Seq[String] => CassandraClause)]) = op.map { case (sv, f) =>
               val vals = skPhysV(sv)
               (Seq(f(vals.map(_.name))), vals)

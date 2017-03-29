@@ -18,7 +18,7 @@ import fs2.Stream
 case class Sortable(pk1: UUID, same: UUID, intField: Int, stringField: SafeString, shortField: Short,
                     longField: Long, floatField: Float, doubleField: Double, uuidField: UUID)
 
-abstract class SortedQueryProperties[F[_] : Monad : Catchable](implicit arb: Arbitrary[Sortable]) extends AbstractRelationsProperties[F]("Sorting") {
+abstract class SortedQueryProperties[F[_] : Monad : Catchable : Flushable](implicit arb: Arbitrary[Sortable]) extends AbstractRelationsProperties[F]("Sorting") {
 
   case class Queries[F[_]](writes: WriteQueries[F, Sortable],
                            int1: SortableQuery[F, Sortable, UUID],
@@ -66,8 +66,7 @@ abstract class SortedQueryProperties[F[_] : Monad : Catchable](implicit arb: Arb
   def checkOrder[A](same: UUID, v: Vector[Sortable], sortQ: Seq[(String, OrderQuery[_])]) = {
     val vSame = v.map(_.copy(same = same))
     for {
-      _ <- queries.writes.truncate
-      _ <- queries.writes.bulkInsert(Stream(vSame: _*))
+      _ <- (queries.writes.truncate >> queries.writes.bulkInsert(Stream(vSame: _*))).flush
       p = sortQ.map {
         case (name, oq @ OrderQuery(lens, q)) => run(for {
           ascend <- q.queryWithOrder(same, asc = true).map(lens).runLog

@@ -2,7 +2,7 @@ package io.doolse.simpledba.test.jdbc
 
 import fs2.interop.cats._
 import io.doolse.simpledba.CatsUtils._
-import io.doolse.simpledba.jdbc.JDBCMapper.Effect
+import io.doolse.simpledba.jdbc.Effect
 import io.doolse.simpledba.test.SimpleRelations
 import io.doolse.simpledba.test.SimpleRelations._
 

@@ -4,7 +4,7 @@ import fs2.interop.cats._
 import io.doolse.simpledba.CatsUtils._
 import io.doolse.simpledba.{Exclusive, FilterRange}
 import io.doolse.simpledba.dynamodb.DynamoDBIO._
-import io.doolse.simpledba.dynamodb.DynamoDBMapper.Effect
+import io.doolse.simpledba.dynamodb.Effect
 import io.doolse.simpledba.test._
 import org.scalacheck.Arbitrary
 import org.scalacheck.Test.Parameters

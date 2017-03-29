@@ -1,6 +1,6 @@
 package io.doolse.simpledba.test.jdbc
 
-import io.doolse.simpledba.jdbc.JDBCMapper.Effect
+import io.doolse.simpledba.jdbc.Effect
 import io.doolse.simpledba.test.CompositeRelations
 import io.doolse.simpledba.test.CompositeRelations._
 import io.doolse.simpledba.jdbc.stdImplicits._

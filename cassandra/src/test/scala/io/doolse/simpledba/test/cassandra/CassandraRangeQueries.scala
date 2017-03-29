@@ -1,6 +1,6 @@
 package io.doolse.simpledba.test.cassandra
 
-import io.doolse.simpledba.cassandra.CassandraMapper._
+import io.doolse.simpledba.cassandra._
 import io.doolse.simpledba.test.{RangeQueryProperties, SimpleDBAProperties}
 import fs2.interop.cats._
 import io.doolse.simpledba.CatsUtils._

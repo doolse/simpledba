@@ -43,4 +43,11 @@ package object simpledba {
     def sortBy = new WitnessList[QueryMultiple[K, CL, SL], SB](qm)
     def hint(nameHint: String) : QueryMultiple[K, CL, SL] = qm.copy(nameHint = Some(nameHint))
   }
+
+  trait Flushable[F[_]] {
+    def flush[A](f: F[A]): F[A]
+  }
+  implicit class FlushableOps[F[_], A](fa: F[A])(implicit F: Flushable[F]) {
+    def flush = F.flush(fa)
+  }
 }

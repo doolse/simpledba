@@ -1,12 +1,11 @@
 package io.doolse.simpledba
 
-import cats.{Applicative, Functor, Monad, Traverse}
 import cats.syntax.all._
-import cats.instances.vector._
-import shapeless.ops.hlist.Prepend
+import cats.{Applicative, Functor, Monad}
+import fs2.Stream
+import fs2.util.Catchable
 import shapeless._
-import fs2.{Pipe, Stream, concurrent}
-import fs2.util.{Async, Catchable}
+import shapeless.ops.hlist.Prepend
 
 /**
   * Created by jolz on 21/05/16.
@@ -97,33 +96,23 @@ case class RangeQuery[F[_], T, Key, Sort](ascending: Option[Boolean], _q: (Key, 
   = copy[F, T, K, SK](_q = (k, l, h, asc) => _q(vc(k), l.map(vc2), h.map(vc2), asc))
 }
 
-trait WriteOperation
-
 trait WriteQueries[F[_], T] {
   self =>
 
   protected val C: Catchable[F]
   protected val M: Monad[F]
 
-  def batchWrite: Pipe[F, WriteOperation, Int]
+  def delete(t: T): F[Unit]
 
-  def writeUnit(s: Stream[F, WriteOperation]) = s.through(batchWrite).run(C)
+  def insert(t: T): F[Unit]
 
-  def delete(t: T): F[Unit] = writeUnit(deleteOperation(t))
+  def truncate: F[Unit]
 
-  def insert(t: T): F[Unit] = writeUnit(insertOperation(t))
+  def update(existing: T, newValue: T): F[Boolean]
 
-  def update(existing: T, newValue: T): F[Boolean] = M.map(updateOperation(existing, newValue).through(batchWrite).runLast(C))(_.isDefined)
+  def bulkInsert(l: Stream[F, T]): F[Unit] = l.evalMap(insert).run(C)
 
-  def truncate : F[Unit]
-
-  def deleteOperation(t: T): Stream[F, WriteOperation]
-
-  def updateOperation(existing: T, newValue: T): Stream[F, WriteOperation]
-
-  def insertOperation(t: T): Stream[F, WriteOperation]
-
-  def bulkInsert(s: Stream[F, T]): F[Unit] = writeUnit(s.flatMap(insertOperation))
+  def bulkDelete(l: Stream[F, T]): F[Unit] = l.evalMap(delete).run(C)
 
   def insertUpdateOrDelete(o: Option[T], n: Option[T]): F[Boolean] = (o,n) match {
     case (Some(o), Some(n)) => update(o,n)
@@ -133,25 +122,25 @@ trait WriteQueries[F[_], T] {
   }
 
   def bulkDiff(oldVals: Set[T], newVals: Set[T]): F[Boolean] = {
+    implicit val c = M
     val deletes = oldVals &~ newVals
     val inserts = newVals &~ oldVals
-    if (deletes.isEmpty && inserts.isEmpty) M.pure(false) else {
-      M.map(writeUnit(Stream.emits(deletes.toSeq).flatMap(deleteOperation) ++ Stream.emits(inserts.toSeq).flatMap(insertOperation)))(_ => true)
-    }
+    if (deletes.isEmpty && inserts.isEmpty) M.pure(false) else
+      bulkDelete(Stream.emits(deletes.toVector)) *> bulkInsert(Stream.emits(inserts.toVector)).map(_ => true)
   }
 }
 
 object WriteQueries {
-  def combine[F[_], T](self: WriteQueries[F, T], other: WriteQueries[F, T])(implicit A: Applicative[F]) = new WriteQueries[F, T] {
+  def combine[F[_], T](self: WriteQueries[F, T], other: WriteQueries[F, T]) = new WriteQueries[F, T] {
+    implicit val A = self.M
     val C = self.C
     val M = self.M
 
-    def batchWrite = self.batchWrite
+    def update(existing: T, newValue: T): F[Boolean] = (self.update(existing, newValue) |@| other.update(existing, newValue)).map((a, b) => a || b)
 
-    def deleteOperation(t: T): Stream[F,WriteOperation] = self.deleteOperation(t) ++ other.deleteOperation(t)
-    def insertOperation(t: T): Stream[F,WriteOperation] = self.insertOperation(t) ++ other.insertOperation(t)
-    def updateOperation(existing: T,newValue: T): Stream[F,WriteOperation] = self.updateOperation(existing, newValue) ++ other.updateOperation(existing, newValue)
+    override def truncate = self.truncate >> other.truncate
 
-    override def truncate = self.truncate *> other.truncate
+    def insert(t: T) = self.insert(t) >> other.insert(t)
+    def delete(t: T) = self.delete(t) >> other.delete(t)
   }
 }

@@ -19,6 +19,6 @@ object TestCassandra extends App {
   CassandraUtils.initKeyspaceAndSchema(sessionConfig, "test", built.ddl, dropKeyspace = true).unsafeRun
 
   val q = TestCreator.doTest(queries)
-  val res = q.run(sessionConfig).unsafeRun
+  val res = CassandraIO.runWrites(q).run(sessionConfig).unsafeRun
   println(res)
 }

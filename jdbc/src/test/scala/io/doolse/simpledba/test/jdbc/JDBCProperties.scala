@@ -1,7 +1,6 @@
 package io.doolse.simpledba.test.jdbc
 
 import io.doolse.simpledba.BuiltQueries
-import io.doolse.simpledba.jdbc.JDBCMapper.Effect
 import io.doolse.simpledba.jdbc._
 
 /**
@@ -22,6 +21,6 @@ trait JDBCProperties {
     bq.queries
   }
 
-  def run[A](fa: Effect[A]): A = scala.concurrent.blocking { fa.run(session).unsafeRun }
+  def run[A](fa: Effect[A]): A = scala.concurrent.blocking { JDBCIO.runWrites(fa).run(session).unsafeRun }
 
 }

@@ -5,9 +5,11 @@ import java.util.concurrent.ConcurrentHashMap
 
 import scala.collection.JavaConverters._
 import fs2._
-import io.doolse.simpledba.{ColumnMapping, ColumnMaterialzer, PhysicalValue, WriteOperation}
+import io.doolse.simpledba.{ColumnMapping, ColumnMaterialzer, PhysicalValue}
 import JDBCUtils.brackets
+import cats.data.{Kleisli, ReaderT, WriterT}
 import com.typesafe.config.{Config, ConfigFactory}
+import fs2.interop.cats._
 
 /**
   * Created by jolz on 12/03/17.
@@ -39,15 +41,34 @@ object JDBCIO {
     def apply[A](name: String, atom: JDBCColumn[A]): A = atom.byName(c, r, name).getOrElse(sys.error(s"Mapping error - column '$name' contains a NULL"))
   }
 
+  def sessionIO[A](f: JDBCSession => Task[A]): Effect[A] =
+    Kleisli(s => WriterT.lift(f(s)))
+
+  def write(f: JDBCWrite): Effect[Unit] = Kleisli.lift(WriterT.tell(Stream(f)))
+
+  def writeSink(s: JDBCSession): Sink[Task, JDBCWrite] = { st =>
+    st.rechunkN(1000).chunks.evalMap { chunk =>
+      val batches = chunk.map {
+        case JDBCWrite(q, v) => (q, v)
+      }.toVector.groupBy(_._1).toSeq
+      Task.traverse(batches)(b => s.execBatch(b._1, b._2.map(_._2))).map(_ => ())
+    }
+  }
+
+  def runWrites[A](fa: Effect[A]): Kleisli[Task, JDBCSession, A] = Kleisli { s =>
+    fa.run(s).run.flatMap {
+      case (ws, a) => ws.tov(writeSink(s)).run.map(_ => a)
+    }
+  }
 }
 
 case class JDBCSession(connection: Connection, config: JDBCSQLConfig, logger: (() ⇒ String) ⇒ Unit = _ => (),
-                       statementCache : scala.collection.concurrent.Map[Any, Task[PreparedStatement]]
-                            = new ConcurrentHashMap[Any, Task[PreparedStatement]]().asScala) {
+                       statementCache: scala.collection.concurrent.Map[Any, Task[PreparedStatement]]
+                       = new ConcurrentHashMap[Any, Task[PreparedStatement]]().asScala) {
 
   def prepare(q: JDBCPreparedQuery): Task[PreparedStatement] = {
     lazy val prepared = {
-      logger(() => "Preparing: "+JDBCPreparedQuery.asSQL(q, config))
+      logger(() => "Preparing: " + JDBCPreparedQuery.asSQL(q, config))
       Task.delay(connection.prepareStatement(JDBCPreparedQuery.asSQL(q, config)))
     }
     statementCache.getOrElseUpdate(q, prepared)
@@ -55,16 +76,16 @@ case class JDBCSession(connection: Connection, config: JDBCSQLConfig, logger: ((
 
   def doBind(ps: PreparedStatement, s: Seq[PhysicalValue[JDBCColumn]]): PreparedStatement = {
     s.zipWithIndex.foreach {
-      case (pv, i) => pv.atom.bind(this, ps, i+1, pv.v)
+      case (pv, i) => pv.atom.bind(this, ps, i + 1, pv.v)
     }
     ps
   }
 
   def prepareAndBind(q: JDBCPreparedQuery, s: Seq[PhysicalValue[JDBCColumn]]): Task[PreparedStatement] = {
-    prepare(q).map{ ps =>
+    prepare(q).map { ps =>
       logger {
         () =>
-          val vals = s.map(pv => pv.name+"="+pv.v).mkString(",")
+          val vals = s.map(pv => pv.name + "=" + pv.v).mkString(",")
           "Statement: " + JDBCPreparedQuery.asSQL(q, config) + " with values " + vals
       }
       doBind(ps, s)
@@ -72,6 +93,7 @@ case class JDBCSession(connection: Connection, config: JDBCSQLConfig, logger: ((
   }
 
   def execQuery(q: JDBCPreparedQuery, s: Seq[PhysicalValue[JDBCColumn]]): Task[ResultSet] = prepareAndBind(q, s).map(_.executeQuery())
+
   def execWrite(q: JDBCPreparedQuery, s: Seq[PhysicalValue[JDBCColumn]]): Task[Boolean] = prepareAndBind(q, s).map(_.execute())
 
   def execBatch(q: JDBCPreparedQuery, bvals: Seq[Seq[PhysicalValue[JDBCColumn]]]): Task[Unit] = prepare(q).map { ps =>
@@ -85,32 +107,43 @@ case class JDBCSession(connection: Connection, config: JDBCSQLConfig, logger: ((
   }
 }
 
-case class JDBCWrite(q: JDBCPreparedQuery, s: Seq[PhysicalValue[JDBCColumn]]) extends WriteOperation
+case class JDBCWrite(q: JDBCPreparedQuery, s: Seq[PhysicalValue[JDBCColumn]])
 
 sealed trait JDBCPreparedQuery
+
 case class JDBCDropTable(name: String) extends JDBCPreparedQuery
+
 case class JDBCCreateTable(name: String, columns: Seq[(String, SQLType)], primaryKey: Seq[String]) extends JDBCPreparedQuery
+
 case class JDBCTruncate(name: String) extends JDBCPreparedQuery
-case class JDBCInsert(table:String, columns: Seq[String]) extends JDBCPreparedQuery
-case class JDBCUpdate(table:String, assignments: Seq[String], where: Seq[JDBCWhereClause]) extends JDBCPreparedQuery
+
+case class JDBCInsert(table: String, columns: Seq[String]) extends JDBCPreparedQuery
+
+case class JDBCUpdate(table: String, assignments: Seq[String], where: Seq[JDBCWhereClause]) extends JDBCPreparedQuery
+
 case class JDBCDelete(table: String, where: Seq[JDBCWhereClause]) extends JDBCPreparedQuery
+
 case class JDBCSelect(table: String, columns: Seq[String], where: Seq[JDBCWhereClause], ordering: Seq[(String, Boolean)], limit: Boolean) extends JDBCPreparedQuery
 
 sealed trait JDBCWhereClause
+
 case class EQ(column: String) extends JDBCWhereClause
+
 case class GT(column: String) extends JDBCWhereClause
+
 case class GTE(column: String) extends JDBCWhereClause
+
 case class LT(column: String) extends JDBCWhereClause
+
 case class LTE(column: String) extends JDBCWhereClause
 
 object JDBCPreparedQuery {
 
 
-
-
   def asSQL(q: JDBCPreparedQuery, mc: JDBCSQLConfig) = {
     def whereClause(w: Seq[JDBCWhereClause]): String = {
       def singleCC(c: String, op: String) = s"${mc.escapeColumnName(c)} ${op} ?"
+
       def clauseToString(c: JDBCWhereClause) = c match {
         case EQ(column) => singleCC(column, "=")
         case GT(column) => singleCC(column, ">")
@@ -118,11 +151,13 @@ object JDBCPreparedQuery {
         case LT(column) => singleCC(column, "<")
         case LTE(column) => singleCC(column, "<=")
       }
+
       if (w.isEmpty) "" else s"WHERE ${w.map(clauseToString).mkString(" AND ")}"
     }
 
     def orderBy(oc: Seq[(String, Boolean)]): String = {
       def orderClause(t: (String, Boolean)) = s"${mc.escapeColumnName(t._1)} ${if (t._2) "ASC" else "DESC"}"
+
       if (oc.isEmpty) "" else s"ORDER BY ${oc.map(orderClause).mkString(",")}"
     }
 

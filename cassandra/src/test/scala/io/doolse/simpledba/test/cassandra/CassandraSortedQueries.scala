@@ -1,10 +1,9 @@
 package io.doolse.simpledba.test.cassandra
 
-import io.doolse.simpledba.cassandra.CassandraMapper.Effect
+import io.doolse.simpledba.cassandra._
 import io.doolse.simpledba.test.{SimpleDBAProperties, SortedQueryProperties}
 import fs2.interop.cats._
 import io.doolse.simpledba.CatsUtils._
-import io.doolse.simpledba.cassandra.CassandraIO._
 import org.scalacheck.Shapeless._
 
 /**

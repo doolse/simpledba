@@ -1,7 +1,7 @@
 package io.doolse.simpledba.test.cassandra
 
 import io.doolse.simpledba.cassandra.stdImplicits._
-import io.doolse.simpledba.cassandra.CassandraMapper.Effect
+import io.doolse.simpledba.cassandra.Effect
 import io.doolse.simpledba.test.CompositeRelations
 import io.doolse.simpledba.test.CompositeRelations._
 

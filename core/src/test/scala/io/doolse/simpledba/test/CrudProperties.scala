@@ -1,7 +1,8 @@
 package io.doolse.simpledba.test
 
 import cats.{Id, Monad, ~>}
-import io.doolse.simpledba.WriteQueries
+import io.doolse.simpledba.{Flushable, WriteQueries}
+import io.doolse.simpledba._
 import fs2._
 import org.scalacheck.Prop._
 import org.scalacheck.{Arbitrary, Gen, Prop, Properties}
@@ -13,43 +14,41 @@ import fs2.util.Catchable
   */
 
 object CrudProperties {
-  def apply[F[_] : Monad : Catchable, A: Arbitrary, K](run: F ~> Id, writes: WriteQueries[F, A],
-                                                       findAll: A => Stream[F, A], expected: Int, genUpdate: Gen[(A, A)])
+  def apply[F[_] : Monad : Catchable : Flushable, A: Arbitrary, K](run: F ~> Id, writes: WriteQueries[F, A],
+                                                                   findAll: A => Stream[F, A], expected: Int, genUpdate: Gen[(A, A)])
   = {
     implicit def runProp(fa: F[Prop]): Prop = run(fa)
+
     new Properties("CRUD ops") {
       val countAll = (a: A) => findAll(a).runLog.map(_.count(a.==))
 
 
       property("createReadDelete") = forAll { (a: A) =>
         for {
-          _ <- writes.truncate
-          _ <- writes.insert(a)
+          _ <- (writes.truncate >> writes.insert(a)).flush
           count <- countAll(a)
-          _ <- writes.delete(a)
+          _ <- writes.delete(a).flush
           afterDel <- countAll(a)
         } yield {
-          s"Expected to find $expected" |: (count ?= expected) &&
-            ("0 after delete" |: (afterDel ?= 0))
+          all(
+            s"Expected to find $expected" |: (count ?= expected),
+            "0 after delete" |: (afterDel ?= 0))
         }
       }
 
       property("update") = forAll(genUpdate) { case (a1, a2) =>
         for {
-          _ <- writes.truncate
-          _ <- writes.insert(a1)
-          changed <- writes.update(a1, a2)
+          _ <- (writes.truncate >> writes.insert(a1)).flush
+          changed <- writes.update(a1, a2).flush
           countOrig <- countAll(a1)
           countNew <- countAll(a2)
         } yield {
-          "Values are different" |: (a1 != a2) ==> {
-            s"Original should be gone - $countOrig" |: countOrig == 0 &&
-              ("New values" |: countNew == expected)
-          } ||
-            ("Values are same" |: (a1 == a2) ==> {
-              "Changed flag" |: !changed &&
-                ("Same amount after update" |: (countOrig == expected))
-            })
+          ("Values are different" |: (a1 != a2) ==> all(
+              s"Original should be gone - $countOrig" |: countOrig == 0,
+              "New values" |: countNew == expected)) ||
+            ("Values are same" |: (a1 == a2) ==> all(
+              "Changed flag" |: !changed,
+              "Same amount after update" |: (countOrig == expected)))
         }
       }
     }

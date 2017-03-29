@@ -57,7 +57,7 @@ object SimpleRelations {
   }
 }
 
-abstract class SimpleRelations[F[_] : Catchable](name: String)(implicit M: Monad[F])
+abstract class SimpleRelations[F[_] : Catchable : Flushable](name: String)(implicit M: Monad[F])
   extends AbstractRelationsProperties[F](s"$name - Relation Shapes") {
 
   def queries1: Fields1Queries[F]

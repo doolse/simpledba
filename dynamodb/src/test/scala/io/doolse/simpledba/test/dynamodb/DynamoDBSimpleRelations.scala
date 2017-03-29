@@ -2,7 +2,6 @@ package io.doolse.simpledba.test.dynamodb
 
 import fs2.interop.cats._
 import io.doolse.simpledba.CatsUtils._
-import io.doolse.simpledba.dynamodb.DynamoDBMapper.Effect
 import io.doolse.simpledba.dynamodb._
 import DynamoDBIO._
 import io.doolse.simpledba.test.SimpleRelations
