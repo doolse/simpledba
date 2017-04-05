@@ -55,10 +55,14 @@ object JDBCIO {
     }
   }
 
-  def runWrites[A](fa: Effect[A]): Kleisli[Task, JDBCSession, A] = Kleisli { s =>
-    fa.run(s).run.flatMap {
+  def runJDBCWrites[A](fa: JDBCWriter[A]): Kleisli[Task, JDBCSession, A] = Kleisli { s =>
+    fa.run.flatMap {
       case (ws, a) => ws.tov(writeSink(s)).run.map(_ => a)
     }
+  }
+
+  def runWrites[A](fa: Effect[A]): Kleisli[Task, JDBCSession, A] = Kleisli { s =>
+    runJDBCWrites(fa.run(s)).run(s)
   }
 }
 
