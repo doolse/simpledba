@@ -1,8 +1,11 @@
 package io.doolse
 
-import cats.Functor
+import cats.{Applicative, Functor, Monad}
+import cats.syntax.traverse._
+import cats.syntax.functor._
+import cats.instances.vector._
 import fs2.util.{Catchable, ~>}
-import fs2.{Pipe, Stream}
+import fs2.{Chunk, Pipe, Stream}
 import shapeless.{::, DepFn0, DepFn1, Generic, HList, HNil, SingletonProductArgs, Witness}
 
 /**
@@ -46,19 +49,8 @@ package object simpledba {
     def hint(nameHint: String) : QueryMultiple[K, CL, SL] = qm.copy(nameHint = Some(nameHint))
   }
 
-  trait Flushable[F[_]] {
-    def flush[A](f: F[A]): F[A]
-  }
-  implicit class FlushableOps[F[_], A](fa: F[A])(implicit F: Flushable[F]) {
-    def flush = F.flush(fa)
+  implicit class FlushableOps[F[_], A](fa: Stream[F, WriteOp])(implicit F: Flushable[F]) {
+    def flush : F[Unit] = F.flush(fa)
   }
 
-  implicit class ExtendedStreamOps[F[_], A](fa: Stream[F, A])(implicit F: Flushable[F], C: Catchable[F]) {
-    def flushEach : Stream[F, A] = Stream.eval(fa.uncons.runLast.flush).flatMap {
-      case Some(Some((nec, next))) => Stream.chunk(nec) ++ next.flushEach
-      case _ => Stream.empty
-    }
-
-    def batchedWrites(batchSize: Int) : Stream[F, A] = fa.rechunkN(batchSize).flushEach
-  }
 }

@@ -13,6 +13,7 @@ import fs2.{Chunk, Pipe, Sink, Strategy, Stream, Task}
 import fs2.util.~>
 import fs2.interop.cats._
 import io.doolse.simpledba.CatsUtils._
+import io.doolse.simpledba.WriteOp
 
 import scala.collection.mutable
 import scala.concurrent.ExecutionContext
@@ -27,7 +28,7 @@ object CassandraIO {
 
   implicit val strat = Strategy.fromExecutionContext(ExecutionContext.global)
 
-  val writePipe: Sink[Effect, CassandraWriteOperation] = _.evalMap {
+  val writePipe: Sink[Effect, WriteOp] = _.evalMap {
     case CassandraWriteOperation(q, vals) => cassQuery(_.prepareAndBind(q, vals).map(_ => ()))
   }
 
@@ -71,10 +72,6 @@ object CassandraIO {
   def asyncStmt[A](lf: ListenableFuture[A], stmt: => String) =
     async[A](lf, ee => new CassandraIOException(s"Failed executing - $stmt - cause ${ee.getMessage}", ee.getCause))
 
-  val task2Effect = new (Task ~> Effect) {
-    def apply[A](f: Task[A]): Effect[A] = Kleisli(_ => WriterT.lift(f))
-  }
-
   def rowsStream(rs: ResultSet)(implicit strat: fs2.Strategy): Stream[Task, Row] = {
     if (rs.isExhausted) Stream.empty[Task, Row]
     else {
@@ -97,15 +94,14 @@ object CassandraIO {
     if (reservedColumns(name.toLowerCase())) '"' + name + '"' else name
 
   def cassQuery[A](f: CassandraSession => Task[A]): Effect[A] =
-    Kleisli(s => WriterT.lift(f(s)))
+    Kleisli(f)
 
-  def cassWrite(w: CassandraWriteOperation): Effect[Unit] = Kleisli.lift(WriterT.tell(Stream(w)))
+  def cassWrite(w: CassandraWriteOperation): Stream[Effect, WriteOp] = Stream.emit(w)
 
-  def runWrites[A](fa: Effect[A]): Kleisli[Task, CassandraSession, A] = Kleisli {
-    s => fa.run(s).run.flatMap {
-      case (ws, a) => ws.throughv(writePipe).run.run(s).run.map(_ => a)
-    }
+  val task2Effect = new (Task ~> Effect) {
+    def apply[A](f: Task[A]): Effect[A] = Kleisli.lift(f)
   }
+
 
 }
 
@@ -174,7 +170,7 @@ case class CassandraEQ(name: String) extends CassandraClause {
   def markers = Seq(QueryBuilder.bindMarker)
 }
 
-case class CassandraWriteOperation(q: PreparableStatement, vals: Seq[AnyRef])
+case class CassandraWriteOperation(q: PreparableStatement, vals: Seq[AnyRef]) extends WriteOp
 
 case class CassandraSelect(table: String, columns: Seq[String], where: Seq[CassandraClause], ordering: Seq[(String, Boolean)], limit: Boolean) extends PreparableStatement {
   def build: RegularStatement = {

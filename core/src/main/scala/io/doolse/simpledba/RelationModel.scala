@@ -96,23 +96,39 @@ case class RangeQuery[F[_], T, Key, Sort](ascending: Option[Boolean], _q: (Key, 
   = copy[F, T, K, SK](_q = (k, l, h, asc) => _q(vc(k), l.map(vc2), h.map(vc2), asc))
 }
 
+trait Flushable[F[_]] {
+  def flush[A](f: Stream[F, WriteOp]): F[Unit]
+}
+
+trait WriteOp
+
 trait WriteQueries[F[_], T] {
   self =>
 
   protected val C: Catchable[F]
   protected val M: Monad[F]
+  protected val F: Flushable[F]
 
-  def delete(t: T): F[Unit]
+  def deleteOp(t: T): Stream[F, WriteOp]
 
-  def insert(t: T): F[Unit]
+  def insertOp(t: T): Stream[F, WriteOp]
+
+  def updateOp(e: T, n: T): (Boolean, Stream[F, WriteOp])
+
+  def delete(t: T): F[Unit] = F.flush(deleteOp(t))
+
+  def insert(t: T): F[Unit] = F.flush(insertOp(t))
 
   def truncate: F[Unit]
 
-  def update(existing: T, newValue: T): F[Boolean]
+  def update(existing: T, newValue: T): F[Boolean] = {
+    val (u, s) = updateOp(existing, newValue)
+    M.map(F.flush(s))(_ => u)
+  }
 
-  def bulkInsert(l: Stream[F, T]): F[Unit] = l.evalMap(insert).run(C)
+  def bulkInsert(l: Stream[F, T]): F[Unit] = F.flush(l.flatMap(insertOp))
 
-  def bulkDelete(l: Stream[F, T]): F[Unit] = l.evalMap(delete).run(C)
+  def bulkDelete(l: Stream[F, T]): F[Unit] = F.flush(l.flatMap(deleteOp))
 
   def insertUpdateOrDelete(o: Option[T], n: Option[T]): F[Boolean] = (o,n) match {
     case (Some(o), Some(n)) => update(o,n)
@@ -135,12 +151,17 @@ object WriteQueries {
     implicit val A = self.M
     val C = self.C
     val M = self.M
+    val F = self.F
 
-    def update(existing: T, newValue: T): F[Boolean] = (self.update(existing, newValue) |@| other.update(existing, newValue)).map((a, b) => a || b)
+    def updateOp(existing: T, newValue: T) = {
+      val (u1, s1) = self.updateOp(existing, newValue)
+      val (u2, s2) = other.updateOp(existing, newValue)
+      (u1 || u2, s1 ++ s2)
+    }
 
     override def truncate = self.truncate >> other.truncate
 
-    def insert(t: T) = self.insert(t) >> other.insert(t)
-    def delete(t: T) = self.delete(t) >> other.delete(t)
+    def insertOp(t: T) = self.insertOp(t) ++ other.insertOp(t)
+    def deleteOp(t: T) = self.deleteOp(t) ++ other.deleteOp(t)
   }
 }

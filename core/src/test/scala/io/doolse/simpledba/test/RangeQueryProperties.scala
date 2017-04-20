@@ -101,7 +101,7 @@ abstract class RangeQueryProperties[F[_] : Monad : Catchable : Flushable](implic
     }
 
     for {
-      _ <- (queries.writes.truncate >> queries.writes.bulkInsert(Stream.emits(vSame))).flush
+      _ <- (queries.writes.truncate >> queries.writes.bulkInsert(Stream.emits(vSame)))
       p = rangeQ.map {
         case (name, oq) => processRangeCheck(name, oq)
       }

@@ -1,7 +1,6 @@
 package io.doolse.simpledba.test.jdbc
 
-import fs2.interop.cats._
-import io.doolse.simpledba.CatsUtils._
+import io.doolse.simpledba.jdbc.stdImplicits._
 import io.doolse.simpledba.jdbc.Effect
 import io.doolse.simpledba.test.{SimpleDBAProperties, SortedQueryProperties}
 import org.scalacheck.Shapeless._

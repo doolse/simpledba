@@ -21,6 +21,6 @@ trait JDBCProperties {
     bq.queries
   }
 
-  def run[A](fa: Effect[A]): A = scala.concurrent.blocking { JDBCIO.runWrites(fa).run(session).unsafeRun }
+  def run[A](fa: Effect[A]): A = scala.concurrent.blocking { fa.run(session).unsafeRun }
 
 }

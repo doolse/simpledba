@@ -15,6 +15,7 @@ import io.doolse.simpledba.jdbc._
 import shapeless._
 import shapeless.ops.hlist.{Mapper, ToList}
 import shapeless.ops.record.Keys
+import cats.instances.vector._
 
 /**
   * Created by jolz on 12/03/17.
@@ -68,7 +69,7 @@ object JDBCQueryMap extends Poly1 {
     val select = JDBCSelect(table, allNames, JDBCPreparedQuery.exactMatch(pkCols), Seq.empty, false)
 
     def rsStream(s: Stream[Effect, ResultSet]) = for {
-      c <- Stream.eval[Effect, JDBCSession](Kleisli.ask[JDBCWriter, JDBCSession])
+      c <- Stream.eval[Effect, JDBCSession](Kleisli.ask[Task, JDBCSession])
       rs <- s.flatMap(JDBCIO.rowsStream)
     } yield materialize(JDBCIO.rowMaterializer(c, rs))
 
@@ -149,6 +150,7 @@ object JDBCQueryMap extends Poly1 {
     new WriteQueries[Effect, T] {
       val C = implicitly[Catchable[Effect]]
       val M = implicitly[Monad[Effect]]
+      val F = implicitly[Flushable[Effect]]
       val keyEq = JDBCPreparedQuery.exactMatch(pkCols)
       val updateQ = JDBCUpdate(tableName, Seq.empty, keyEq)
       val deleteQ = JDBCDelete(tableName, keyEq)
@@ -156,27 +158,21 @@ object JDBCQueryMap extends Poly1 {
 
       def keyBindings(key: PKV :: HNil) = pkPhys(key.head)
 
-      def insert(t: T) = JDBCIO.write(JDBCWrite(insertQ, helper.toPhysicalValues(t)))
-
-//      def insertOperation(t: T): Stream[Effect, WriteOperation] = Stream()
+      def insertOp(t: T) = JDBCIO.write(JDBCWrite(insertQ, helper.toPhysicalValues(t)))
 
       def truncate = JDBCIO.sessionIO(_.execWrite(JDBCTruncate(tableName), Seq.empty).map(_ => ()))
 
-      def delete(t: T) = deleteWithKey(helper.extractKey(t))
+      def deleteOp(t: T) = deleteWithKey(helper.extractKey(t))
 
       def deleteWithKey(key: PKV :: HNil) = JDBCIO.write(JDBCWrite(deleteQ, keyBindings(key)))
 
-//      def bulkDelete(l: Stream[Effect, T]): Effect[Unit] = l.evalMap { t =>
-//        ReaderT { s: JDBCSession => deleteWithKey(helper.extractKey(t), s) }
-//      } run
-
-      def update(existing: T, newValue: T) = {
+      def updateOp(existing: T, newValue: T) = {
         helper.changeChecker(existing, newValue).map {
-          case Right((oldKey, newKey, vals)) => deleteWithKey(oldKey) >> JDBCIO.write(JDBCWrite(insertQ, vals))
+          case Right((oldKey, newKey, vals)) => (true, deleteWithKey(oldKey) ++ JDBCIO.write(JDBCWrite(insertQ, vals)))
           case Left((fk, diff)) =>
             val bVals = diff.map(vd => PhysicalValue(vd.name, vd.atom, vd.newValue)) ++ keyBindings(fk)
-            JDBCIO.write(JDBCWrite(updateQ.copy(assignments = diff.map(_.name)), bVals))
-        } map (_.map(_ => true)) getOrElse M.pure(false)
+            (true, JDBCIO.write(JDBCWrite(updateQ.copy(assignments = diff.map(_.name)), bVals)))
+        } getOrElse (false, Stream.empty)
       }
     }: WriteQueries[Effect, T]
   }

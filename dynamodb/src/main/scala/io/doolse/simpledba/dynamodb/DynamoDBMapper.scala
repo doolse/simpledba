@@ -177,6 +177,7 @@ object DynamoTableBuilder {
 
         val C = implicitly[Catchable[Effect]]
         val M = implicitly[Monad[Effect]]
+        val F = implicitly[Flushable[Effect]]
 
         def extraFields(key: PKV :: SKV :: HNil): Seq[PhysicalValue[DynamoDBColumn]] = compositeValue(PK, helper.physPkColumns(key.head)).toSeq ++
           compositeValue(SK, helper.physSkColumns(key.tail.head))
@@ -191,16 +192,16 @@ object DynamoTableBuilder {
           DynamoDBBatchable(tableName, new WriteRequest(new PutRequest(asAttrMap(vals))))
         }
 
-        def delete(t: T) = deleteForKey(helper.extractKey(t))
+        def deleteOp(t: T) = deleteForKey(helper.extractKey(t))
 
-        def insert(t: T) = insertForVals(toPhysicalValues(t))
+        def insertOp(t: T) = insertForVals(toPhysicalValues(t))
 
-        def update(existing: T,newValue: T) = {
+        def updateOp(existing: T,newValue: T) = {
           helper.changeChecker(existing, newValue).map {
             case Left((k, changes)) => writeDynamo { DynamoDBUpdate(new UpdateItemRequest(tableName, keysAsAttributes(k),
                 changes.map(c => asValueUpdate(c)).toMap.asJava)) }
-            case Right((oldKey, newk, vals)) => deleteForKey(oldKey) >> insertForVals(vals ++ extraFields(newk))
-          } map (_.map(_ => true)) getOrElse M.pure(false)
+            case Right((oldKey, newk, vals)) => deleteForKey(oldKey) ++ insertForVals(vals ++ extraFields(newk))
+          } map (s => (true, s)) getOrElse (false, Stream.empty)
         }
 
       }

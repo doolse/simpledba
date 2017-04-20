@@ -11,6 +11,8 @@ import com.amazonaws.services.dynamodbv2.model._
 import io.doolse.simpledba.dynamodb.DynamoDBIO._
 import fs2.interop.cats._
 import io.doolse.simpledba.CatsUtils._
+import io.doolse.simpledba.WriteOp
+
 import scala.concurrent.ExecutionContext
 import scala.collection.JavaConverters._
 import scala.collection.mutable
@@ -47,8 +49,8 @@ object DynamoDBIO {
   val deleteTableAsync: AsyncCall[DeleteTableRequest, DeleteTableResult] = _.deleteTableAsync
   val createTableAsync: AsyncCall[CreateTableRequest, CreateTableResult] = _.createTableAsync
 
-  def queryDynamo[A](f: DynamoDBSession => Task[A]): Effect[A] = Kleisli(s => WriterT.lift(f(s)))
-  def writeDynamo(w: DynamoDBWrite): Effect[Unit] = Kleisli.lift(WriterT.tell(Stream(w)))
+  def queryDynamo[A](f: DynamoDBSession => Task[A]): Effect[A] = Kleisli(f)
+  def writeDynamo(w: DynamoDBWrite): Stream[Effect, WriteOp] = Stream.emit(w)
 
   def batchWriteResultStream(qr: BatchWriteItemRequest): Stream[Effect, Unit] = {
     Stream.eval[Effect, BatchWriteItemResult](queryDynamo {
@@ -59,7 +61,7 @@ object DynamoDBIO {
     }
   }
 
-  val writePipe : Pipe[Effect, DynamoDBWrite, Int] = { w =>
+  val writePipe : Pipe[Effect, WriteOp, Int] = { w =>
     w.rechunkN(25).chunks.flatMap { c =>
       val batchWriteMapJava = new java.util.HashMap[String, java.util.List[WriteRequest]]
       val m = batchWriteMapJava.asScala
@@ -75,15 +77,9 @@ object DynamoDBIO {
       batch ++ updates
     }
   }
-
-  def runWrites[A](fa: Effect[A]): Kleisli[Task, DynamoDBSession, A] = Kleisli {
-    s => fa.run(s).run.flatMap {
-      case (ws, a) => ws.throughv(writePipe).run.run(s).run.map(_ => a)
-    }
-  }
 }
 
-sealed trait DynamoDBWrite
+sealed trait DynamoDBWrite extends WriteOp
 case class DynamoDBBatchable(table: String, dr: WriteRequest) extends DynamoDBWrite
 case class DynamoDBUpdate(uir: UpdateItemRequest) extends DynamoDBWrite
 

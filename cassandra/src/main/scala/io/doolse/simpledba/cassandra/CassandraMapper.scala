@@ -95,6 +95,7 @@ object CassandraTableBuilder {
         def writer(tableName: String) = new WriteQueries[Effect, T] {
           val C = implicitly[Catchable[Effect]]
           val M = implicitly[Monad[Effect]]
+          val F = implicitly[Flushable[Effect]]
 
           val keyEq = exactMatch(pkCols ++ skCols)
           val insertQ = CassandraInsert(tableName, columns.map(_.name))
@@ -103,7 +104,7 @@ object CassandraTableBuilder {
 
           def keyBindings(key: PKV :: SKV :: HNil) = valsToBinding(pkPhys(key.head) ++ skPhys(key.tail.head))
 
-          def truncate = cassWrite(CassandraWriteOperation(CassandraTruncate(tableName), Seq.empty))
+          def truncate = F.flush(cassWrite(CassandraWriteOperation(CassandraTruncate(tableName), Seq.empty)))
 
           def deleteWithKey(key: PKV :: SKV :: HNil) =
             cassWrite(CassandraWriteOperation(deleteQ, keyBindings(key)))
@@ -111,17 +112,17 @@ object CassandraTableBuilder {
           def insertWithVals(vals: Seq[PhysicalValue[CassandraColumn]]) =
             cassWrite(CassandraWriteOperation(insertQ, valsToBinding(vals)))
 
-          def delete(t: T) = deleteWithKey(helper.extractKey(t))
+          def deleteOp(t: T) = deleteWithKey(helper.extractKey(t))
 
-          def insert(t: T) = insertWithVals(helper.toPhysicalValues(t))
+          def insertOp(t: T) = insertWithVals(helper.toPhysicalValues(t))
 
-          def update(existing: T,newValue: T) = {
+          def updateOp(existing: T,newValue: T) = {
             helper.changeChecker(existing, newValue).map {
-              case Right((oldKey, newKey, vals)) => deleteWithKey(oldKey) >> insertWithVals(vals)
+              case Right((oldKey, newKey, vals)) => deleteWithKey(oldKey) ++ insertWithVals(vals)
               case Left((fk, diff)) =>
                 val assignments = diff.map(vd => vd.atom.assigner(vd.name, vd.existing, vd.newValue))
                 cassWrite(CassandraWriteOperation(updateQ.copy(assignments = assignments.map(_._1)), assignments.map(_._2) ++ keyBindings(fk)))
-            } map (_.map(_ => true)) getOrElse M.pure(false)
+            } map (s => (true, s)) getOrElse (false, Stream.empty)
           }
 
         }

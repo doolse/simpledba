@@ -25,6 +25,6 @@ trait CassandraProperties {
     bq.queries
   }
 
-  def run[A](fa: Effect[A]): A = scala.concurrent.blocking { CassandraIO.runWrites(fa).run(sessionConfig).unsafeRun }
+  def run[A](fa: Effect[A]): A = scala.concurrent.blocking { fa.run(sessionConfig).unsafeRun }
 
 }

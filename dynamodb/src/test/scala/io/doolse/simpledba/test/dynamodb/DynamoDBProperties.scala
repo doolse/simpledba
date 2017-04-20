@@ -41,5 +41,5 @@ trait DynamoDBProperties {
     bq.queries
   }
 
-  def run[A](fa: Effect[A]): A = scala.concurrent.blocking { runWrites(fa).run(session).unsafeRun }
+  def run[A](fa: Effect[A]): A = scala.concurrent.blocking { fa.run(session).unsafeRun }
 }

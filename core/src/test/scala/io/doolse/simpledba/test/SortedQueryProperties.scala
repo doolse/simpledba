@@ -66,7 +66,7 @@ abstract class SortedQueryProperties[F[_] : Monad : Catchable : Flushable](impli
   def checkOrder[A](same: UUID, v: Vector[Sortable], sortQ: Seq[(String, OrderQuery[_])]) = {
     val vSame = v.map(_.copy(same = same))
     for {
-      _ <- (queries.writes.truncate >> queries.writes.bulkInsert(Stream(vSame: _*))).flush
+      _ <- queries.writes.truncate >> queries.writes.bulkInsert(Stream(vSame: _*))
       p = sortQ.map {
         case (name, oq @ OrderQuery(lens, q)) => run(for {
           ascend <- q.queryWithOrder(same, asc = true).map(lens).runLog

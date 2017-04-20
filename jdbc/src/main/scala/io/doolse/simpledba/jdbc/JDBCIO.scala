@@ -5,11 +5,12 @@ import java.util.concurrent.ConcurrentHashMap
 
 import scala.collection.JavaConverters._
 import fs2._
-import io.doolse.simpledba.{ColumnMapping, ColumnMaterialzer, PhysicalValue}
+import io.doolse.simpledba.{ColumnMapping, ColumnMaterialzer, PhysicalValue, WriteOp}
 import JDBCUtils.brackets
 import cats.data.{Kleisli, ReaderT, WriterT}
 import com.typesafe.config.{Config, ConfigFactory}
 import fs2.interop.cats._
+import cats.instances.vector._
 
 /**
   * Created by jolz on 12/03/17.
@@ -42,27 +43,19 @@ object JDBCIO {
   }
 
   def sessionIO[A](f: JDBCSession => Task[A]): Effect[A] =
-    Kleisli(s => WriterT.lift(f(s)))
+    Kleisli(f)
 
-  def write(f: JDBCWrite): Effect[Unit] = Kleisli.lift(WriterT.tell(Stream(f)))
+  def write(f: JDBCWrite): Stream[Effect, WriteOp] = Stream.emit(f)
 
-  def writeSink(s: JDBCSession): Sink[Task, JDBCWrite] = { st =>
+  def writeSink: Sink[Effect, WriteOp] = { st =>
     st.rechunkN(1000).chunks.evalMap { chunk =>
       val batches = chunk.map {
         case JDBCWrite(q, v) => (q, v)
       }.toVector.groupBy(_._1).toSeq
-      Task.traverse(batches)(b => s.execBatch(b._1, b._2.map(_._2))).map(_ => ())
+      Kleisli { (s:JDBCSession) =>
+        Task.traverse(batches)(b => s.execBatch(b._1, b._2.map(_._2))).map(_ => ())
+      }
     }
-  }
-
-  def runJDBCWrites[A](fa: JDBCWriter[A]): Kleisli[Task, JDBCSession, A] = Kleisli { s =>
-    fa.run.flatMap {
-      case (ws, a) => ws.tov(writeSink(s)).run.map(_ => a)
-    }
-  }
-
-  def runWrites[A](fa: Effect[A]): Kleisli[Task, JDBCSession, A] = Kleisli { s =>
-    runJDBCWrites(fa.run(s)).run(s)
   }
 }
 
@@ -111,7 +104,7 @@ case class JDBCSession(connection: Connection, config: JDBCSQLConfig, logger: ((
   }
 }
 
-case class JDBCWrite(q: JDBCPreparedQuery, s: Seq[PhysicalValue[JDBCColumn]])
+case class JDBCWrite(q: JDBCPreparedQuery, s: Seq[PhysicalValue[JDBCColumn]]) extends WriteOp
 
 sealed trait JDBCPreparedQuery
 
@@ -128,6 +121,8 @@ case class JDBCUpdate(table: String, assignments: Seq[String], where: Seq[JDBCWh
 case class JDBCDelete(table: String, where: Seq[JDBCWhereClause]) extends JDBCPreparedQuery
 
 case class JDBCSelect(table: String, columns: Seq[String], where: Seq[JDBCWhereClause], ordering: Seq[(String, Boolean)], limit: Boolean) extends JDBCPreparedQuery
+
+case class JDBCRawSQL(sql: String) extends JDBCPreparedQuery
 
 sealed trait JDBCWhereClause
 
@@ -180,6 +175,7 @@ object JDBCPreparedQuery {
         s"CREATE TABLE ${mc.escapeTableName(t)} ${brackets(withPK)}"
       case JDBCTruncate(t) => s"TRUNCATE TABLE ${mc.escapeTableName(t)}"
       case dt: JDBCDropTable => mc.dropTableSQL(dt)
+      case JDBCRawSQL(sql) => sql
     }
   }
 
