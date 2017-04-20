@@ -67,7 +67,7 @@ object JDBCSQLConfig {
 
   val defaultEscapeReserved = escapeReserved(DefaultReserved) _
   val hsqldbConfig = JDBCSQLConfig(defaultEscapeReserved, defaultEscapeReserved, hsqlTypeNames, defaultDropTableSQL, stdSpecialCols)
-  val postgresConfig = JDBCSQLConfig(defaultEscapeReserved, defaultEscapeReserved, pgsqlTypeNames, t => s"DROP TABLE IF EXISTS $t", postgresSpecialCols)
+  val postgresConfig = JDBCSQLConfig(defaultEscapeReserved, defaultEscapeReserved, pgsqlTypeNames, t => s"DROP TABLE IF EXISTS $t CASCADE", postgresSpecialCols)
 
   def escapeReserved(rw: Set[String])(s: String): String = {
     val lc = s.toLowerCase

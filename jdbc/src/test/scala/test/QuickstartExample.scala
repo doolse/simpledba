@@ -42,7 +42,7 @@ object QuickstartExample extends App {
   private val magId = UUID.randomUUID()
   private val mahId = UUID.randomUUID()
   println {
-    JDBCIO.runWrites(for {
+    (for {
       _ <- queries.users.insert(User(magId, "Jolse", "Maginnis", 1980))
       _ <- queries.users.insert(User(mahId, "Jolse", "Mahinnis", 1999))
       _ <- queries.cars.insert(Car(UUID.randomUUID(), "Honda", "Accord Euro", magId))
