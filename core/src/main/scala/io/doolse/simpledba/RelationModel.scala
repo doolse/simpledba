@@ -2,7 +2,7 @@ package io.doolse.simpledba
 
 import cats.syntax.all._
 import cats.{Applicative, Functor, Monad}
-import fs2.Stream
+import fs2.{Pipe, Stream}
 import fs2.util.Catchable
 import shapeless._
 import shapeless.ops.hlist.Prepend
@@ -74,9 +74,20 @@ case object NoRange extends RangeValue[Nothing] { def fold[B](i: B, x: B) = None
 case class Inclusive[A](a: A) extends RangeValue[A] { def fold[B](i: B, x: B) = Some((a, i)) }
 case class Exclusive[A](a: A) extends RangeValue[A] { def fold[B](i: B, x: B) = Some((a, x)) }
 
-case class UniqueQuery[F[_], T, Key](query: Stream[F, Key] => Stream[F, T], queryAll: Stream[F, T]) {
+trait UniqueQuery[F[_], T, Key] { self =>
+  def queryAll: Stream[F, T]
+  def zipWith[A](k: A => Option[Key]): Pipe[F, A, (A, Option[T])]
+  def zipFilter[A](k: A => Option[Key]): Pipe[F, A, (A, T)] = zipWith(k).andThen(_.collect {
+    case (a, Some(t)) => (a, t)
+  })
+  def query: Pipe[F, Key, T] = zipWith(Some.apply[Key]).andThen(_.collect {
+    case (_, Some(t)) => t
+  })
   def apply(kv: Key) = query(Stream.apply[F, Key](kv))
-  def as[K](implicit vc: ValueConvert[K, Key]) = copy[F, T, K](query = query.compose(_.map(vc)))
+  def as[K](implicit vc: ValueConvert[K, Key]) : UniqueQuery[F, T, K] = new UniqueQuery[F, T, K] {
+    def zipWith[A](l: A => Option[K]) = self.zipWith(a => l(a).map(vc))
+    def queryAll = self.queryAll
+  }
 }
 
 case class SortableQuery[F[_], T, Key](ascending: Option[Boolean], _q: (Key, Option[Boolean]) => Stream[F, T]) {

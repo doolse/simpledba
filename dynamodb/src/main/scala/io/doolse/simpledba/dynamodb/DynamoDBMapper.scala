@@ -310,7 +310,7 @@ object mapQuery extends Poly2 {
         }
         batchGetResultStream(new BatchGetItemRequest(Map(tableName -> keyAndAttrs).asJava)).map(_._2).map(createMaterializer).map(dt.materializer)
       }
-      UniqueQuery[Effect, T, PKV](doQuery, scanAll)
+      ??? : UniqueQuery[Effect, T, PKV] // (doQuery, scanAll)
     })
   }
 

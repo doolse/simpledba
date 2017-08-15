@@ -34,7 +34,7 @@ object QuickstartExample extends App {
   )
 
   val mapper = new JDBCMapper()
-  val built = mapper.buildModel(model)
+  val built = mapper.verifyModel(model)
   val queries = built.queries
   val sessionConfig = JDBCIO.openConnection().copy(logger = msg => Console.err.println(msg()))
   JDBCUtils.createSchema(sessionConfig, built.ddl, drop=true).unsafeRun

@@ -194,7 +194,7 @@ object MapQuery extends Poly2 {
           }
         )
       }
-      UniqueQuery[Effect, T, PKV](doQuery, queryAll)
+      ??? : UniqueQuery[Effect, T, PKV] // (doQuery, queryAll)
     })
   }
 

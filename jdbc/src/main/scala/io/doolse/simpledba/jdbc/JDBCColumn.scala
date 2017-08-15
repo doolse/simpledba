@@ -61,7 +61,9 @@ object JDBCColumn {
   }
 
   def direct[A](columnType: SQLType, byName: ResultSet => String => A, byIndex: ResultSet => Int => A, bindIndex: (PreparedStatement,Int,A) => Unit) =
-    StdJDBCColumn[A](columnType, (s:JDBCSession,rs,n) => Option(byName(rs)(n)), (s,rs,i) => Option(byIndex(rs)(i)),  (s:JDBCSession,ps:PreparedStatement,i:Int,a:A) => bindIndex(ps,i,a))
+    StdJDBCColumn[A](columnType, (s:JDBCSession,rs,n) => Option(byName(rs)(n)).filterNot(_ => rs.wasNull),
+      (s,rs,i) => Option(byIndex(rs)(i)).filterNot(_ => rs.wasNull),
+      (s:JDBCSession,ps:PreparedStatement,i:Int,a:A) => bindIndex(ps,i,a))
 
   implicit val uuidColumn : JDBCColumn[UUID] = DialectColumn[UUID](UuidSQLType)
   implicit val stringColumn : JDBCColumn[String] = direct(JDBCType.LONGNVARCHAR, _.getString, _.getString, (ps,i,a) => ps.setString(i, a))

@@ -38,9 +38,9 @@ trait JDBCTableBuilder[T, CR <: HList, PKL <: HList] {
 
 object JDBCTableBuilder {
   implicit def tableForRelation[T, CR <: HList, CVL <: HList, PKL <: HList, AllK <: HList](implicit
-                                allColKeys: Keys.Aux[CR, AllK],
-                                allCols: ColumnsAsSeq[CR, AllK, T, JDBCColumn],
-                                pkCols: ColumnsAsSeq[CR, PKL, T, JDBCColumn]) : JDBCTableBuilder[T, CR, PKL]
+                                                                                           allColKeys: Keys.Aux[CR, AllK],
+                                                                                           allCols: ColumnsAsSeq[CR, AllK, T, JDBCColumn],
+                                                                                           pkCols: ColumnsAsSeq[CR, PKL, T, JDBCColumn]): JDBCTableBuilder[T, CR, PKL]
   = (relation: RelationDef[T, CR, PKL, _]) => {
     val (cols, _) = allCols(relation.columns)
     val (pk, _) = pkCols(relation.columns)
@@ -73,9 +73,6 @@ object JDBCQueryMap extends Poly1 {
       rs <- s.flatMap(JDBCIO.rowsStream)
     } yield materialize(JDBCIO.rowMaterializer(c, rs))
 
-    val queryAll = rsStream(
-      Stream.eval(JDBCIO.sessionIO(_.prepare(selectAll).map(_.executeQuery())))
-    )
 
     def doQuery(sv: Stream[Effect, PKV]): Stream[Effect, T] = sv.flatMap { v =>
       rsStream(
@@ -83,7 +80,20 @@ object JDBCQueryMap extends Poly1 {
       )
     }
 
-    UniqueQuery[Effect, T, PKV](doQuery, queryAll)
+    new UniqueQuery[Effect, T, PKV] {
+      override def zipWith[A](f: (A) => Option[PKV]): Pipe[Effect, A, (A, Option[T])] = _.flatMap {
+        a =>
+          f(a).map { k =>
+            rsStream(Stream.eval[Effect, ResultSet] {
+              JDBCIO.sessionIO(_.execQuery(select, pkPhysV(k)))
+            }).last.map(o => (a, o))
+          } getOrElse Stream.empty
+      }
+
+      val queryAll = rsStream(
+        Stream.eval(JDBCIO.sessionIO(_.prepare(selectAll).map(_.executeQuery())))
+      )
+    }: UniqueQuery[Effect, T, PKV]
   }
 
 
@@ -113,7 +123,8 @@ object JDBCQueryMap extends Poly1 {
 
     def doQuery(c: ColsVals, lr: RangeValue[SortVals], ur: RangeValue[SortVals], asc: Option[Boolean]): Stream[Effect, T] = for {
       sess <- Stream.eval[Effect, JDBCSession](ReaderT.ask)
-      rs <- Stream.eval[Effect, ResultSet] { JDBCIO.sessionIO { s =>
+      rs <- Stream.eval[Effect, ResultSet] {
+        JDBCIO.sessionIO { s =>
           def processOp(op: Option[(SortVals, String => JDBCWhereClause)]) = op.map { case (sv, f) =>
             val vals = skPhysV(sv)
             (vals.map(v => f(v.name)), vals)
@@ -127,6 +138,7 @@ object JDBCQueryMap extends Poly1 {
         }
       }.flatMap(rs => JDBCIO.rowsStream(rs))
     } yield materialize(JDBCIO.rowMaterializer(sess, rs))
+
     RangeQuery(None, doQuery)
   }
 
@@ -172,7 +184,7 @@ object JDBCQueryMap extends Poly1 {
           case Left((fk, diff)) =>
             val bVals = diff.map(vd => PhysicalValue(vd.name, vd.atom, vd.newValue)) ++ keyBindings(fk)
             (true, JDBCIO.write(JDBCWrite(updateQ.copy(assignments = diff.map(_.name)), bVals)))
-        } getOrElse (false, Stream.empty)
+        } getOrElse(false, Stream.empty)
       }
     }: WriteQueries[Effect, T]
   }
