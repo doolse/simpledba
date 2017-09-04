@@ -4,7 +4,7 @@ import java.sql.{PreparedStatement, ResultSet, SQLType}
 import java.sql.JDBCType._
 import java.util.UUID
 
-import io.doolse.simpledba.jdbc.JDBCColumn.{ArraySQLType, UuidSQLType}
+import io.doolse.simpledba.jdbc.JDBCColumn.{ArraySQLType, SizedSQLType, UuidSQLType}
 
 /**
   * Created by jolz on 12/03/17.
@@ -48,11 +48,13 @@ object JDBCSQLConfig {
     case FLOAT => "FLOAT"
     case DOUBLE => "DOUBLE"
     case TIMESTAMP => "TIMESTAMP"
+    case NVARCHAR => "NVARCHAR"
   }
 
   val hsqlTypeNames : SQLType => String = ({
     case UuidSQLType => "UUID"
     case LONGNVARCHAR => "LONGVARCHAR"
+    case SizedSQLType(sub, size) => hsqlTypeNames(sub) + s"($size)"
   } : PartialFunction[SQLType, String]) orElse stdSQLTypeNames
 
   val pgsqlTypeNames : SQLType => String = ({
@@ -60,14 +62,27 @@ object JDBCSQLConfig {
     case ArraySQLType(elem) => s"${pgsqlTypeNames(elem)} ARRAY"
     case FLOAT => "REAL"
     case DOUBLE => "DOUBLE PRECISION"
+    case SizedSQLType(NVARCHAR, _) => "TEXT"
     case LONGNVARCHAR => "TEXT"
+    case SizedSQLType(sub, size) => pgsqlTypeNames(sub) + s"($size)"
+  } : PartialFunction[SQLType, String]) orElse stdSQLTypeNames
+
+  val sqlServerTypeNames : SQLType => String = ({
+    case UuidSQLType => "UNIQUEIDENTIFIER"
+    case LONGNVARCHAR => "NVARCHAR(MAX)"
+    case TIMESTAMP => "DATETIME"
+    case BOOLEAN => "BIT"
+    case SizedSQLType(sub, size) => sqlServerTypeNames(sub) + s"($size)"
   } : PartialFunction[SQLType, String]) orElse stdSQLTypeNames
 
   val DefaultReserved = Set("user")
 
   val defaultEscapeReserved = escapeReserved(DefaultReserved) _
   val hsqldbConfig = JDBCSQLConfig(defaultEscapeReserved, defaultEscapeReserved, hsqlTypeNames, defaultDropTableSQL, stdSpecialCols)
-  val postgresConfig = JDBCSQLConfig(defaultEscapeReserved, defaultEscapeReserved, pgsqlTypeNames, t => s"DROP TABLE IF EXISTS $t CASCADE", postgresSpecialCols)
+  val postgresConfig = JDBCSQLConfig(defaultEscapeReserved, defaultEscapeReserved, pgsqlTypeNames,
+    t => s"DROP TABLE IF EXISTS $t CASCADE", postgresSpecialCols)
+  val sqlServerConfig = JDBCSQLConfig(defaultEscapeReserved, defaultEscapeReserved, sqlServerTypeNames,
+    t => s"DROP TABLE IF EXISTS $t", stdSpecialCols)
 
   def escapeReserved(rw: Set[String])(s: String): String = {
     val lc = s.toLowerCase

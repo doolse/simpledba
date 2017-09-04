@@ -25,6 +25,7 @@ object JDBCIO {
     val dialect = jdbcConfig.getString("dialect") match {
       case "hsqldb" => JDBCSQLConfig.hsqldbConfig
       case "postgres" => JDBCSQLConfig.postgresConfig
+      case "sqlserver" => JDBCSQLConfig.sqlServerConfig
     }
     val con = if (jdbcConfig.hasPath("credentials")) {
       val cc = jdbcConfig.getConfig("credentials")
