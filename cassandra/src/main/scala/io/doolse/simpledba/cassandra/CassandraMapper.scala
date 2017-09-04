@@ -183,18 +183,19 @@ object MapQuery extends Poly2 {
       val rsStream = (s: Stream[Effect, ResultSet]) => s.flatMap(rs => CassandraIO.rowsStream(rs).translate(task2Effect))
       .map(materialize)
 
-      val queryAll = rsStream (
-        Stream.eval[Effect, ResultSet] { cassQuery(_.prepareAndBind(selectAll, Seq.empty)) }
-      )
-
-      def doQuery(sv: Stream[Effect, PKV]): Stream[Effect, T] = sv.flatMap { v =>
-        rsStream(
-          Stream.eval[Effect, ResultSet] {
-            cassQuery { _.prepareAndBind(select, valsToBinding(pkPhysV(v))) }
-          }
+      new UniqueQuery[Effect, T, PKV] {
+        val queryAll = rsStream (
+          Stream.eval[Effect, ResultSet] { cassQuery(_.prepareAndBind(selectAll, Seq.empty)) }
         )
+        def zipWith[A](f: A => Option[PKV]): Pipe[Effect,A,(A, Option[T])] = _.flatMap {
+          a =>
+            f(a).map { v =>
+              rsStream(Stream.eval[Effect, ResultSet] {
+                cassQuery { _.prepareAndBind(select, valsToBinding(pkPhysV(v))) }
+              }).last.map(o => (a, o))
+            } getOrElse Stream.empty
+        }
       }
-      ??? : UniqueQuery[Effect, T, PKV] // (doQuery, queryAll)
     })
   }
 

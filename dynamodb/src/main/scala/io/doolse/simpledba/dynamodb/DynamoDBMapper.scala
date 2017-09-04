@@ -289,28 +289,40 @@ object mapQuery extends Poly2 {
 
   implicit def pkQuery[K, T, CR <: HList, PKL <: HList, CVL <: HList, PKV]
   (implicit
-   lookupPK: ColumnsAsSeq.Aux[CR, PKL, T, DynamoDBColumn, PKV]
+   lookupPK: ColumnsAsSeq.Aux[CR, PKL, T, DynamoDBColumn, PKV],
+   helperB: ColumnFamilyHelperBuilder.Aux[DynamoDBColumn, T, CR, CVL, PKL, _, PKV, _]
   )
   = at[QueryPK[K], RelationDef[T, CR, PKL, CVL]] { (q, rd) =>
     val (pkCols, pkVals) = lookupPK(rd.columns)
+    val helper = helperB(rd.mapper)
     val pkNames = pkCols.map(_.name)
     val pkNamesSet = pkNames.toSet
     def pkMatch[T](table: DynamoTable[T]) = (table.pkNames ++ table.skNames).toSet == pkNamesSet
     QueryCreate[DynamoTable[T], UniqueQuery[Effect, T, PKV]](pkMatch, q.nameHint, { (tableName, dt) =>
       val columns = rd.columns
-      val scanAll = scanResultStream(new ScanRequest(tableName)).map(createMaterializer).map(dt.materializer)
       val pkIndexes = dt.pkNames.map(pkNames.indexOf)
       val skIndexes = dt.skNames.map(pkNames.indexOf)
-      def doQuery(sv: Stream[Effect, PKV]): Stream[Effect, T] = sv.vectorChunkN(32).flatMap { vv =>
-        val keyAndAttrs = new KeysAndAttributes()
-        vv.foreach { v =>
-          val pkOrigSeq = pkVals(v)
-          val fullKeySeq = Seq(dt.realPK(pkIndexes.map(pkOrigSeq))) ++ dt.fullSK(false, skIndexes.map(pkOrigSeq))
-          keyAndAttrs.withKeys(asAttrMap(fullKeySeq))
+      new UniqueQuery[Effect, T, PKV] {
+        val queryAll = scanResultStream(new ScanRequest(tableName)).map(createMaterializer).map(dt.materializer)
+        def zipWith[A](f: A => Option[PKV]): Pipe[Effect, A, (A, Option[T])] = _.vectorChunkN(32).flatMap { aa =>
+          val keyAndAttrs = new KeysAndAttributes()
+          val vv = aa.map(a => (a, f(a)))
+          val pkvs = vv.collect {
+            case (a, Some(v)) =>
+              val pkOrigSeq = pkVals(v)
+              val fullKeySeq = Seq(dt.realPK(pkIndexes.map(pkOrigSeq))) ++ dt.fullSK(false, skIndexes.map(pkOrigSeq))
+              keyAndAttrs.withKeys(asAttrMap(fullKeySeq))
+              (v, a)
+          }.toMap
+          batchGetResultStream(new BatchGetItemRequest(Map(tableName -> keyAndAttrs).asJava)).map(_._2).map(createMaterializer).map(dt.materializer).map { t =>
+            val a = pkvs(helper.extractKey(t).head)
+            (a, Some(t))
+          } ++ Stream.emits(vv.collect {
+            case (a, None) => (a, None)
+          })
         }
-        batchGetResultStream(new BatchGetItemRequest(Map(tableName -> keyAndAttrs).asJava)).map(_._2).map(createMaterializer).map(dt.materializer)
+
       }
-      ??? : UniqueQuery[Effect, T, PKV] // (doQuery, scanAll)
     })
   }
 
