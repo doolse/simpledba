@@ -1,8 +1,6 @@
 package test
 
-import com.datastax.driver.core.schemabuilder.SchemaBuilder
 import io.doolse.simpledba.cassandra._
-import io.doolse.simpledba.cassandra.stdImplicits._
 import io.doolse.simpledba.test.TestCreator
 
 /**
@@ -16,9 +14,9 @@ object TestCassandra extends App {
 
   val session = CassandraIO.simpleSession("localhost")
   val sessionConfig = CassandraSession(session, s => println(s()))
-  CassandraUtils.initKeyspaceAndSchema(sessionConfig, "test", built.ddl, dropKeyspace = true).unsafeRun
+  CassandraUtils.initKeyspaceAndSchema(sessionConfig, "test", built.ddl, dropKeyspace = true).unsafeRunSync()
 
   val q = TestCreator.doTest(queries)
-  val res = q.run(sessionConfig).unsafeRun
+  val res = q.run(sessionConfig).unsafeRunSync()
   println(res)
 }

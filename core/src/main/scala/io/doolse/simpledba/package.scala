@@ -4,7 +4,6 @@ import cats.{Applicative, Functor, Monad}
 import cats.syntax.traverse._
 import cats.syntax.functor._
 import cats.instances.vector._
-import fs2.util.{Catchable, ~>}
 import fs2.{Chunk, Pipe, Stream}
 import shapeless.{::, DepFn0, DepFn1, Generic, HList, HNil, SingletonProductArgs, Witness}
 

@@ -3,8 +3,6 @@ package io.doolse.simpledba.dynamodb
 import cats.Monad
 import cats.data.{ReaderT, WriterT}
 import com.amazonaws.services.dynamodbv2.model.{Stream => _, _}
-import fs2._
-import fs2.interop.cats._
 import io.doolse.simpledba.CatsUtils._
 import io.doolse.simpledba.RelationMapper._
 import io.doolse.simpledba._
@@ -12,8 +10,8 @@ import io.doolse.simpledba.dynamodb.DynamoDBIO._
 import io.doolse.simpledba.dynamodb.DynamoDBMapper._
 import shapeless._
 import cats.syntax.all._
-import fs2.util.Catchable
 import shapeless.ops.hlist.{Diff, Prepend}
+import fs2._
 
 import scala.collection.JavaConverters._
 
@@ -175,7 +173,6 @@ object DynamoTableBuilder {
 
       def writer(tableName: String) = new WriteQueries[Effect, T] {
 
-        val C = implicitly[Catchable[Effect]]
         val M = implicitly[Monad[Effect]]
         val F = implicitly[Flushable[Effect]]
 
@@ -304,7 +301,8 @@ object mapQuery extends Poly2 {
       val skIndexes = dt.skNames.map(pkNames.indexOf)
       new UniqueQuery[Effect, T, PKV] {
         val queryAll = scanResultStream(new ScanRequest(tableName)).map(createMaterializer).map(dt.materializer)
-        def zipWith[A](f: A => Option[PKV]): Pipe[Effect, A, (A, Option[T])] = _.vectorChunkN(32).flatMap { aa =>
+        def zipWith[A](f: A => Option[PKV]): Pipe[Effect, A, (A, Option[T])] =
+          _.buffer(32).segments.flatMap { aa =>
           val keyAndAttrs = new KeysAndAttributes()
           val vv = aa.map(a => (a, f(a)))
           val pkvs = vv.collect {
@@ -313,11 +311,11 @@ object mapQuery extends Poly2 {
               val fullKeySeq = Seq(dt.realPK(pkIndexes.map(pkOrigSeq))) ++ dt.fullSK(false, skIndexes.map(pkOrigSeq))
               keyAndAttrs.withKeys(asAttrMap(fullKeySeq))
               (v, a)
-          }.toMap
+          }.toArray.toMap
           batchGetResultStream(new BatchGetItemRequest(Map(tableName -> keyAndAttrs).asJava)).map(_._2).map(createMaterializer).map(dt.materializer).map { t =>
             val a = pkvs(helper.extractKey(t).head)
             (a, Some(t))
-          } ++ Stream.emits(vv.collect {
+          } ++ Stream.segment(vv.collect {
             case (a, None) => (a, None)
           })
         }

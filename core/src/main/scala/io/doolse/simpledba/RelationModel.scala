@@ -3,7 +3,6 @@ package io.doolse.simpledba
 import cats.syntax.all._
 import cats.{Applicative, Functor, Monad}
 import fs2.{Pipe, Stream}
-import fs2.util.Catchable
 import shapeless._
 import shapeless.ops.hlist.Prepend
 
@@ -83,7 +82,7 @@ trait UniqueQuery[F[_], T, Key] { self =>
   def query: Pipe[F, Key, T] = zipWith(Some.apply[Key]).andThen(_.collect {
     case (_, Some(t)) => t
   })
-  def apply(kv: Key) = query(Stream.apply[F, Key](kv))
+  def apply(kv: Key) = query(Stream(kv).covary[F])
   def as[K](implicit vc: ValueConvert[K, Key]) : UniqueQuery[F, T, K] = new UniqueQuery[F, T, K] {
     def zipWith[A](l: A => Option[K]) = self.zipWith(a => l(a).map(vc))
     def queryAll = self.queryAll
@@ -116,7 +115,6 @@ trait WriteOp
 trait WriteQueries[F[_], T] {
   self =>
 
-  protected val C: Catchable[F]
   protected val M: Monad[F]
   protected val F: Flushable[F]
 
@@ -160,7 +158,6 @@ trait WriteQueries[F[_], T] {
 object WriteQueries {
   def combine[F[_], T](self: WriteQueries[F, T], other: WriteQueries[F, T]) = new WriteQueries[F, T] {
     implicit val A = self.M
-    val C = self.C
     val M = self.M
     val F = self.F
 

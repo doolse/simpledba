@@ -1,11 +1,11 @@
 package io.doolse.simpledba.test
 
 import cats.Monad
+import cats.effect.Sync
 import cats.syntax.all._
 import io.doolse.simpledba._
 import cats.instances.list._
 import cats.instances.option._
-import fs2.util.Catchable
 
 /**
   * Created by jolz on 26/05/16.
@@ -48,7 +48,7 @@ object TestCreator {
   val updated = Inst(2L, EmbeddedFields("pass", enabled = false))
   val updatedAgain = Inst(2L, EmbeddedFields("changed", enabled = true))
 
-  def doTest[F[_] : Monad : Catchable](q: Queries[F]) = {
+  def doTest[F[_] : Monad : Sync](q: Queries[F]) = {
     import q._
     for {
       _ <- writeUsers.insert(User("Jolse", "Maginnis", 1980))

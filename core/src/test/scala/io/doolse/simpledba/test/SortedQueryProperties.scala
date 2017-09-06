@@ -3,8 +3,8 @@ package io.doolse.simpledba.test
 import java.util.UUID
 
 import cats.Monad
+import cats.effect.Sync
 import cats.implicits._
-import fs2.util.{Async, Catchable}
 import io.doolse.simpledba._
 import org.scalacheck.Arbitrary._
 import org.scalacheck.Prop._
@@ -18,7 +18,7 @@ import fs2.Stream
 case class Sortable(pk1: UUID, same: UUID, intField: Int, stringField: SafeString, shortField: Short,
                     longField: Long, floatField: Float, doubleField: Double, uuidField: UUID)
 
-abstract class SortedQueryProperties[F[_] : Monad : Catchable : Flushable](implicit arb: Arbitrary[Sortable]) extends AbstractRelationsProperties[F]("Sorting") {
+abstract class SortedQueryProperties[F[_] : Monad : Sync : Flushable](implicit arb: Arbitrary[Sortable]) extends AbstractRelationsProperties[F]("Sorting") {
 
   case class Queries[F[_]](writes: WriteQueries[F, Sortable],
                            int1: SortableQuery[F, Sortable, UUID],
@@ -124,14 +124,15 @@ abstract class SortedQueryProperties[F[_] : Monad : Catchable : Flushable](impli
     ))
   }
 
-  implicit val uuidTextSort = new Ordering[UUID] {
+  val uuidTextSort = new Ordering[UUID] {
     def compare(x: UUID, y: UUID): Int = x.toString.compareTo(y.toString)
   }
 
   property("Sorted by uuid") = forAll { (l: Vector[Sortable]) =>
     checkOrder(UUID.randomUUID, l, Seq(
-      "uuid only" -> OrderQuery(_.uuidField, queries.uuid1),
-      "uuid and long" -> OrderQuery(s => (s.uuidField, s.longField), queries.uuid2)
+      "uuid only" -> OrderQuery(_.uuidField, queries.uuid1)(uuidTextSort),
+      "uuid and long" -> OrderQuery(s => (s.uuidField, s.longField), queries.uuid2)(
+        Ordering.Tuple2(uuidTextSort, implicitly[Ordering[Long]]))
     ))
   }
 

@@ -2,16 +2,16 @@ package io.doolse.simpledba.cassandra
 
 import java.util.concurrent.{ConcurrentHashMap, ExecutionException}
 
-import cats.data.{Kleisli, WriterT}
+import cats.data.{Kleisli, StateT, WriterT}
+import cats.effect.IO
+import cats.~>
 import com.datastax.driver.core._
 import com.datastax.driver.core.policies.{DCAwareRoundRobinPolicy, DowngradingConsistencyRetryPolicy, LoggingRetryPolicy, TokenAwarePolicy}
 import com.datastax.driver.core.querybuilder._
 import com.datastax.driver.core.querybuilder.Select.{Selection, SelectionOrAlias, Where}
 import com.google.common.util.concurrent.ListenableFuture
 import com.typesafe.config.{Config, ConfigFactory}
-import fs2.{Chunk, Pipe, Sink, Strategy, Stream, Task}
-import fs2.util.~>
-import fs2.interop.cats._
+import fs2.{Chunk, Pipe, Sink, Stream}
 import io.doolse.simpledba.CatsUtils._
 import io.doolse.simpledba.WriteOp
 
@@ -25,8 +25,6 @@ import scala.collection.JavaConverters._
   * Created by jolz on 5/05/16.
   */
 object CassandraIO {
-
-  implicit val strat = Strategy.fromExecutionContext(ExecutionContext.global)
 
   val writePipe: Sink[Effect, WriteOp] = _.evalMap {
     case CassandraWriteOperation(q, vals) => cassQuery(_.prepareAndBind(q, vals).map(_ => ()))
@@ -55,11 +53,11 @@ object CassandraIO {
     case s => s.toString()
   }
 
-  def executeLater(stmt: Statement, session: Session) = Task.suspend(executeAsync(stmt, session))
+  def executeLater(stmt: Statement, session: Session) = IO.suspend(executeAsync(stmt, session))
 
   def executeAsync(stmt: Statement, session: Session) = asyncStmt(session.executeAsync(stmt), stmt2String(stmt))
 
-  def async[A](lf: ListenableFuture[A], fromEE: ExecutionException => Throwable) = Task.async[A] { k =>
+  def async[A](lf: ListenableFuture[A], fromEE: ExecutionException => Throwable) = IO.async[A] { k =>
     lf.addListener(() => k {
       Try(lf.get()) match {
         case Success(a) ⇒ Right(a)
@@ -72,14 +70,14 @@ object CassandraIO {
   def asyncStmt[A](lf: ListenableFuture[A], stmt: => String) =
     async[A](lf, ee => new CassandraIOException(s"Failed executing - $stmt - cause ${ee.getMessage}", ee.getCause))
 
-  def rowsStream(rs: ResultSet)(implicit strat: fs2.Strategy): Stream[Task, Row] = {
-    if (rs.isExhausted) Stream.empty[Task, Row]
+  def rowsStream(rs: ResultSet): Stream[IO, Row] = {
+    if (rs.isExhausted) Stream.empty
     else {
       val left = rs.getAvailableWithoutFetching
       if (left > 0) {
         val buf = mutable.Buffer[Row]()
         Range(0, left).foreach(_ => buf += rs.one)
-        Stream.chunk[Task, Row](Chunk.seq(buf)) ++ rowsStream(rs)
+        Stream.chunk(Chunk.seq(buf)) ++ rowsStream(rs)
       } else {
         Stream.eval(async(rs.fetchMoreResults(), identity)).flatMap(rowsStream(_))
       }
@@ -93,13 +91,13 @@ object CassandraIO {
   def escapeReserved(name: String) =
     if (reservedColumns(name.toLowerCase())) '"' + name + '"' else name
 
-  def cassQuery[A](f: CassandraSession => Task[A]): Effect[A] =
-    Kleisli(f)
+  def cassQuery[A](f: CassandraSession => IO[A]): Effect[A] =
+    StateT.inspectF(f)
 
   def cassWrite(w: CassandraWriteOperation): Stream[Effect, WriteOp] = Stream.emit(w)
 
-  val task2Effect = new (Task ~> Effect) {
-    def apply[A](f: Task[A]): Effect[A] = Kleisli.lift(f)
+  val task2Effect = new (IO ~> Effect) {
+    def apply[A](f: IO[A]): Effect[A] = StateT.lift(f)
   }
 
 
@@ -110,15 +108,15 @@ sealed trait PreparableStatement {
 }
 
 case class CassandraSession(session: Session, logger: (() ⇒ String) ⇒ Unit = _ => (),
-                            statementCache: scala.collection.concurrent.Map[Any, Task[PreparedStatement]]
-                            = new ConcurrentHashMap[Any, Task[PreparedStatement]]().asScala) {
+                            statementCache: scala.collection.concurrent.Map[Any, IO[PreparedStatement]]
+                            = new ConcurrentHashMap[Any, IO[PreparedStatement]]().asScala) {
 
-  def executeLater(stmt: Statement): Task[ResultSet] = {
+  def executeLater(stmt: Statement): IO[ResultSet] = {
     logger(() => CassandraIO.stmt2String(stmt))
     CassandraIO.executeLater(stmt, session)
   }
 
-  def prepareAndBind(a: PreparableStatement, b: Seq[AnyRef]): Task[ResultSet] = {
+  def prepareAndBind(a: PreparableStatement, b: Seq[AnyRef]): IO[ResultSet] = {
     lazy val prepared = {
       val built = a.build
       logger(() => "Preparing: " + CassandraIO.stmt2String(built))

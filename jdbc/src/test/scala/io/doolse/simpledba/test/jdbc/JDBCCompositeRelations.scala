@@ -3,7 +3,6 @@ package io.doolse.simpledba.test.jdbc
 import io.doolse.simpledba.jdbc.Effect
 import io.doolse.simpledba.test.CompositeRelations
 import io.doolse.simpledba.test.CompositeRelations._
-import io.doolse.simpledba.jdbc.stdImplicits._
 
 /**
   * Created by jolz on 15/06/16.

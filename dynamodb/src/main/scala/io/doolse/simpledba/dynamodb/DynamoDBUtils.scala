@@ -7,7 +7,6 @@ import com.amazonaws.{ClientConfiguration, PredefinedClientConfigurations}
 import com.amazonaws.services.dynamodbv2.{AmazonDynamoDB, AmazonDynamoDBAsync, AmazonDynamoDBAsyncClient, AmazonDynamoDBClient}
 import com.amazonaws.services.dynamodbv2.model.{CreateTableRequest, DeleteTableRequest, DescribeTableRequest, DescribeTableResult, ListTablesRequest}
 import com.typesafe.config.{Config, ConfigFactory}
-import fs2.Task
 import cats.instances.vector._
 import cats.syntax.all._
 import com.amazonaws.auth.profile.ProfileCredentialsProvider
@@ -16,11 +15,9 @@ import io.doolse.simpledba.CatsUtils._
 
 import scala.util.{Failure, Try}
 import scala.collection.JavaConverters._
-import fs2.interop.cats._
 import fs2._
-import fs2.util.Async
-import fs2.Task._
 import DynamoDBIO._
+import cats.effect.IO
 
 import scala.concurrent.duration.FiniteDuration
 
@@ -29,7 +26,7 @@ import scala.concurrent.duration.FiniteDuration
   */
 object DynamoDBUtils {
 
-  def createSchema(s: DynamoDBSession, deleteTables: Boolean, creation: Iterable[CreateTableRequest]): Task[Unit] = for {
+  def createSchema(s: DynamoDBSession, deleteTables: Boolean, creation: Iterable[CreateTableRequest]): IO[Unit] = for {
     tr <- s.request(listTablesAsync, new ListTablesRequest())
     existingTables = tr.getTableNames.asScala.toSet
     allTables = creation.toVector
@@ -42,10 +39,11 @@ object DynamoDBUtils {
     _ <- waitForStatus(s, tableNames.toVector, Some("ACTIVE")).run
   } yield ()
 
-  def waitForStatus(s: DynamoDBSession, tableNames: Vector[String], status: Option[String]): Stream[Task, Unit] = for {
+  def waitForStatus(s: DynamoDBSession, tableNames: Vector[String], status: Option[String]): Stream[IO, Unit] = for {
     statii <- Stream.eval(statuses(s, tableNames).runLog)
     notReady = statii.filter(_._2 != status)
-    _ <- if (notReady.isEmpty) Stream.empty else fs2.time.sleep(FiniteDuration(2, TimeUnit.SECONDS)) ++ waitForStatus(s, notReady.map(_._1).toVector, status)
+    _ <- if (notReady.isEmpty) Stream.empty.covary[IO] else
+        Stream.bracket(IO(Thread.sleep(FiniteDuration(2, TimeUnit.SECONDS).toMillis)))(_ => waitForStatus(s, notReady.map(_._1).toVector, status), IO.pure)
   } yield ()
 
   def statuses(s: DynamoDBSession, tableNames: Vector[String]) = for {

@@ -17,10 +17,10 @@ trait JDBCProperties {
   lazy val mapper = new JDBCMapper()
 
   def setup[Q](bq: BuiltQueries.Aux[Q, JDBCCreateTable]) = {
-    JDBCUtils.createSchema(session.copy(logger = msg => Console.out.println(msg())), bq.ddl, drop = true).unsafeRun
+    JDBCUtils.createSchema(session.copy(logger = msg => Console.out.println(msg())), bq.ddl, drop = true).unsafeRunSync()
     bq.queries
   }
 
-  def run[A](fa: Effect[A]): A = scala.concurrent.blocking { fa.run(session).unsafeRun }
+  def run[A](fa: Effect[A]): A = scala.concurrent.blocking { fa.runA(session).unsafeRunSync() }
 
 }

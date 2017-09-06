@@ -6,8 +6,6 @@ import cats.syntax.all._
 import com.datastax.driver.core.schemabuilder.{Create, SchemaBuilder}
 import com.datastax.driver.core.{DataType, ResultSet, Row}
 import fs2._
-import fs2.interop.cats._
-import fs2.util.Catchable
 import io.doolse.simpledba.CatsUtils._
 import io.doolse.simpledba.RelationMapper._
 import io.doolse.simpledba.cassandra.CassandraIO._
@@ -93,7 +91,6 @@ object CassandraTableBuilder {
         }
 
         def writer(tableName: String) = new WriteQueries[Effect, T] {
-          val C = implicitly[Catchable[Effect]]
           val M = implicitly[Monad[Effect]]
           val F = implicitly[Flushable[Effect]]
 
@@ -180,7 +177,7 @@ object MapQuery extends Poly2 {
       val selectAll = CassandraSelect(table, allNames, Seq.empty, Seq.empty, false)
       val select = CassandraSelect(table, allNames, exactMatch(pkCols), Seq.empty, false)
 
-      val rsStream = (s: Stream[Effect, ResultSet]) => s.flatMap(rs => CassandraIO.rowsStream(rs).translate(task2Effect))
+      val rsStream = (s: Stream[Effect, ResultSet]) => s.flatMap(rs => CassandraIO.rowsStream(rs).translateSync(task2Effect))
       .map(materialize)
 
       new UniqueQuery[Effect, T, PKV] {
@@ -241,7 +238,7 @@ object MapQuery extends Poly2 {
             val select = baseSelect.copy(where = baseSelect.where ++ lw ++ uw, ordering = ordering)
             s.prepareAndBind(select, valsToBinding(pkPhysV(c) ++ lv ++ uv))
           }
-        }.flatMap(rs => CassandraIO.rowsStream(rs).translate(task2Effect))
+        }.flatMap(rs => CassandraIO.rowsStream(rs).translateSync(task2Effect))
           .map(r => materialize(rowMaterializer(r)))
       }
       RangeQuery(None, doQuery)

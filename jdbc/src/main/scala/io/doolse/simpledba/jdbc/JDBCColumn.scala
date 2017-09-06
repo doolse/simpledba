@@ -3,8 +3,10 @@ package io.doolse.simpledba.jdbc
 import java.sql.{Array => _, _}
 import java.time.Instant
 import java.util.UUID
+import javax.xml.transform.dom.{DOMResult, DOMSource}
 
 import io.doolse.simpledba.{IsoAtom, PartialIsoAtom}
+import org.w3c.dom.Node
 
 import scala.collection.mutable
 
@@ -92,5 +94,19 @@ object JDBCColumn {
         sqlArrayColumn.bind(s, ps, i, s.connection.createArrayOf(wrappedCol.getName, v.asInstanceOf[Vector[AnyRef]].toArray[AnyRef])))
   }
 
+  implicit val xmlColumn : JDBCColumn[Node] = {
+    def asNode(sql: SQLXML): Option[Node] =
+      Option(sql).map(_.getSource(classOf[DOMSource]).getNode())
+
+    JDBCColumn[Node](JDBCType.SQLXML,
+      (s, rs, n) => asNode(rs.getSQLXML(n)),
+      (s, rs, i) => asNode(rs.getSQLXML(i)),
+      (s, ps, i, a) => {
+        val sqlXml = s.connection.createSQLXML()
+        sqlXml.setResult(classOf[DOMResult]).setNode(a)
+        ps.setSQLXML(i, sqlXml)
+      }
+    )
+  }
 
 }

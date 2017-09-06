@@ -1,5 +1,6 @@
 package io.doolse.simpledba.test
 
+import cats.effect.Sync
 import cats.{Id, Monad, ~>}
 import io.doolse.simpledba.{Flushable, WriteQueries}
 import io.doolse.simpledba._
@@ -7,14 +8,13 @@ import fs2._
 import org.scalacheck.Prop._
 import org.scalacheck.{Arbitrary, Gen, Prop, Properties}
 import cats.syntax.all._
-import fs2.util.Catchable
 
 /**
   * Created by jolz on 16/06/16.
   */
 
 object CrudProperties {
-  def apply[F[_] : Monad : Catchable : Flushable, A: Arbitrary, K](run: F ~> Id, writes: WriteQueries[F, A],
+  def apply[F[_] : Monad : Sync : Flushable, A: Arbitrary, K](run: F ~> Id, writes: WriteQueries[F, A],
                                                                    findAll: A => Stream[F, A], expected: Int, genUpdate: Gen[(A, A)])
   = {
     implicit def runProp(fa: F[Prop]): Prop = run(fa)

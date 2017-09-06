@@ -3,12 +3,10 @@ package test
 /**
   * Created by jolz on 9/06/16.
   */
-import java.sql.DriverManager
 import java.util.UUID
 
 import io.doolse.simpledba._
 import io.doolse.simpledba.jdbc._
-import io.doolse.simpledba.jdbc.stdImplicits._
 
 object QuickstartExample extends App {
   case class User(userId: UUID, firstName: String, lastName: String, yearOfBirth: Int)
@@ -34,10 +32,10 @@ object QuickstartExample extends App {
   )
 
   val mapper = new JDBCMapper()
-  val built = mapper.verifyModel(model)
+  val built = mapper.buildModel(model)
   val queries = built.queries
   val sessionConfig = JDBCIO.openConnection().copy(logger = msg => Console.err.println(msg()))
-  JDBCUtils.createSchema(sessionConfig, built.ddl, drop=true).unsafeRun
+  JDBCUtils.createSchema(sessionConfig, built.ddl, drop=true).unsafeRunSync()
 
   private val magId = UUID.randomUUID()
   private val mahId = UUID.randomUUID()
@@ -51,6 +49,6 @@ object QuickstartExample extends App {
       _ <- queries.cars.insert(Car(UUID.randomUUID(), "Hyundai", "Accent", magId))
       cars <- queries.carsForUser(magId, lower = Inclusive("Honda")).runLog
       users <- queries.usersByFirstName("Jolse").runLog
-    } yield (cars ++ users).mkString("\n")).run(sessionConfig).unsafeRun
+    } yield (cars ++ users).mkString("\n")).runA(sessionConfig).unsafeRunSync()
   }
 }

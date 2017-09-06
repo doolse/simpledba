@@ -49,6 +49,7 @@ object JDBCSQLConfig {
     case DOUBLE => "DOUBLE"
     case TIMESTAMP => "TIMESTAMP"
     case NVARCHAR => "NVARCHAR"
+    case SQLXML => "XML"
   }
 
   val hsqlTypeNames : SQLType => String = ({
@@ -75,6 +76,16 @@ object JDBCSQLConfig {
     case SizedSQLType(sub, size) => sqlServerTypeNames(sub) + s"($size)"
   } : PartialFunction[SQLType, String]) orElse stdSQLTypeNames
 
+  val oracleTypeNames : SQLType => String = ({
+    case UuidSQLType => "CHAR(37)"
+    case BIGINT => "NUMBER(19)"
+    case NVARCHAR => "NVARCHAR2"
+    case LONGNVARCHAR => "NVARCHAR2(2000)"
+    case BOOLEAN => "NUMBER(1,0)"
+    case SQLXML => "XMLTYPE"
+    case SizedSQLType(sub, size) => oracleTypeNames(sub) + s"($size)"
+  } : PartialFunction[SQLType, String]) orElse stdSQLTypeNames
+
   val DefaultReserved = Set("user")
 
   val defaultEscapeReserved = escapeReserved(DefaultReserved) _
@@ -83,6 +94,11 @@ object JDBCSQLConfig {
     t => s"DROP TABLE IF EXISTS $t CASCADE", postgresSpecialCols)
   val sqlServerConfig = JDBCSQLConfig(defaultEscapeReserved, defaultEscapeReserved, sqlServerTypeNames,
     t => s"DROP TABLE IF EXISTS $t", stdSpecialCols)
+
+  val oracleReserved = DefaultReserved ++ Set("session")
+  val oracleEscapeReserved = escapeReserved(oracleReserved) _
+  val oracleConfig = JDBCSQLConfig(oracleEscapeReserved, oracleEscapeReserved, oracleTypeNames,
+    t => s"BEGIN EXECUTE IMMEDIATE 'DROP TABLE $t'; EXCEPTION WHEN OTHERS THEN NULL; END;", stdSpecialCols)
 
   def escapeReserved(rw: Set[String])(s: String): String = {
     val lc = s.toLowerCase

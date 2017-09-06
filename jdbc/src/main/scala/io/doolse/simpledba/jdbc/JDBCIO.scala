@@ -4,14 +4,14 @@ import java.sql._
 import java.util.concurrent.ConcurrentHashMap
 
 import scala.collection.JavaConverters._
-import fs2._
 import io.doolse.simpledba.{ColumnMapping, ColumnMaterialzer, PhysicalValue, WriteOp}
+import fs2._
 import JDBCUtils.brackets
-import cats.data.{Kleisli, ReaderT, WriterT}
+import cats.data.{Kleisli, ReaderT, StateT, WriterT}
+import cats.effect.IO
 import com.typesafe.config.{Config, ConfigFactory}
-import fs2.interop.cats._
 import cats.instances.vector._
-
+import scala.concurrent.ExecutionContext.Implicits.global
 /**
   * Created by jolz on 12/03/17.
   */
@@ -26,6 +26,7 @@ object JDBCIO {
       case "hsqldb" => JDBCSQLConfig.hsqldbConfig
       case "postgres" => JDBCSQLConfig.postgresConfig
       case "sqlserver" => JDBCSQLConfig.sqlServerConfig
+      case "oracle" => JDBCSQLConfig.oracleConfig
     }
     val con = if (jdbcConfig.hasPath("credentials")) {
       val cc = jdbcConfig.getConfig("credentials")
@@ -35,7 +36,7 @@ object JDBCIO {
   }
 
   def rowsStream[F[_]](rs: ResultSet): Stream[F, ResultSet] = {
-    if (!rs.next) Stream.empty[F, ResultSet]
+    if (!rs.next) Stream.empty.covary[F]
     else Stream.emit(rs) ++ Stream.suspend(rowsStream(rs))
   }
 
@@ -43,31 +44,36 @@ object JDBCIO {
     def apply[A](name: String, atom: JDBCColumn[A]): A = atom.byName(c, r, name).getOrElse(sys.error(s"Mapping error - column '$name' contains a NULL"))
   }
 
-  def sessionIO[A](f: JDBCSession => Task[A]): Effect[A] =
-    Kleisli(f)
+  def sessionIO[A](f: JDBCSession => IO[A]): Effect[A] =
+    StateT.inspectF(f)
 
   def write(f: JDBCWrite): Stream[Effect, WriteOp] = Stream.emit(f)
 
   def writeSink: Sink[Effect, WriteOp] = { st =>
-    st.rechunkN(1000).chunks.evalMap { chunk =>
+    st.buffer(1000).chunks.evalMap { chunk =>
       val batches = chunk.map {
         case JDBCWrite(q, v) => (q, v)
       }.toVector.groupBy(_._1).toSeq
-      Kleisli { (s:JDBCSession) =>
-        Task.traverse(batches)(b => s.execBatch(b._1, b._2.map(_._2))).map(_ => ())
+      StateT.inspectF { (s:JDBCSession) =>
+        val alls: Stream[IO, Stream[IO, Unit]] = Stream.emits {
+          batches.map {
+            b => Stream.eval(s.execBatch(b._1, b._2.map(_._2)))
+          }
+        }
+        alls.join(4).run
       }
     }
   }
 }
 
 case class JDBCSession(connection: Connection, config: JDBCSQLConfig, logger: (() ⇒ String) ⇒ Unit = _ => (),
-                       statementCache: scala.collection.concurrent.Map[Any, Task[PreparedStatement]]
-                       = new ConcurrentHashMap[Any, Task[PreparedStatement]]().asScala) {
+                       statementCache: scala.collection.concurrent.Map[Any, IO[PreparedStatement]]
+                       = new ConcurrentHashMap[Any, IO[PreparedStatement]]().asScala) {
 
-  def prepare(q: JDBCPreparedQuery): Task[PreparedStatement] = {
+  def prepare(q: JDBCPreparedQuery): IO[PreparedStatement] = {
     lazy val prepared = {
       logger(() => "Preparing: " + JDBCPreparedQuery.asSQL(q, config))
-      Task.delay(connection.prepareStatement(JDBCPreparedQuery.asSQL(q, config)))
+      IO(connection.prepareStatement(JDBCPreparedQuery.asSQL(q, config)))
     }
     statementCache.getOrElseUpdate(q, prepared)
   }
@@ -79,7 +85,7 @@ case class JDBCSession(connection: Connection, config: JDBCSQLConfig, logger: ((
     ps
   }
 
-  def prepareAndBind(q: JDBCPreparedQuery, s: Seq[PhysicalValue[JDBCColumn]]): Task[PreparedStatement] = {
+  def prepareAndBind(q: JDBCPreparedQuery, s: Seq[PhysicalValue[JDBCColumn]]): IO[PreparedStatement] = {
     prepare(q).map { ps =>
       logger {
         () =>
@@ -90,11 +96,11 @@ case class JDBCSession(connection: Connection, config: JDBCSQLConfig, logger: ((
     }
   }
 
-  def execQuery(q: JDBCPreparedQuery, s: Seq[PhysicalValue[JDBCColumn]]): Task[ResultSet] = prepareAndBind(q, s).map(_.executeQuery())
+  def execQuery(q: JDBCPreparedQuery, s: Seq[PhysicalValue[JDBCColumn]]): IO[ResultSet] = prepareAndBind(q, s).map(_.executeQuery())
 
-  def execWrite(q: JDBCPreparedQuery, s: Seq[PhysicalValue[JDBCColumn]]): Task[Boolean] = prepareAndBind(q, s).map(_.execute())
+  def execWrite(q: JDBCPreparedQuery, s: Seq[PhysicalValue[JDBCColumn]]): IO[Boolean] = prepareAndBind(q, s).map(_.execute())
 
-  def execBatch(q: JDBCPreparedQuery, bvals: Seq[Seq[PhysicalValue[JDBCColumn]]]): Task[Unit] = prepare(q).map { ps =>
+  def execBatch(q: JDBCPreparedQuery, bvals: Seq[Seq[PhysicalValue[JDBCColumn]]]): IO[Unit] = prepare(q).map { ps =>
     logger(() => s"Batch statement: ${JDBCPreparedQuery.asSQL(q, config)}")
     bvals.foreach { s =>
       logger { () => s"Values ${s.map(pv => pv.name + "=" + pv.v).mkString(",")}" }

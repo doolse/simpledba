@@ -1,7 +1,6 @@
 package io.doolse.simpledba
 
 import cats.Applicative
-import fs2.util.Catchable
 import shapeless.ops.hlist.Mapper
 import shapeless.{HList, HNil}
 import shapeless.poly.Case3

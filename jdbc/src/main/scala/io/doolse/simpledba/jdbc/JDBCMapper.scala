@@ -2,12 +2,10 @@ package io.doolse.simpledba.jdbc
 
 import java.sql.ResultSet
 
-import cats.data.{Kleisli, ReaderT}
+import cats.data.{Kleisli, ReaderT, StateT}
+import cats.effect.IO
 import cats.{Monad, Now}
 import cats.syntax.all._
-import fs2._
-import fs2.interop.cats._
-import fs2.util.Catchable
 import io.doolse.simpledba.CatsUtils._
 import io.doolse.simpledba.RelationMapper._
 import io.doolse.simpledba.{RangeValue, _}
@@ -16,6 +14,7 @@ import shapeless._
 import shapeless.ops.hlist.{Mapper, ToList}
 import shapeless.ops.record.Keys
 import cats.instances.vector._
+import fs2._
 
 /**
   * Created by jolz on 12/03/17.
@@ -69,7 +68,7 @@ object JDBCQueryMap extends Poly1 {
     val select = JDBCSelect(table, allNames, JDBCPreparedQuery.exactMatch(pkCols), Seq.empty, false)
 
     def rsStream(s: Stream[Effect, ResultSet]) = for {
-      c <- Stream.eval[Effect, JDBCSession](Kleisli.ask[Task, JDBCSession])
+      c <- Stream.eval[Effect, JDBCSession](StateT.get[IO, JDBCSession])
       rs <- s.flatMap(JDBCIO.rowsStream)
     } yield materialize(JDBCIO.rowMaterializer(c, rs))
 
@@ -122,7 +121,7 @@ object JDBCQueryMap extends Poly1 {
     val baseSelect = JDBCSelect(tn, allCols.map(_.name), JDBCPreparedQuery.exactMatch(pkCols), Seq.empty, false)
 
     def doQuery(c: ColsVals, lr: RangeValue[SortVals], ur: RangeValue[SortVals], asc: Option[Boolean]): Stream[Effect, T] = for {
-      sess <- Stream.eval[Effect, JDBCSession](ReaderT.ask)
+      sess <- Stream.eval[Effect, JDBCSession](StateT.get)
       rs <- Stream.eval[Effect, ResultSet] {
         JDBCIO.sessionIO { s =>
           def processOp(op: Option[(SortVals, String => JDBCWhereClause)]) = op.map { case (sv, f) =>
@@ -160,7 +159,6 @@ object JDBCQueryMap extends Poly1 {
     val helper = helperB(mapper, extractKey)
 
     new WriteQueries[Effect, T] {
-      val C = implicitly[Catchable[Effect]]
       val M = implicitly[Monad[Effect]]
       val F = implicitly[Flushable[Effect]]
       val keyEq = JDBCPreparedQuery.exactMatch(pkCols)

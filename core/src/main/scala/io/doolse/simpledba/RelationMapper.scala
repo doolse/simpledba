@@ -1,7 +1,6 @@
 package io.doolse.simpledba
 
 import cats.{Applicative, Eval, Monad}
-import fs2.util.Catchable
 import shapeless._
 import shapeless.ops.hlist.Mapper
 import shapeless.ops.record.Selector

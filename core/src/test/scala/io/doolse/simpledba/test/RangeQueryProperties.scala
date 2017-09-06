@@ -3,8 +3,8 @@ package io.doolse.simpledba.test
 import java.util.UUID
 
 import cats.Monad
+import cats.effect.Sync
 import cats.implicits._
-import fs2.util.{Async, Catchable}
 import fs2.Stream
 import io.doolse.simpledba._
 import org.scalacheck.{Arbitrary, Prop, Shrink}
@@ -21,7 +21,7 @@ case class DistinctRangeable(vals: Vector[Rangeable])
 case class Rangeable(pk1: UUID, same: UUID, intField: Int, stringField: SafeString, shortField: Short,
                      longField: Long, floatField: Float, doubleField: Double, uuidField: UUID)
 
-abstract class RangeQueryProperties[F[_] : Monad : Catchable : Flushable](implicit rangeable: Arbitrary[Rangeable],
+abstract class RangeQueryProperties[F[_] : Monad : Sync : Flushable](implicit rangeable: Arbitrary[Rangeable],
                                                           arbRange: Arbitrary[FilterRange[Rangeable]])
   extends AbstractRelationsProperties[F]("Ranges") {
 

@@ -3,8 +3,8 @@ package io.doolse.simpledba.test
 import java.util.UUID
 
 import cats.Monad
+import cats.effect.Sync
 import cats.syntax.all._
-import fs2.util.Catchable
 import io.doolse.simpledba._
 import io.doolse.simpledba.test.CompositeRelations._
 import org.scalacheck.Shapeless._
@@ -35,7 +35,7 @@ object CompositeRelations {
 }
 
 
-abstract class CompositeRelations[F[_] : Catchable](name: String)(implicit M: Monad[F], F:Flushable[F]) extends AbstractRelationsProperties[F](s"$name - Composite") {
+abstract class CompositeRelations[F[_] : Sync](name: String)(implicit M: Monad[F], F:Flushable[F]) extends AbstractRelationsProperties[F](s"$name - Composite") {
 
   val queries2 : Queries2[F]
 

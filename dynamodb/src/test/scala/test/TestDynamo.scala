@@ -2,7 +2,6 @@ package test
 
 import com.amazonaws.ClientConfiguration
 import com.amazonaws.services.dynamodbv2.{AmazonDynamoDBAsync, AmazonDynamoDBAsyncClient}
-import io.doolse.simpledba.dynamodb.stdImplicits._
 import io.doolse.simpledba.dynamodb.{DynamoDBMapper, DynamoDBSession, DynamoDBUtils}
 import io.doolse.simpledba.test.TestCreator
 import io.doolse.simpledba.dynamodb.DynamoDBIO._
@@ -21,9 +20,9 @@ object TestDynamo extends App {
   val creation = built.ddl
 
   val session = DynamoDBSession(client)
-  DynamoDBUtils.createSchema(session, true, built.ddl).unsafeRun
+  DynamoDBUtils.createSchema(session, true, built.ddl).unsafeRunSync()
   val q = TestCreator.doTest(queries)
-  val res = q.run(session).unsafeRun
+  val res = q.run(session).unsafeRunSync()
   println(res)
 
 }

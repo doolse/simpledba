@@ -1,7 +1,6 @@
 package io.doolse.simpledba.test.jdbc
 
 import io.doolse.simpledba.jdbc.Effect
-import io.doolse.simpledba.jdbc.stdImplicits._
 import io.doolse.simpledba.test.{RangeQueryProperties, SimpleDBAProperties}
 import org.scalacheck.Shapeless._
 

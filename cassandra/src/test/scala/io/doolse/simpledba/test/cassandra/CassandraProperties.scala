@@ -11,7 +11,7 @@ import io.doolse.simpledba.cassandra.{CassandraMapper, CassandraIO, CassandraUti
 
 object CassandraProperties {
   lazy val sessionConfig = CassandraSession(CassandraIO.initSimpleSession())
-  lazy val initKS = CassandraUtils.initKeyspaceAndSchema(sessionConfig, "test", List.empty, dropKeyspace = true).unsafeRun
+  lazy val initKS = CassandraUtils.initKeyspaceAndSchema(sessionConfig, "test", List.empty, dropKeyspace = true).unsafeRunSync()
 }
 
 trait CassandraProperties {
@@ -21,10 +21,10 @@ trait CassandraProperties {
 
   def setup[Q](bq: BuiltQueries.Aux[Q, (String, Create)]) = {
     initKS
-    CassandraUtils.createSchema(sessionConfig.copy(logger = msg => Console.out.println(msg())), bq.ddl).unsafeRun
+    CassandraUtils.createSchema(sessionConfig.copy(logger = msg => Console.out.println(msg())), bq.ddl).unsafeRunSync()
     bq.queries
   }
 
-  def run[A](fa: Effect[A]): A = scala.concurrent.blocking { fa.run(sessionConfig).unsafeRun }
+  def run[A](fa: Effect[A]): A = scala.concurrent.blocking { fa.runA(sessionConfig).unsafeRunSync() }
 
 }

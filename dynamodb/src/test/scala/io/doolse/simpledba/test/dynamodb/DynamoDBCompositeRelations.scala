@@ -1,7 +1,6 @@
 package io.doolse.simpledba.test.dynamodb
 
 import io.doolse.simpledba.dynamodb.Effect
-import io.doolse.simpledba.dynamodb.stdImplicits._
 import io.doolse.simpledba.test.CompositeRelations
 import io.doolse.simpledba.test.CompositeRelations._
 

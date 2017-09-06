@@ -12,8 +12,8 @@ import org.scalacheck.Shapeless._
 import cats.syntax.all._
 import shapeless.Generic
 import SimpleRelations._
+import cats.effect.Sync
 import fs2._
-import fs2.util.{Async, Catchable}
 import org.scalacheck.Test.Parameters
 
 import scala.concurrent.ExecutionContext
@@ -57,7 +57,7 @@ object SimpleRelations {
   }
 }
 
-abstract class SimpleRelations[F[_] : Catchable : Flushable](name: String)(implicit M: Monad[F])
+abstract class SimpleRelations[F[_] : Sync : Flushable](name: String)(implicit M: Monad[F])
   extends AbstractRelationsProperties[F](s"$name - Relation Shapes") {
 
   def queries1: Fields1Queries[F]
