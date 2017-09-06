@@ -95,8 +95,14 @@ object JDBCColumn {
   }
 
   implicit val xmlColumn : JDBCColumn[Node] = {
-    def asNode(sql: SQLXML): Option[Node] =
-      Option(sql).map(_.getSource(classOf[DOMSource]).getNode())
+    def asNode(sql: SQLXML): Option[Node] = {
+      Option(sql).map {
+        sn =>
+          val n = sn.getSource(classOf[DOMSource]).getNode()
+          sn.free()
+          n
+      }
+    }
 
     JDBCColumn[Node](JDBCType.SQLXML,
       (s, rs, n) => asNode(rs.getSQLXML(n)),

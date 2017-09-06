@@ -67,31 +67,25 @@ object JDBCQueryMap extends Poly1 {
     val selectAll = JDBCSelect(table, allNames, Seq.empty, Seq.empty, false)
     val select = JDBCSelect(table, allNames, JDBCPreparedQuery.exactMatch(pkCols), Seq.empty, false)
 
-    def rsStream(s: Stream[Effect, ResultSet]) = for {
+    def rsStream(s: Effect[ResultSet]) = for {
       c <- Stream.eval[Effect, JDBCSession](StateT.get[IO, JDBCSession])
-      rs <- s.flatMap(JDBCIO.rowsStream)
+      rs <- JDBCIO.rowsStream(s)
     } yield materialize(JDBCIO.rowMaterializer(c, rs))
 
 
     def doQuery(sv: Stream[Effect, PKV]): Stream[Effect, T] = sv.flatMap { v =>
-      rsStream(
-        Stream.eval[Effect, ResultSet](JDBCIO.sessionIO(_.execQuery(select, pkPhysV(v))))
-      )
+      rsStream(JDBCIO.sessionIO(_.execQuery(select, pkPhysV(v))))
     }
 
     new UniqueQuery[Effect, T, PKV] {
       override def zipWith[A](f: (A) => Option[PKV]): Pipe[Effect, A, (A, Option[T])] = _.flatMap {
         a =>
           f(a).map { k =>
-            rsStream(Stream.eval[Effect, ResultSet] {
-              JDBCIO.sessionIO(_.execQuery(select, pkPhysV(k)))
-            }).last.map(o => (a, o))
+            rsStream(JDBCIO.sessionIO(_.execQuery(select, pkPhysV(k)))).last.map(o => (a, o))
           } getOrElse Stream.empty
       }
 
-      val queryAll = rsStream(
-        Stream.eval(JDBCIO.sessionIO(_.prepare(selectAll).map(_.executeQuery())))
-      )
+      val queryAll = rsStream(JDBCIO.sessionIO(_.prepare(selectAll).map(_.executeQuery())))
     }: UniqueQuery[Effect, T, PKV]
   }
 
@@ -122,7 +116,7 @@ object JDBCQueryMap extends Poly1 {
 
     def doQuery(c: ColsVals, lr: RangeValue[SortVals], ur: RangeValue[SortVals], asc: Option[Boolean]): Stream[Effect, T] = for {
       sess <- Stream.eval[Effect, JDBCSession](StateT.get)
-      rs <- Stream.eval[Effect, ResultSet] {
+      rs <- JDBCIO.rowsStream {
         JDBCIO.sessionIO { s =>
           def processOp(op: Option[(SortVals, String => JDBCWhereClause)]) = op.map { case (sv, f) =>
             val vals = skPhysV(sv)
@@ -135,7 +129,7 @@ object JDBCQueryMap extends Poly1 {
           val select = baseSelect.copy(where = baseSelect.where ++ lw ++ uw, ordering = ordering)
           s.execQuery(select, pkPhysV(c) ++ lv ++ uv)
         }
-      }.flatMap(rs => JDBCIO.rowsStream(rs))
+      }
     } yield materialize(JDBCIO.rowMaterializer(sess, rs))
 
     RangeQuery(None, doQuery)

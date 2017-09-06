@@ -61,7 +61,7 @@ object DynamoDBIO {
   }
 
   val writePipe : Pipe[Effect, WriteOp, Int] = { w =>
-    w.buffer(25).chunks.flatMap { c =>
+    w.segmentN(25).flatMap { c =>
       val batchWriteMapJava = new java.util.HashMap[String, java.util.List[WriteRequest]]
       val m = batchWriteMapJava.asScala
       val b = mutable.Buffer[UpdateItemRequest]()

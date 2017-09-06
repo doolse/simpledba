@@ -35,9 +35,15 @@ object JDBCIO {
     JDBCSession(con, dialect, logger = logger.getOrElse(_ => ()))
   }
 
-  def rowsStream[F[_]](rs: ResultSet): Stream[F, ResultSet] = {
-    if (!rs.next) Stream.empty.covary[F]
-    else Stream.emit(rs) ++ Stream.suspend(rowsStream(rs))
+  def pureJDBC[A](a: A) : Effect[A] = StateT.pure(a)
+  def liftJDBC[A](a: IO[A]): Effect[A] = StateT.lift(a)
+
+  def rowsStream[A](open: Effect[ResultSet]): Stream[Effect, ResultSet] = {
+    def nextLoop(rs: ResultSet): Stream[Effect, ResultSet] = {
+      Stream.eval(liftJDBC(IO(rs.next()))).flatMap(n => if (n) Stream(rs) ++ nextLoop(rs) else Stream.empty)
+    }
+    Stream.eval[Effect, JDBCSession](StateT.get)
+      .flatMap(s => Stream.bracket(open)(nextLoop, rs => liftJDBC(IO(rs.close()))))
   }
 
   def rowMaterializer(c: JDBCSession, r: ResultSet) = new ColumnMaterialzer[JDBCColumn] {
@@ -50,7 +56,7 @@ object JDBCIO {
   def write(f: JDBCWrite): Stream[Effect, WriteOp] = Stream.emit(f)
 
   def writeSink: Sink[Effect, WriteOp] = { st =>
-    st.buffer(1000).chunks.evalMap { chunk =>
+    st.segmentN(1000).evalMap { chunk =>
       val batches = chunk.map {
         case JDBCWrite(q, v) => (q, v)
       }.toVector.groupBy(_._1).toSeq
@@ -73,7 +79,7 @@ case class JDBCSession(connection: Connection, config: JDBCSQLConfig, logger: ((
   def prepare(q: JDBCPreparedQuery): IO[PreparedStatement] = {
     lazy val prepared = {
       logger(() => "Preparing: " + JDBCPreparedQuery.asSQL(q, config))
-      IO(connection.prepareStatement(JDBCPreparedQuery.asSQL(q, config)))
+      IO.pure(connection.prepareStatement(JDBCPreparedQuery.asSQL(q, config)))
     }
     statementCache.getOrElseUpdate(q, prepared)
   }

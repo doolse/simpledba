@@ -301,8 +301,8 @@ object mapQuery extends Poly2 {
       val skIndexes = dt.skNames.map(pkNames.indexOf)
       new UniqueQuery[Effect, T, PKV] {
         val queryAll = scanResultStream(new ScanRequest(tableName)).map(createMaterializer).map(dt.materializer)
-        def zipWith[A](f: A => Option[PKV]): Pipe[Effect, A, (A, Option[T])] =
-          _.buffer(32).segments.flatMap { aa =>
+
+        def zipWith[A](f: A => Option[PKV]): Pipe[Effect, A, (A, Option[T])] = _.segmentN(32).flatMap { aa =>
           val keyAndAttrs = new KeysAndAttributes()
           val vv = aa.map(a => (a, f(a)))
           val pkvs = vv.collect {
@@ -319,7 +319,6 @@ object mapQuery extends Poly2 {
             case (a, None) => (a, None)
           })
         }
-
       }
     })
   }
