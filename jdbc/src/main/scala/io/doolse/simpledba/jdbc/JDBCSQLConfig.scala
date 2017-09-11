@@ -11,7 +11,7 @@ import io.doolse.simpledba.jdbc.JDBCColumn.{ArraySQLType, SizedSQLType, UuidSQLT
   */
 
 case class SpecialColumnType(byName: (ResultSet, String) => Option[AnyRef], byIndex: (ResultSet, Int) => Option[AnyRef],
-                             bind: (PreparedStatement, Int, AnyRef) => Unit)
+                             bind: (PreparedStatement, Int, AnyRef) => Unit, bindingObject: AnyRef => AnyRef)
 
 case class JDBCSQLConfig(escapeTableName: String => String,
                          escapeColumnName: String => String,
@@ -29,14 +29,16 @@ object JDBCSQLConfig {
   val stdSpecialCols : PartialFunction[SQLType, SpecialColumnType] = {
     case UuidSQLType => SpecialColumnType((rs,n) => Option(rs.getString(n)).map(UUID.fromString),
       (rs,i) => Option(rs.getString(i)).map(UUID.fromString),
-      (ps, i, v) => ps.setString(i, v.toString)
+      (ps, i, v) => ps.setString(i, v.toString),
+      _.toString()
     )
   }
 
   val postgresSpecialCols : PartialFunction[SQLType, SpecialColumnType] = {
     case UuidSQLType => SpecialColumnType((rs,n) => Option(rs.getObject(n)),
       (rs, i) => Option(rs.getObject(i)),
-      (ps, i, v) => ps.setObject(i, v)
+      (ps, i, v) => ps.setObject(i, v),
+      identity
     )
   }
 
@@ -86,7 +88,7 @@ object JDBCSQLConfig {
     case SizedSQLType(sub, size) => oracleTypeNames(sub) + s"($size)"
   } : PartialFunction[SQLType, String]) orElse stdSQLTypeNames
 
-  val DefaultReserved = Set("user")
+  val DefaultReserved = Set("user", "begin", "end")
 
   val defaultEscapeReserved = escapeReserved(DefaultReserved) _
   val hsqldbConfig = JDBCSQLConfig(defaultEscapeReserved, defaultEscapeReserved, hsqlTypeNames, defaultDropTableSQL, stdSpecialCols)

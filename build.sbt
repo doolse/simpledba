@@ -9,10 +9,36 @@ lazy val config = ConfigFactory.parseFile(prjDir / "application.conf")
   .withFallback(ConfigFactory.parseFile(prjDir / "reference.conf"))
 
 val commonSettings = Seq(
-  organization := "io.doolse",
-  version := "0.1.0-SNAPSHOT",
+  organization := "io.github.doolse",
+  version := "0.1.1-SNAPSHOT",
   scalaVersion := "2.12.3",
-  resolvers += Resolver.sonatypeRepo("snapshots")
+  resolvers += Resolver.sonatypeRepo("snapshots"),
+
+  licenses := Seq("BSD-style" -> url("http://www.opensource.org/licenses/bsd-license.php")),
+
+  homepage := Some(url("https://github.com/doolse/simpledba")),
+  scmInfo := Some(
+    ScmInfo(
+      url("https://github.com/doolse/simpledba"),
+      "scm:git@github.com:doolse/simpledba.git"
+    )
+  ),
+  developers := List(
+    Developer(
+      id = "doolse",
+      name = "Jolse Maginnis",
+      email = "doolse@gmail.com",
+      url = url("https://github.com/doolse/simpledba")
+    )
+  ),
+  publishMavenStyle := true,
+  publishTo := {
+    val nexus = "https://oss.sonatype.org/"
+    if (isSnapshot.value)
+      Some("snapshots" at nexus + "content/repositories/snapshots")
+    else
+      Some("releases" at nexus + "service/local/staging/deploy/maven2")
+  }
 )
 
 val subSettings = Seq(
