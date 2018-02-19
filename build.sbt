@@ -10,7 +10,7 @@ lazy val config = ConfigFactory.parseFile(prjDir / "application.conf")
 
 val commonSettings = Seq(
   organization := "io.github.doolse",
-  version := "0.1.1-SNAPSHOT",
+  version := "0.1.2-SNAPSHOT",
   scalaVersion := "2.12.3",
   resolvers += Resolver.sonatypeRepo("snapshots"),
 
@@ -45,8 +45,9 @@ val subSettings = Seq(
   name := "simpledba-" + baseDirectory.value.getName,
   testOptions in Test += Tests.Argument(TestFrameworks.ScalaCheck, "-s", "10"),
   scalacOptions += "-Ypartial-unification",
-  scalacOptions ++= Option("-Xlog-implicits").filter(_ => config.getBoolean("debug.implicits")).toSeq,
-  addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.3")
+  scalacOptions ++= Option("-P:splain:implicits:true").filter(_ => config.getBoolean("debug.implicits")).toSeq,
+  addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.3"),
+  addCompilerPlugin("io.tryp" %% "splain" % "0.2.6")
 ) ++ commonSettings
 
 lazy val coreDep = core % "test->test;compile->compile"

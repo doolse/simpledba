@@ -55,15 +55,15 @@ object TestCreator {
       _ <- writeUsers.insert(User("Emma", "Maginnis", 1982))
       _ <- writeUsers.insert(User("Jolse", "Mahinnis", 1985))
       _ <- writeInst.insert(orig)
-      res2 <- instByPK(1L).runLast
-      res <- instByPK(517573426L).runLast
+      res2 <- instByPK(1L).compile.last
+      res <- instByPK(517573426L).compile.last
       _ <- writeInst.update(orig, updated)
-      res3 <- instByPK(2L).runLast
+      res3 <- instByPK(2L).compile.last
       _ <- writeInst.update(updated, updatedAgain)
-      res4 <- instByPK(2L).runLast
-      all <- queryByLastName.queryWithOrder("Maginnis", true).runLog
-      allFirst <- querybyFirstName.queryWithOrder("Jolse", false).runLog
-      fullPK <- queryByFullName(Username("Jolse", "Maginnis")).runLast
+      res4 <- instByPK(2L).compile.last
+      all <- queryByLastName.queryWithOrder("Maginnis", true).compile.toVector
+      allFirst <- querybyFirstName.queryWithOrder("Jolse", false).compile.toVector
+      fullPK <- queryByFullName(Username("Jolse", "Maginnis")).compile.toVector
       _ <- res4.map(writeInst.delete).sequence
     } yield {
       s"""

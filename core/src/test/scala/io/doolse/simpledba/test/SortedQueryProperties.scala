@@ -69,8 +69,8 @@ abstract class SortedQueryProperties[F[_] : Monad : Sync : Flushable](implicit a
       _ <- queries.writes.truncate >> queries.writes.bulkInsert(Stream(vSame: _*))
       p = sortQ.map {
         case (name, oq @ OrderQuery(lens, q)) => run(for {
-          ascend <- q.queryWithOrder(same, asc = true).map(lens).runLog
-          descend <- q.queryWithOrder(same, asc = false).map(lens).runLog
+          ascend <- q.queryWithOrder(same, asc = true).map(lens).compile.toVector
+          descend <- q.queryWithOrder(same, asc = false).map(lens).compile.toVector
         } yield {
           val ord = oq.o
           val ascExpected = vSame.map(lens).sorted(ord)

@@ -65,7 +65,7 @@ object DynamoDBIO {
       val batchWriteMapJava = new java.util.HashMap[String, java.util.List[WriteRequest]]
       val m = batchWriteMapJava.asScala
       val b = mutable.Buffer[UpdateItemRequest]()
-      c.foreach {
+      c.force.foreach {
         case DynamoDBBatchable(n, wr) => m.getOrElseUpdate(n, new util.ArrayList[WriteRequest]).add(wr)
         case DynamoDBUpdate(uir) => b += uir
       }

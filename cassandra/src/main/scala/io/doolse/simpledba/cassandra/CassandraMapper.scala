@@ -177,7 +177,7 @@ object MapQuery extends Poly2 {
       val selectAll = CassandraSelect(table, allNames, Seq.empty, Seq.empty, false)
       val select = CassandraSelect(table, allNames, exactMatch(pkCols), Seq.empty, false)
 
-      val rsStream = (s: Stream[Effect, ResultSet]) => s.flatMap(rs => CassandraIO.rowsStream(rs).translateSync(task2Effect))
+      val rsStream = (s: Stream[Effect, ResultSet]) => s.flatMap(rs => CassandraIO.rowsStream(rs).translate(task2Effect))
       .map(materialize)
 
       new UniqueQuery[Effect, T, PKV] {
@@ -238,7 +238,7 @@ object MapQuery extends Poly2 {
             val select = baseSelect.copy(where = baseSelect.where ++ lw ++ uw, ordering = ordering)
             s.prepareAndBind(select, valsToBinding(pkPhysV(c) ++ lv ++ uv))
           }
-        }.flatMap(rs => CassandraIO.rowsStream(rs).translateSync(task2Effect))
+        }.flatMap(rs => CassandraIO.rowsStream(rs).translate(task2Effect))
           .map(r => materialize(rowMaterializer(r)))
       }
       RangeQuery(None, doQuery)

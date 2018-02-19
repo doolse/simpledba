@@ -47,8 +47,8 @@ object QuickstartExample extends App {
       _ <- queries.cars.insert(Car(UUID.randomUUID(), "Honda", "Civic", magId))
       _ <- queries.cars.insert(Car(UUID.randomUUID(), "Ford", "Laser", magId))
       _ <- queries.cars.insert(Car(UUID.randomUUID(), "Hyundai", "Accent", magId))
-      cars <- queries.carsForUser(magId, lower = Exclusive("Honda")).runLog
-      users <- queries.usersByFirstName("Jolse").runLog
+      cars <- queries.carsForUser(magId, lower = Exclusive("Honda")).compile.toVector
+      users <- queries.usersByFirstName("Jolse").compile.toVector
     } yield (cars ++ users).mkString("\n")).run(sessionConfig).unsafeRunSync()
   }
 }

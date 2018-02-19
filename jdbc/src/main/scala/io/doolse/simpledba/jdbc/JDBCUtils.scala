@@ -5,7 +5,7 @@ import java.sql.SQLType
 import cats.effect.IO
 import cats.syntax.traverse._
 import cats.instances.vector._
-import cats.syntax.cartesian._
+import cats.syntax.apply._
 
 
 /**

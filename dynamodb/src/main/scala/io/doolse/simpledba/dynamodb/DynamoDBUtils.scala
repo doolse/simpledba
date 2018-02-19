@@ -40,14 +40,14 @@ object DynamoDBUtils {
   } yield ()
 
   def waitForStatus(s: DynamoDBSession, tableNames: Vector[String], status: Option[String]): Stream[IO, Unit] = for {
-    statii <- Stream.eval(statuses(s, tableNames).runLog)
+    statii <- Stream.eval(statuses(s, tableNames).compile.toVector)
     notReady = statii.filter(_._2 != status)
     _ <- if (notReady.isEmpty) Stream.empty.covary[IO] else
         Stream.bracket(IO(Thread.sleep(FiniteDuration(2, TimeUnit.SECONDS).toMillis)))(_ => waitForStatus(s, notReady.map(_._1).toVector, status), IO.pure)
   } yield ()
 
   def statuses(s: DynamoDBSession, tableNames: Vector[String]) = for {
-    tn <- Stream(tableNames: _*)
+    tn <- Stream(tableNames: _*).covary[IO]
     dtrA <- Stream.eval(s.request(describeTableAsync, new DescribeTableRequest(tn)).attempt)
   } yield {
     val ts = dtrA match {

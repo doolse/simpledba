@@ -20,7 +20,7 @@ object CrudProperties {
     implicit def runProp(fa: F[Prop]): Prop = run(fa)
 
     new Properties("CRUD ops") {
-      val countAll = (a: A) => findAll(a).runLog.map(_.count(a.==))
+      val countAll = (a: A) => findAll(a).compile.toVector.map(_.count(a.==))
 
 
       property("createReadDelete") = forAll { (a: A) =>

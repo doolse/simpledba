@@ -16,7 +16,7 @@ package object dynamodb {
 
   implicit val dynamoFlusher : Flushable[Effect] = new Flushable[Effect] {
     def flush[A](f: Stream[Effect, WriteOp]): Effect[Unit] = StateT.inspectF {
-      s => f.through(DynamoDBIO.writePipe).run.runA(s)
+      s => f.through(DynamoDBIO.writePipe).compile.drain.runA(s)
     }
   }
 }

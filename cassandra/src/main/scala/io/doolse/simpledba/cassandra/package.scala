@@ -16,7 +16,7 @@ package object cassandra {
 
   implicit val cassandraFlusher : Flushable[Effect] = new Flushable[Effect] {
     def flush[A](f: Stream[Effect, WriteOp]): Effect[Unit] = StateT.inspectF {
-      s => f.through(CassandraIO.writePipe).run.runA(s)
+      s => f.through(CassandraIO.writePipe).compile.drain.runA(s)
     }
   }
 }

@@ -311,7 +311,7 @@ object mapQuery extends Poly2 {
               val fullKeySeq = Seq(dt.realPK(pkIndexes.map(pkOrigSeq))) ++ dt.fullSK(false, skIndexes.map(pkOrigSeq))
               keyAndAttrs.withKeys(asAttrMap(fullKeySeq))
               (v, a)
-          }.toArray.toMap
+          }.force.toArray.toMap
           batchGetResultStream(new BatchGetItemRequest(Map(tableName -> keyAndAttrs).asJava)).map(_._2).map(createMaterializer).map(dt.materializer).map { t =>
             val a = pkvs(helper.extractKey(t).head)
             (a, Some(t))

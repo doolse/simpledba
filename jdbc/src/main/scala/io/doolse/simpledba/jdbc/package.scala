@@ -15,7 +15,7 @@ package object jdbc {
 
   implicit val jdbcFlusher : Flushable[Effect] = new Flushable[Effect] {
     def flush[A](f: Stream[Effect, WriteOp]): Effect[Unit] = StateT.inspectF {
-      s => f.to(JDBCIO.writeSink).run.runA(s)
+      s => f.to(JDBCIO.writeSink).compile.drain.runA(s)
     }
   }
 }

@@ -87,8 +87,8 @@ abstract class RangeQueryProperties[F[_] : Monad : Sync : Flushable](implicit ra
         case _ => FilterRange(r1, r2)
       }
       run(for {
-        ascend <- q.queryWithOrder(same, range.lower, range.upper, asc = true).map(lens).runLog
-        descend <- q.queryWithOrder(same, range.lower, range.upper, asc = false).map(lens).runLog
+        ascend <- q.queryWithOrder(same, range.lower, range.upper, asc = true).map(lens).compile.toVector
+        descend <- q.queryWithOrder(same, range.lower, range.upper, asc = false).map(lens).compile.toVector
       } yield {
         val filtered = vSame.map(lens).filter(r => range.contains(r)(ord))
         val ascExpected = filtered.sorted(ord)

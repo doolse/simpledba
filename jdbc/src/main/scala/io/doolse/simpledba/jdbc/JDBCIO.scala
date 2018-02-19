@@ -36,7 +36,7 @@ object JDBCIO {
   }
 
   def pureJDBC[A](a: A) : Effect[A] = StateT.pure(a)
-  def liftJDBC[A](a: IO[A]): Effect[A] = StateT.lift(a)
+  def liftJDBC[A](a: IO[A]): Effect[A] = StateT.liftF(a)
 
   def rowsStream[A](open: Effect[ResultSet]): Stream[Effect, ResultSet] = {
     def nextLoop(rs: ResultSet): Stream[Effect, ResultSet] = {
@@ -59,14 +59,14 @@ object JDBCIO {
     st.segmentN(1000).evalMap { chunk =>
       val batches = chunk.map {
         case JDBCWrite(q, v) => (q, v)
-      }.toVector.groupBy(_._1).toSeq
+      }.force.toVector.groupBy(_._1).toSeq
       StateT.inspectF { (s:JDBCSession) =>
         val alls: Stream[IO, Stream[IO, Unit]] = Stream.emits {
           batches.map {
             b => Stream.eval(s.execBatch(b._1, b._2.map(_._2)))
           }
         }
-        alls.join(4).run
+        alls.join(4).compile.drain
       }
     }
   }
