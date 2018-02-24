@@ -34,8 +34,8 @@ object QuickstartExample extends App {
   val mapper = new JDBCMapper()
   val built = mapper.buildModel(model)
   val queries = built.queries
-  val sessionConfig = JDBCIO.openConnection().copy(logger = msg => Console.err.println(msg()))
-  JDBCUtils.createSchema(sessionConfig, built.ddl, drop=true).unsafeRunSync()
+  val sessionConfig = JDBCUtils.sessionFromConfig().copy(logger = msg => Console.err.println(msg()))
+  JDBCUtils.createSchema(built.ddl, drop=true).runA(sessionConfig).unsafeRunSync()
 
   private val magId = UUID.randomUUID()
   private val mahId = UUID.randomUUID()

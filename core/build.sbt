@@ -1,6 +1,6 @@
 libraryDependencies ++= Seq(
   "com.chuusai" %% "shapeless" % "2.3.2",
-  "co.fs2" %% "fs2-core" % "0.10.1",
+  "co.fs2" %% "fs2-core" % "0.10.2",
   "com.typesafe" % "config" % "1.3.0")
 
 libraryDependencies ++= Seq("org.scala-lang.modules" %% "scala-parser-combinators" % "1.0.4" % Test,

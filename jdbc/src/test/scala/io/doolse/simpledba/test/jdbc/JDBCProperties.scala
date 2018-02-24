@@ -8,7 +8,7 @@ import io.doolse.simpledba.jdbc._
   */
 
 object JDBCProperties {
-  lazy val session =JDBCIO.openConnection() // .copy(logger = msg => Console.out.println(msg()))
+  lazy val session =JDBCUtils.sessionFromConfig() // .copy(logger = msg => Console.out.println(msg()))
 }
 
 trait JDBCProperties {
@@ -17,7 +17,9 @@ trait JDBCProperties {
   lazy val mapper = new JDBCMapper()
 
   def setup[Q](bq: BuiltQueries.Aux[Q, JDBCCreateTable]) = {
-    JDBCUtils.createSchema(session.copy(logger = msg => Console.out.println(msg())), bq.ddl, drop = true).unsafeRunSync()
+    JDBCUtils.createSchema(bq.ddl, drop = true)
+      .runA(session.copy(logger = msg => Console.out.println(msg())))
+      .unsafeRunSync()
     bq.queries
   }
 

@@ -18,22 +18,8 @@ import scala.concurrent.ExecutionContext.Implicits.global
 
 object JDBCIO {
 
-  def openConnection(config: Config = ConfigFactory.load()) = {
-    val jdbcConfig = config.getConfig("simpledba.jdbc")
-    val logger = if (!jdbcConfig.hasPath("log")) None else Some((msg: () => String) => Console.out.println(msg()))
-    val jdbcUrl = jdbcConfig.getString("url")
-    val dialect = jdbcConfig.getString("dialect") match {
-      case "hsqldb" => JDBCSQLConfig.hsqldbConfig
-      case "postgres" => JDBCSQLConfig.postgresConfig
-      case "sqlserver" => JDBCSQLConfig.sqlServerConfig
-      case "oracle" => JDBCSQLConfig.oracleConfig
-    }
-    val con = if (jdbcConfig.hasPath("credentials")) {
-      val cc = jdbcConfig.getConfig("credentials")
-      DriverManager.getConnection(jdbcUrl, cc.getString("username"), cc.getString("password"))
-    } else DriverManager.getConnection(jdbcUrl)
-    JDBCSession(con, dialect, logger = logger.getOrElse(_ => ()))
-  }
+  def newStatementCache: scala.collection.concurrent.Map[Any, IO[PreparedStatement]] =
+    new ConcurrentHashMap[Any, IO[PreparedStatement]]().asScala
 
   def pureJDBC[A](a: A) : Effect[A] = StateT.pure(a)
   def liftJDBC[A](a: IO[A]): Effect[A] = StateT.liftF(a)
@@ -73,8 +59,7 @@ object JDBCIO {
 }
 
 case class JDBCSession(connection: Connection, config: JDBCSQLConfig, logger: (() ⇒ String) ⇒ Unit = _ => (),
-                       statementCache: scala.collection.concurrent.Map[Any, IO[PreparedStatement]]
-                       = new ConcurrentHashMap[Any, IO[PreparedStatement]]().asScala) {
+                       statementCache: scala.collection.concurrent.Map[Any, IO[PreparedStatement]] = JDBCIO.newStatementCache) {
 
   def prepare(q: JDBCPreparedQuery): IO[PreparedStatement] = {
     lazy val prepared = {
