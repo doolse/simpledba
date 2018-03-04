@@ -7,7 +7,7 @@ scalaVersion := "2.12.4"
 libraryDependencies ++= Seq(
   "com.chuusai" %% "shapeless" % "2.3.3",
   "co.fs2" %% "fs2-core" % "0.10.2",
-  "org.postgresql" % "postgresql" % "42.0.0"
+  "org.postgresql" % "postgresql" % "42.2.1"
 )
 
 scalacOptions += "-Ypartial-unification"

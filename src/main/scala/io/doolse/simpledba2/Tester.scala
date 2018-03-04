@@ -5,6 +5,7 @@ import java.sql.DriverManager
 import shapeless._
 import syntax.singleton._
 import fs2._
+import io.doolse.simpledba2.Relation.DBIO
 
 case class Frogs(pk: String, blah: Int, destroy: Double)
 
@@ -17,7 +18,7 @@ object Tester extends App {
 
   val byPK = Query.byPK(simpleTable)
 
-  println(byPK(Stream("pk", "pk2")).compile.toVector.runA(connection).unsafeRunSync())
+  println(byPK(Stream(HList("pk"), HList("pk2"))).compile.toVector.runA(connection).unsafeRunSync())
 
 
 }

@@ -9,7 +9,10 @@ import io.doolse.simpledba2.Relation.DBIO
 import shapeless._
 import shapeless.labelled.FieldType
 import cats.effect.implicits._
+import shapeless.ops.hlist.{ToList, ZipWithKeys}
+import shapeless.ops.record.{Keys, SelectAll}
 
+import scala.annotation.tailrec
 import scala.collection.Set
 
 trait JDBCColumn[A] {
@@ -19,63 +22,122 @@ trait JDBCColumn[A] {
 
   def getByIndex: (Int, ResultSet) => Option[A]
 
-  def bind: (Int, AnyRef, Connection, PreparedStatement) => Unit
+  def bind: (Int, Any, Connection, PreparedStatement) => Unit
+}
+
+case class JDBCColumns[Repr <: HList](columns: Seq[NamedColumn])
+{
+  def bind(i: Int, con: Connection, ps: PreparedStatement, record: Repr): IO[Unit] = IO {
+    @tailrec
+    def loop(offs: Int, rec: HList): Unit = {
+      rec match {
+        case h :: tail =>
+          val col = columns(offs)
+          col.column.bind(offs+i, h, con, ps)
+          loop(offs+1, tail)
+        case HNil => ()
+      }
+    }
+    loop(0, record)
+  }
+
+  def get(i: Int, rs: ResultSet) : IO[Repr] = IO {
+    @tailrec
+    def loop(offs: Int, l: HList) : HList = {
+      if (offs < 0) l else {
+        val col = columns(offs)
+        col.column.getByIndex(offs + i, rs) match {
+          case None => throw new Error(s"Column ${col.name} is null")
+          case Some(v) => loop(offs - 1, v :: l)
+        }
+      }
+    }
+    loop(columns.length-1, HNil).asInstanceOf[Repr]
+  }
+
+  def subset[Keys](implicit ss: KeySubset[Repr, Keys]): JDBCColumns[ss.Out] = {
+    val subCols = ss.apply().toSet
+    JDBCColumns(columns.filter(c => subCols(c.name)))
+  }
+}
+
+trait KeySubset[Repr, Keys] {
+  type Out <: HList
+  def apply() : List[String]
+}
+
+object KeySubset {
+  type Aux[Repr, Keys, Out0] = KeySubset[Repr, Keys] {
+    type Out = Out0
+  }
+  implicit def isSubset[Repr <: HList, K <: HList, KOut <: HList, Out0 <: HList, RecOut <: HList]
+  (implicit sa: SelectAll.Aux[Repr, K, Out0], withKeys: ZipWithKeys.Aux[K, Out0, RecOut],
+   keys : Keys.Aux[RecOut, KOut],
+   toList: ToList[KOut, Symbol])
+  : KeySubset.Aux[Repr, K, Out0] =
+    new KeySubset[Repr, K] {
+      type Out = Out0
+      def apply() = toList(keys()).map(_.name)
+    }
 }
 
 case class NamedColumn(name: String, primaryKey: Boolean, column: JDBCColumn[_])
 
-trait JDBCTable[T, Key] {
-  type Repr
+trait JDBCTable[T] {
+  type Repr <: HList
+  type KeyRepr <: HList
 
   def name: String
 
-  def all: Seq[NamedColumn]
-
-  def keyColumns: Seq[String]
-
-  def keyJDBCValues: Key => Seq[AnyRef]
+  def all: JDBCColumns[Repr]
+  def keys: JDBCColumns[KeyRepr]
 
   def generic: LabelledGeneric.Aux[T, Repr]
-
   def sqlMapping: JDBCSQLConfig
 }
 
 object JDBCTable {
-  type Aux[T, Key, Repr0] = JDBCTable[T, Key] {
+  type Aux[T, Repr0, KeyRepr0] = JDBCTable[T] {
     type Repr = Repr0
+    type KeyRepr = KeyRepr0
   }
 
-  def apply[C[_], T, Key, Repr0](_name: String, _gen: LabelledGeneric.Aux[T, Repr0], mapping: JDBCSQLConfig,
-                                 _all: JDBCRelationBuilder[C, Repr0], _key: Seq[String], _keyFunc: Key => Seq[AnyRef])
-  : JDBCTable.Aux[T, Key, Repr0] = new JDBCTable[T, Key] {
-    type Repr = Repr0
+  def apply[T, Repr0 <: HList, KeyRepr0 <: HList](_name: String, _gen: LabelledGeneric.Aux[T, Repr0], mapping: JDBCSQLConfig,
+                                 _all: JDBCColumns[Repr0], _keys: JDBCColumns[KeyRepr0])
+  : JDBCTable.Aux[T, Repr0, KeyRepr0] = {
+    new JDBCTable[T] {
+      type Repr = Repr0
+      type KeyRepr = KeyRepr0
 
-    def name = _name
+      def name = _name
 
-    val all = _all.apply().toVector
-    val keyColumns = _key.toVector
+      def sqlMapping = mapping
 
-    def sqlMapping = mapping
+      def generic = _gen
 
-    def generic = _gen
+      def all = _all
 
-    def keyJDBCValues = _keyFunc
+      def keys = _keys
+    }
   }
 }
 
-trait JDBCRelationBuilder[C[_], Repr] {
-  def apply(): List[NamedColumn]
+trait JDBCRelationBuilder[C[_], Repr <: HList] {
+  def columns: List[NamedColumn]
+  def apply() : JDBCColumns[Repr] = JDBCColumns[Repr](columns.toIndexedSeq)
 }
 
 
 object JDBCRelationBuilder {
-  implicit def hnilRelation[C[_]]: JDBCRelationBuilder[C, HNil] = () => List.empty
+  implicit def hnilRelation[C[_]]: JDBCRelationBuilder[C, HNil] = new JDBCRelationBuilder[C, HNil] {
+    override def columns: List[NamedColumn] = List.empty
+  }
 
   implicit def hconsRelation[C[_] <: JDBCColumn[_], K <: Symbol, V, Tail <: HList]
   (implicit wk: Witness.Aux[K], headColumn: C[V],
    tailRelation: JDBCRelationBuilder[C, Tail]) = new JDBCRelationBuilder[C, FieldType[K, V] :: Tail] {
-    override def apply(): List[NamedColumn] =
-      NamedColumn(wk.value.name, false, headColumn) :: tailRelation.apply()
+    override def columns: List[NamedColumn] =
+      NamedColumn(wk.value.name, false, headColumn) :: tailRelation.columns
   }
 }
 
@@ -98,35 +160,24 @@ object Query {
     Stream.bracket(open)(nextLoop, rs => IO(rs.close()).liftIO[DBIO])
   }
 
-  def byPK[T, Key, Repr](table: JDBCTable.Aux[T, Key, Repr]): Stream[DBIO, Key] => Stream[DBIO, T] = {
-    val keySet = table.keyColumns.toSet
-    val keyCols = table.all.filter(c => keySet(c.name))
+  def byPK[T, Repr, Key](table: JDBCTable.Aux[T, Repr, Key]): Stream[DBIO, Key] => Stream[DBIO, T] = {
+    val select = JDBCSelect(table.name, table.all.columns.map(_.name),
+      table.keys.columns.map(kc => EQ(kc.name)), Seq.empty, false)
     keys => {
       keys.flatMap { key =>
         rowsStream {
           StateT.inspectF { con =>
-            val select = JDBCSelect(table.name, table.all.map(_.name),
-              table.keyColumns.map(kc => EQ(kc)), Seq.empty, false)
             for {
               ps <- IO {
                 con.prepareStatement(JDBCPreparedQuery.asSQL(select, table.sqlMapping))
               }
-              rs <- IO {
-                val bindVals = table.keyJDBCValues(key).zipWithIndex.foreach {
-                  case (v, i) => keyCols(i).column.bind(i + 1, v, con, ps)
-                }
-                ps.executeQuery()
-              }
+              _ <- table.keys.bind(1, con, ps, key)
+              rs <- IO(ps.executeQuery())
             } yield rs
           }
-        }.map {
-          rs =>
-            def prepend(col: (NamedColumn, Int), l: HList) = {
-              col._1.column.getByIndex(col._2+1, rs).fold(throw new Error(s"Column ${col._1.name} is null"))(r => r :: l)
-            }
-
-            table.generic.from(table.all.zipWithIndex.foldRight(HNil: HList)(prepend).asInstanceOf[Repr])
-        }
+        }.evalMap {
+          rs => table.all.get(1, rs).liftIO[DBIO]
+        }.map(table.generic.from)
       }
     }
   }

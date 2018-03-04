@@ -2,11 +2,11 @@ package io.doolse.simpledba2
 
 import java.sql._
 
-import shapeless.ops.record.Selector
-import shapeless.{HList, LabelledGeneric, Witness}
+import shapeless.ops.record.{SelectAll, Selector}
+import shapeless._
 
 case class PostgresColumn[A](sqlType: SQLType, getByIndex: (Int, ResultSet) => Option[A],
-                             bind: (Int, AnyRef, Connection, PreparedStatement) => Unit) extends JDBCColumn[A]
+                             bind: (Int, Any, Connection, PreparedStatement) => Unit) extends JDBCColumn[A]
 {
   override def nullable: Boolean = ???
 
@@ -15,7 +15,7 @@ case class PostgresColumn[A](sqlType: SQLType, getByIndex: (Int, ResultSet) => O
 object PostgresColumn
 {
   def temp[A](r: (Int, ResultSet) => Option[A],
-              b: (Int, AnyRef, Connection, PreparedStatement) => Unit) = PostgresColumn[A](JDBCType.NVARCHAR, r, b)
+              b: (Int, Any, Connection, PreparedStatement) => Unit) = PostgresColumn[A](JDBCType.NVARCHAR, r, b)
 
   implicit val stringCol = temp[String]((i,rs) => Option(rs.getString(i)),
     (i,v,_,ps) => ps.setString(i, v.asInstanceOf[String]))
@@ -38,9 +38,12 @@ object PostgresMapper {
   val defaultEscapeReserved = escapeReserved(DefaultReserved) _
   val postGresConfig = JDBCSQLConfig(defaultEscapeReserved, defaultEscapeReserved)
 
-  def table[T, Repr0 <: HList, KName <: Symbol, Key](tableName: String, gen: LabelledGeneric.Aux[T, Repr0],
-                                           key: Witness.Aux[KName])(implicit sel: Selector.Aux[Repr0, KName, Key],
-                                                                    allRelation: JDBCRelationBuilder[PostgresColumn, Repr0])
-  : JDBCTable.Aux[T, Key, Repr0] = JDBCTable(tableName, gen, postGresConfig, allRelation, Seq(key.value.name),
-    k => Seq(k.asInstanceOf[AnyRef]))
+  def table[T, Repr <: HList, KName <: Symbol, Key <: HList](tableName: String, gen: LabelledGeneric.Aux[T, Repr],
+                                           key: Witness.Aux[KName])(implicit ss: KeySubset.Aux[Repr, KName :: HNil, Key],
+                                                                    allRelation: JDBCRelationBuilder[PostgresColumn, Repr])
+  : JDBCTable.Aux[T, Repr, Key] = {
+    val all = allRelation.apply()
+    val keys = all.subset[KName :: HNil]
+    JDBCTable(tableName, gen, postGresConfig, all, keys)
+  }
 }
