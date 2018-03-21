@@ -7,14 +7,15 @@ import syntax.singleton._
 import fs2._
 import io.doolse.simpledba2.Relation.DBIO
 
-case class Frogs(pk: String, blah: Int, destroy: Double)
+case class Embedded(blah: Int, destroy: Double)
+case class Frogs(pk: String, embedded: Embedded)
 
 object Tester extends App {
 
   val connection = DriverManager.getConnection("jdbc:postgresql:simpledba2", "equellauser", "tle010")
-  val gen = LabelledGeneric[Frogs]
 
-  val simpleTable = PostgresMapper.table("bogs", gen, 'pk)
+  implicit val cols = PostgresMapper.embedded(LabelledGeneric[Embedded])
+  val simpleTable = PostgresMapper.table(LabelledGeneric[Frogs], "bogs", 'pk)
 
   val byPK = Query.byPK(simpleTable)
 

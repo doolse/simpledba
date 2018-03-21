@@ -38,12 +38,21 @@ object PostgresMapper {
   val defaultEscapeReserved = escapeReserved(DefaultReserved) _
   val postGresConfig = JDBCSQLConfig(defaultEscapeReserved, defaultEscapeReserved)
 
-  def table[T, Repr <: HList, KName <: Symbol, Key <: HList](tableName: String, gen: LabelledGeneric.Aux[T, Repr],
-                                           key: Witness.Aux[KName])(implicit ss: KeySubset.Aux[Repr, KName :: HNil, Key],
-                                                                    allRelation: JDBCRelationBuilder[PostgresColumn, Repr])
+  def embedded[T, GRepr <: HList, Repr0 <: HList](gen: LabelledGeneric.Aux[T, GRepr])(
+    implicit columns: JDBCRelationBuilder.Aux[PostgresColumn, GRepr, Repr0]):
+    JDBCRelationBuilder.Aux[PostgresColumn, T, Repr0] = new JDBCRelationBuilder[PostgresColumn, T] {
+      type Repr = Repr0
+      def apply() = columns().isomap(gen.from, gen.to)
+  }
+
+  def table[T, GRepr <: HList, Repr <: HList, KName <: Symbol, Key <: HList]
+  (gen: LabelledGeneric.Aux[T, GRepr], tableName: String, key: Witness.Aux[KName])(
+    implicit
+    allRelation: JDBCRelationBuilder.Aux[PostgresColumn, GRepr, Repr],
+    ss: KeySubset.Aux[Repr, KName :: HNil, Key])
   : JDBCTable.Aux[T, Repr, Key] = {
-    val all = allRelation.apply()
+    val all = allRelation.apply().isomap(gen.from, gen.to)
     val keys = all.subset[KName :: HNil]
-    JDBCTable(tableName, gen, postGresConfig, all, keys)
+    JDBCTable(tableName, postGresConfig, all, keys)
   }
 }

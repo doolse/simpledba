@@ -9,7 +9,7 @@ import io.doolse.simpledba2.Relation.DBIO
 import shapeless._
 import shapeless.labelled.FieldType
 import cats.effect.implicits._
-import shapeless.ops.hlist.{ToList, ZipWithKeys}
+import shapeless.ops.hlist.{Length, Prepend, Split, Take, ToList, ZipWithKeys}
 import shapeless.ops.record.{Keys, SelectAll}
 
 import scala.annotation.tailrec
@@ -25,8 +25,11 @@ trait JDBCColumn[A] {
   def bind: (Int, Any, Connection, PreparedStatement) => Unit
 }
 
-case class JDBCColumns[Repr <: HList](columns: Seq[NamedColumn])
+case class JDBCColumns[T, Repr <: HList](columns: Seq[NamedColumn], to: T => Repr, from: Repr => T)
 {
+  def isomap[T2](to2: T => T2, from2: T2 => T) : JDBCColumns[T2, Repr] =
+    copy[T2, Repr](to = from2.andThen(to), from = from.andThen(to2))
+
   def bind(i: Int, con: Connection, ps: PreparedStatement, record: Repr): IO[Unit] = IO {
     @tailrec
     def loop(offs: Int, rec: HList): Unit = {
@@ -55,9 +58,9 @@ case class JDBCColumns[Repr <: HList](columns: Seq[NamedColumn])
     loop(columns.length-1, HNil).asInstanceOf[Repr]
   }
 
-  def subset[Keys](implicit ss: KeySubset[Repr, Keys]): JDBCColumns[ss.Out] = {
+  def subset[Keys](implicit ss: KeySubset[Repr, Keys]): JDBCColumns[Repr, ss.Out] = {
     val subCols = ss.apply().toSet
-    JDBCColumns(columns.filter(c => subCols(c.name)))
+    JDBCColumns(columns.filter(c => subCols(c.name)), _ => ???, _ => ???)
   }
 }
 
@@ -89,10 +92,9 @@ trait JDBCTable[T] {
 
   def name: String
 
-  def all: JDBCColumns[Repr]
-  def keys: JDBCColumns[KeyRepr]
+  def all: JDBCColumns[T, Repr]
+  def keys: JDBCColumns[Repr, KeyRepr]
 
-  def generic: LabelledGeneric.Aux[T, Repr]
   def sqlMapping: JDBCSQLConfig
 }
 
@@ -102,8 +104,8 @@ object JDBCTable {
     type KeyRepr = KeyRepr0
   }
 
-  def apply[T, Repr0 <: HList, KeyRepr0 <: HList](_name: String, _gen: LabelledGeneric.Aux[T, Repr0], mapping: JDBCSQLConfig,
-                                 _all: JDBCColumns[Repr0], _keys: JDBCColumns[KeyRepr0])
+  def apply[T, Repr0 <: HList, KeyRepr0 <: HList](_name: String, mapping: JDBCSQLConfig,
+                                 _all: JDBCColumns[T, Repr0], _keys: JDBCColumns[Repr0, KeyRepr0])
   : JDBCTable.Aux[T, Repr0, KeyRepr0] = {
     new JDBCTable[T] {
       type Repr = Repr0
@@ -113,8 +115,6 @@ object JDBCTable {
 
       def sqlMapping = mapping
 
-      def generic = _gen
-
       def all = _all
 
       def keys = _keys
@@ -122,23 +122,64 @@ object JDBCTable {
   }
 }
 
-trait JDBCRelationBuilder[C[_], Repr <: HList] {
-  def columns: List[NamedColumn]
-  def apply() : JDBCColumns[Repr] = JDBCColumns[Repr](columns.toIndexedSeq)
+trait JDBCRelationBuilder[C[_], T] {
+  type Repr <: HList
+  def apply() : JDBCColumns[T, Repr]
 }
 
 
 object JDBCRelationBuilder {
-  implicit def hnilRelation[C[_]]: JDBCRelationBuilder[C, HNil] = new JDBCRelationBuilder[C, HNil] {
-    override def columns: List[NamedColumn] = List.empty
+  type Aux [C[_], T, Repr0 <: HList] = JDBCRelationBuilder[C, T]
+  {
+    type Repr = Repr0
   }
 
-  implicit def hconsRelation[C[_] <: JDBCColumn[_], K <: Symbol, V, Tail <: HList]
-  (implicit wk: Witness.Aux[K], headColumn: C[V],
-   tailRelation: JDBCRelationBuilder[C, Tail]) = new JDBCRelationBuilder[C, FieldType[K, V] :: Tail] {
-    override def columns: List[NamedColumn] =
-      NamedColumn(wk.value.name, false, headColumn) :: tailRelation.columns
+  implicit def hnilRelation[C[_]]: JDBCRelationBuilder.Aux[C, HNil, HNil] =
+    new JDBCRelationBuilder[C, HNil] {
+      type Repr = HNil
+
+      override def apply(): JDBCColumns[HNil, HNil] = JDBCColumns(Seq.empty, identity, identity)
+    }
+
+  implicit def embeddedField[C[_], K, V, Repr <: HList]
+  (implicit embeddedCols: JDBCRelationBuilder.Aux[C, V, Repr]) : JDBCRelationBuilder.Aux[C, FieldType[K, V], Repr]
+    = embeddedCols.asInstanceOf[JDBCRelationBuilder.Aux[C, FieldType[K, V], Repr]]
+
+  implicit def singleColumn[C[_] <: JDBCColumn[_], K <: Symbol, V]
+  (implicit wk: Witness.Aux[K], headColumn: C[V])
+  : JDBCRelationBuilder.Aux[C, FieldType[K, V], FieldType[K, V] :: HNil]
+  = new JDBCRelationBuilder[C, FieldType[K, V]] {
+    type Repr = FieldType[K, V] :: HNil
+
+    override def apply(): JDBCColumns[FieldType[K, V], ::[FieldType[K, V], HNil]] =
+      JDBCColumns(Seq(NamedColumn(wk.value.name, false, headColumn)),
+        _ :: HNil, _.head
+      )
   }
+
+  implicit def hconsRelation[C[_] <: JDBCColumn[_], H, HOut <: HList,
+        HLen <: Nat, T <: HList, TOut <: HList, Out <: HList]
+  (implicit
+   headColumns: JDBCRelationBuilder.Aux[C, H, HOut],
+   tailColumns: JDBCRelationBuilder.Aux[C, T, TOut],
+   len: Length.Aux[HOut, HLen],
+   append: Prepend.Aux[HOut, TOut, Out],
+   split: Split.Aux[Out, HLen, HOut, TOut]
+  ) : JDBCRelationBuilder.Aux[C, H :: T, Out] =
+    new JDBCRelationBuilder[C, H :: T] {
+      type Repr = Out
+
+      override def apply(): JDBCColumns[::[H, T], Out] = {
+        val hc = headColumns.apply()
+        val tc = tailColumns.apply()
+        JDBCColumns(hc.columns ++ tc.columns,
+          t => append.apply(hc.to(t.head), tc.to(t.tail)),
+          { o =>
+            val (ho,to) = split(o)
+            hc.from(ho) :: tc.from(to)
+          })
+      }
+    }
 }
 
 object Relation {
@@ -177,7 +218,7 @@ object Query {
           }
         }.evalMap {
           rs => table.all.get(1, rs).liftIO[DBIO]
-        }.map(table.generic.from)
+        }.map(table.all.from)
       }
     }
   }
