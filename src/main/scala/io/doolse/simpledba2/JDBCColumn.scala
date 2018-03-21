@@ -58,9 +58,9 @@ case class JDBCColumns[T, Repr <: HList](columns: Seq[NamedColumn], to: T => Rep
     loop(columns.length-1, HNil).asInstanceOf[Repr]
   }
 
-  def subset[Keys](implicit ss: KeySubset[Repr, Keys]): JDBCColumns[Repr, ss.Out] = {
+  def subset[Keys](implicit ss: KeySubset[Repr, Keys]): JDBCColumns[ss.Out, ss.Out] = {
     val subCols = ss.apply().toSet
-    JDBCColumns(columns.filter(c => subCols(c.name)), _ => ???, _ => ???)
+    JDBCColumns(columns.filter(c => subCols(c.name)), identity, identity)
   }
 }
 
@@ -93,7 +93,7 @@ trait JDBCTable[T] {
   def name: String
 
   def all: JDBCColumns[T, Repr]
-  def keys: JDBCColumns[Repr, KeyRepr]
+  def keys: JDBCColumns[KeyRepr, KeyRepr]
 
   def sqlMapping: JDBCSQLConfig
 }
@@ -105,7 +105,7 @@ object JDBCTable {
   }
 
   def apply[T, Repr0 <: HList, KeyRepr0 <: HList](_name: String, mapping: JDBCSQLConfig,
-                                 _all: JDBCColumns[T, Repr0], _keys: JDBCColumns[Repr0, KeyRepr0])
+                                 _all: JDBCColumns[T, Repr0], _keys: JDBCColumns[KeyRepr0, KeyRepr0])
   : JDBCTable.Aux[T, Repr0, KeyRepr0] = {
     new JDBCTable[T] {
       type Repr = Repr0
