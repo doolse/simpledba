@@ -5,8 +5,8 @@ import java.sql._
 import shapeless.ops.record.{SelectAll, Selector}
 import shapeless._
 
-case class PostgresColumn[A](sqlType: SQLType, getByIndex: (Int, ResultSet) => Option[A],
-                             bind: (Int, Any, Connection, PreparedStatement) => Unit) extends JDBCColumn[A]
+case class PostgresColumn[A](sqlType: SQLType, getByIndex: (Int, ResultSet) => Option[Any],
+                             bind: (Int, Any, Connection, PreparedStatement) => Unit) extends JDBCColumn
 {
   override def nullable: Boolean = ???
 
@@ -14,7 +14,7 @@ case class PostgresColumn[A](sqlType: SQLType, getByIndex: (Int, ResultSet) => O
 
 object PostgresColumn
 {
-  def temp[A](r: (Int, ResultSet) => Option[A],
+  def temp[A](r: (Int, ResultSet) => Option[Any],
               b: (Int, Any, Connection, PreparedStatement) => Unit) = PostgresColumn[A](JDBCType.NVARCHAR, r, b)
 
   implicit val stringCol = temp[String]((i,rs) => Option(rs.getString(i)),
@@ -39,8 +39,8 @@ object PostgresMapper {
   val postGresConfig = JDBCSQLConfig(defaultEscapeReserved, defaultEscapeReserved)
 
   def embedded[T, GRepr <: HList, Repr0 <: HList](gen: LabelledGeneric.Aux[T, GRepr])(
-    implicit columns: JDBCRelationBuilder.Aux[PostgresColumn, GRepr, Repr0]):
-    JDBCRelationBuilder.Aux[PostgresColumn, T, Repr0] = new JDBCRelationBuilder[PostgresColumn, T] {
+    implicit columns: ColumnBuilder.Aux[PostgresColumn, GRepr, Repr0]):
+    ColumnBuilder.Aux[PostgresColumn, T, Repr0] = new ColumnBuilder[PostgresColumn, T] {
       type Repr = Repr0
       def apply() = columns().isomap(gen.from, gen.to)
   }
@@ -48,7 +48,7 @@ object PostgresMapper {
   def table[T, GRepr <: HList, Repr <: HList, KName <: Symbol, Key <: HList]
   (gen: LabelledGeneric.Aux[T, GRepr], tableName: String, key: Witness.Aux[KName])(
     implicit
-    allRelation: JDBCRelationBuilder.Aux[PostgresColumn, GRepr, Repr],
+    allRelation: ColumnBuilder.Aux[PostgresColumn, GRepr, Repr],
     ss: KeySubset.Aux[Repr, KName :: HNil, Key])
   : JDBCTable.Aux[T, Repr, Key] = {
     val all = allRelation.apply().isomap(gen.from, gen.to)
