@@ -22,13 +22,13 @@ sealed trait JDBCWhereClause
 
 case class EQ(column: String) extends JDBCWhereClause
 
-case class GT(column: String) extends JDBCWhereClause
+case class GT[A](column: String) extends JDBCWhereClause
 
-case class GTE(column: String) extends JDBCWhereClause
+case class GTE[A](column: String) extends JDBCWhereClause
 
-case class LT(column: String) extends JDBCWhereClause
+case class LT[A](column: String) extends JDBCWhereClause
 
-case class LTE(column: String) extends JDBCWhereClause
+case class LTE[A](column: String) extends JDBCWhereClause
 
 object JDBCPreparedQuery {
 

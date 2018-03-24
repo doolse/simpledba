@@ -20,6 +20,12 @@ object PostgresColumn
   implicit val intCol = temp[Int]((i, rs) =>
     Option(rs.getInt(i)).filterNot(_ => rs.wasNull),
     (i,v,_,ps) => ps.setInt(i, v))
+  implicit val longCol = temp[Long]((i, rs) =>
+    Option(rs.getLong(i)).filterNot(_ => rs.wasNull),
+    (i,v,_,ps) => ps.setLong(i, v))
+  implicit val boolCol = temp[Boolean]((i, rs) =>
+    Option(rs.getBoolean(i)).filterNot(_ => rs.wasNull),
+    (i,v,_,ps) => ps.setBoolean(i, v))
   implicit val doubleCol : PostgresColumn[Double] = temp[Double](
     (i, rs) => Option(rs.getDouble(i)).filterNot(_ => rs.wasNull()),
     (i, v, _, ps) => ps.setDouble(i, v))

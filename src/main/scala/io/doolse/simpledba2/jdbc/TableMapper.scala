@@ -1,7 +1,7 @@
 package io.doolse.simpledba2.jdbc
 
-import io.doolse.simpledba2.{ColumnBuilder, KeySubset}
-import shapeless.{::, HList, HNil, LabelledGeneric, Witness}
+import io.doolse.simpledba2.ColumnBuilder
+import shapeless.{HList, LabelledGeneric}
 
 object TableMapper {
 
@@ -18,17 +18,10 @@ object TableMapper {
       def apply() = columns().isomap(gen.from, gen.to)
     }
 
-    def table[GRepr <: HList, Repr <: HList, KName <: Symbol, Key <: HList]
-    (tableName: String, key: Witness.Aux[KName])(
+    def table[GR <: HList, R <: HList](tableName: String)(
       implicit
-      gen: LabelledGeneric.Aux[T, GRepr],
-      allRelation: ColumnBuilder.Aux[C, GRepr, Repr],
-      ss: KeySubset.Aux[Repr, KName :: HNil, Key])
-    : JDBCTable.Aux[T, Repr, Key] = {
-      val all = allRelation.apply().isomap(gen.from, gen.to)
-      val keys = all.subset[KName :: HNil]
-      JDBCTable(tableName, config, all, keys)
-    }
-
+      gen: LabelledGeneric.Aux[T, GR],
+      allRelation: ColumnBuilder.Aux[C, GR, R]
+    ): JDBCRelation[C, T, R] = JDBCRelation[C, T, R](tableName, config, allRelation.apply().isomap(gen.from, gen.to))
   }
 }
