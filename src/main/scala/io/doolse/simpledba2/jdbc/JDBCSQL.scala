@@ -1,9 +1,10 @@
-package io.doolse.simpledba2
+package io.doolse.simpledba2.jdbc
 
-import java.sql.SQLType
-
-case class JDBCSQLConfig(escapeTableName: String => String,
-                         escapeColumnName: String => String)
+class JDBCSQLConfig(val escapeTableName: String => String,
+                    val escapeColumnName: String => String)
+{
+  type C[A] <: JDBCColumn
+}
 
 sealed trait JDBCPreparedQuery
 
@@ -33,7 +34,7 @@ object JDBCPreparedQuery {
 
   def brackets(c: Iterable[String]): String = c.mkString("(", ",", ")")
 
-  def asSQL(q: JDBCPreparedQuery, mc: JDBCSQLConfig) = {
+  def asSQL[C[_]](q: JDBCPreparedQuery, mc: JDBCSQLConfig) = {
     def whereClause(w: Seq[JDBCWhereClause]): String = {
       def singleCC(c: String, op: String) = s"${mc.escapeColumnName(c)} ${op} ?"
 

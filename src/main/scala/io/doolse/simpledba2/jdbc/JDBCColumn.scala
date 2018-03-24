@@ -1,4 +1,4 @@
-package io.doolse.simpledba2
+package io.doolse.simpledba2.jdbc
 
 import java.sql._
 
@@ -6,19 +6,21 @@ import cats.data.StateT
 import cats.effect.IO
 import cats.effect.implicits._
 import fs2._
-import io.doolse.simpledba2.Relation.DBIO
+import io.doolse.simpledba2._
+import io.doolse.simpledba2.jdbc.Relation.DBIO
 import shapeless._
 
 import scala.annotation.tailrec
 
 trait JDBCColumn {
+  type A
   def sqlType: SQLType
 
   def nullable: Boolean
 
-  def getByIndex: (Int, ResultSet) => Option[Any]
+  def getByIndex: (Int, ResultSet) => Option[A]
 
-  def bind: (Int, Any, Connection, PreparedStatement) => Unit
+  def bind: (Int, A, Connection, PreparedStatement) => Unit
 }
 
 trait JDBCTable[T] {
@@ -73,8 +75,8 @@ object Query {
     def loop(offs: Int, rec: HList): Unit = {
       rec match {
         case h :: tail =>
-          val col = cols.columns(offs)
-          col._2.bind(offs+i, h, con, ps)
+          val (_,col) = cols.columns(offs)
+          col.bind(offs+i, h.asInstanceOf[col.A], con, ps)
           loop(offs+1, tail)
         case HNil => ()
       }

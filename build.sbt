@@ -12,7 +12,7 @@ libraryDependencies ++= Seq(
 
 scalacOptions += "-Ypartial-unification"
 
-scalacOptions += "-P:splain:implicits:true"
+scalacOptions ++= Seq("-P:splain:implicits:true", "-P:splain:color:false")
 
 addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.3")
 addCompilerPlugin("io.tryp" % "splain" % "0.2.7" cross CrossVersion.patch)
