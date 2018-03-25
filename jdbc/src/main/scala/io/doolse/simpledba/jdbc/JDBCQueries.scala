@@ -18,32 +18,35 @@ object JDBCQueries {
   def flush: Sink[JDBCIO, WriteOp] = writes => {
     Stream.eval(
     writes.evalMap {
-      case JDBCWriteOp(q, sqlMapping, binder) => StateT.inspectF { con =>
-        def toSQL() = JDBCPreparedQuery.asSQL(q, sqlMapping)
+      case JDBCWriteOp(q, config, binder) => StateT.inspectF { con =>
+        def toSQL() = JDBCPreparedQuery.asSQL(q, config)
         for {
           ps <- IO {
             val sql = toSQL
-            sqlMapping.logPrepare(sql)
+            config.logPrepare(sql)
             con.prepareStatement(sql)
           }
-          _ <- binder(toSQL, sqlMapping, con, ps).runA(1)
-          _ <- IO(ps.execute())
+          bv <- binder(con, ps).runA(1)
+          _ <- IO {
+            config.logBind(() => (toSQL(), bv))
+            ps.execute()
+          }
         } yield ()
       }
     }.compile.drain)
   }
 
-  case class Bindable[R, A, V](clauses: Seq[A], bind: V => BindFunc)
+  case class Bindable[R, A, V](clauses: Seq[A], bind: V => BindFunc[Option[BindLog]])
 
   object Bindable
   {
     def empty[R, A] : Bindable[R, A, Unit] = Bindable(Seq.empty,
-      _ => Kleisli.pure())
+      _ => Kleisli.pure(None))
   }
 
   def colsEQ[C[_] <: JDBCColumn, R <: HList, K, KL <: HList](where: ColumnSubset[C, R, K, KL]): Bindable[R, JDBCWhereClause, K]
     = Bindable[R, JDBCWhereClause, K](where.columns.map(c => EQ(c._1)),
-    k => bindCols(where, where.iso.to(k)))
+    k => bindCols(where, where.iso.to(k)).map(v => Some(WhereBinding(v))))
 
   case class QueryBuilder[C[_] <: JDBCColumn, T, R <: HList, K <: HList, W, O, OL <: HList](table: JDBCTable[C, T, R, K],
                                                resultCols: Columns[C, O, OL], queryParams: Bindable[R, JDBCWhereClause, W],
@@ -72,23 +75,26 @@ object JDBCQueries {
 
     def build[W2](implicit c: AutoConvert[W2, W]) : ReadQueries[JDBCIO, W2, O] = new ReadQueries[JDBCIO, W2, O] {
       override def find: Pipe[JDBCIO, W2, O] = _.flatMap { key =>
-        streamForQuery(jdbcSelect, queryParams.bind(c(key)))
+        streamForQuery(jdbcSelect, queryParams.bind(c(key)).map(_.toSeq))
       }
     }
 
-    def streamForQuery(select: JDBCSelect, bind: BindFunc)
+    def streamForQuery(select: JDBCSelect, bind: BindFunc[Seq[BindLog]])
     : Stream[JDBCIO, O] = {
       rowsStream {
         StateT.inspectF { con =>
-          def toSQL() = JDBCPreparedQuery.asSQL(select, table.sqlMapping)
+          def toSQL() = JDBCPreparedQuery.asSQL(select, table.config)
           for {
             ps <- IO {
               val sql = toSQL()
-              table.sqlMapping.logPrepare(sql)
+              table.config.logPrepare(sql)
               con.prepareStatement(sql)
             }
-            _ <- bind( toSQL, table.sqlMapping, con, ps).runA(1)
-            rs <- IO(ps.executeQuery())
+            bv <- bind(con, ps).runA(1)
+            rs <- IO {
+              table.config.logBind(() => (toSQL(), bv))
+              ps.executeQuery()
+            }
           } yield rs
         }
       }.evalMap {
@@ -97,22 +103,21 @@ object JDBCQueries {
     }
   }
 
-  def bindCols[C[_] <: JDBCColumn, R <: HList](cols: ColumnRecord[C, R], record: R): BindFunc = Kleisli {
-    case (sql, sqlConfig, con, ps) =>
+  def bindCols[C[_] <: JDBCColumn, R <: HList](cols: ColumnRecord[C, R], record: R): BindFunc[List[Any]] = Kleisli {
+    case (con, ps) =>
       StateT { offs =>
         IO {
           @tailrec
-          def loop(i: Int, rec: HList): Int = {
+          def loop(i: Int, rec: HList, vals: List[Any]): (Int,List[Any]) = {
             rec match {
               case h :: tail =>
                 val (_, col) = cols.columns(i)
                 col.bind(offs + i, h.asInstanceOf[col.A], con, ps)
-                loop(i + 1, tail)
-              case HNil => i
+                loop(i + 1, tail, h :: vals)
+              case HNil => (i+offs, vals)
             }
           }
-          sqlConfig.logBind(() => (sql(), record.toString))
-          (loop(0, record) + offs, ())
+          loop(0, record, Nil)
         }
       }
   }

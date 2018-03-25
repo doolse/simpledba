@@ -2,7 +2,7 @@ package io.doolse.simpledba.jdbc
 
 import java.sql.SQLType
 
-trait JDBCSQLDialect {
+trait JDBCConfig {
 
   type C[A] <: JDBCColumn
 
@@ -11,7 +11,7 @@ trait JDBCSQLDialect {
   def sqlTypeToString: SQLType => String
   def dropTable: String => String
   def logPrepare: String => Unit
-  def logBind: (() => (String, String)) => Unit
+  def logBind: (() => (String, Seq[BindLog])) => Unit
 
   def dropTableSQL(dt: JDBCDropTable) : String = dropTable(escapeTableName(dt.name))
 }
@@ -20,10 +20,15 @@ case class JDBCSQLConfig[C0[_] <: JDBCColumn]
 (escapeTableName: String => String, escapeColumnName: String => String,
  sqlTypeToString: SQLType => String, dropTable: String => String,
  logPrepare: String => Unit = _ => (),
- logBind: (() => (String, String)) => Unit = _ => ()) extends JDBCSQLDialect
+ logBind: (() => (String, Seq[BindLog])) => Unit = _ => ()) extends JDBCConfig
 {
   type C[A] = C0[A]
+  def withBindingLogger(l: (() => (String, Seq[BindLog])) => Unit) = copy[C0](logBind = l)
 }
+
+sealed trait BindLog
+case class WhereBinding(vals: Seq[Any]) extends BindLog
+case class UpdateBinding(vals: Seq[Any]) extends BindLog
 
 sealed trait JDBCPreparedQuery
 
@@ -59,7 +64,7 @@ object JDBCPreparedQuery {
 
   def brackets(c: Iterable[String]): String = c.mkString("(", ",", ")")
 
-  def asSQL[C[_]](q: JDBCPreparedQuery, mc: JDBCSQLDialect) : String = {
+  def asSQL[C[_]](q: JDBCPreparedQuery, mc: JDBCConfig) : String = {
     def whereClause(w: Seq[JDBCWhereClause]): String = {
       def singleCC(c: String, op: String) = s"${mc.escapeColumnName(c)} ${op} ?"
 

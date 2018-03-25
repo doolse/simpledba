@@ -4,29 +4,25 @@ import java.sql.JDBCType.{SQLXML => _, _}
 import java.sql._
 import java.util.UUID
 
-case class PostgresColumn[AA](col: StdJDBCColumn[AA]) extends JDBCColumn
-{
-  type A = AA
-
-  override def sqlType: SQLType = col.sqlType
-
-  override def nullable: Boolean = col.nullable
-
-  override def getByIndex: (Int, ResultSet) => Option[AA] = col.getByIndex
-
-  override def bind: (Int, AA, Connection, PreparedStatement) => Unit = col.bind
-}
+case class PostgresColumn[AA](wrapped: StdJDBCColumn[AA]) extends WrappedColumn[AA](wrapped)
 
 object PostgresColumn
 {
   implicit def stdCol[A](implicit std: StdJDBCColumn[A]) = PostgresColumn(std)
 
-  implicit def uuidCol = PostgresColumn[UUID](
-    StdJDBCColumn(UuidSQLType, false,
-      (i,rs) => rs.getObject(i).asInstanceOf[UUID], (i,v,_,ps) => ps.setObject(i, v)))
+  implicit def uuidCol = PostgresColumn[UUID](StdJDBCColumn.uuidCol)
 }
 
-object PostgresMapper {
+case class HSQLColumn[AA](wrapped: StdJDBCColumn[AA]) extends WrappedColumn[AA](wrapped)
+
+object HSQLColumn
+{
+  implicit def stdCol[A](implicit std: StdJDBCColumn[A]) = HSQLColumn(std)
+
+  implicit def uuidCol = HSQLColumn[UUID](StdJDBCColumn.uuidCol)
+}
+
+object Dialects {
   def defaultDropTableSQL(t: String) = s"DROP TABLE $t IF EXISTS"
 
   val stdSQLTypeNames : PartialFunction[SQLType, String] = {
@@ -41,6 +37,7 @@ object PostgresMapper {
   }
 
   val hsqlTypeNames : SQLType => String = ({
+    case UuidSQLType => "UUID"
     case LONGNVARCHAR => "LONGVARCHAR"
   } : PartialFunction[SQLType, String]) orElse stdSQLTypeNames
 
@@ -67,7 +64,7 @@ object PostgresMapper {
   val DefaultReserved = Set("user", "begin", "end")
 
   val defaultEscapeReserved = escapeReserved(DefaultReserved) _
-  val hsqldbConfig = JDBCSQLConfig(defaultEscapeReserved, defaultEscapeReserved, hsqlTypeNames, defaultDropTableSQL)
+  val hsqldbConfig = JDBCSQLConfig[HSQLColumn](defaultEscapeReserved, defaultEscapeReserved, hsqlTypeNames, defaultDropTableSQL)
   val postgresConfig = JDBCSQLConfig[PostgresColumn](defaultEscapeReserved, defaultEscapeReserved, pgsqlTypeNames,
     t => s"DROP TABLE IF EXISTS $t CASCADE")
 //  val sqlServerConfig = JDBCSQLConfig(defaultEscapeReserved, defaultEscapeReserved, sqlServerTypeNames,

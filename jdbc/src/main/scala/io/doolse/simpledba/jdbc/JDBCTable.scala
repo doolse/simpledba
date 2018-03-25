@@ -7,7 +7,7 @@ import io.doolse.simpledba.jdbc.JDBCQueries._
 import shapeless.{::, HList, HNil, SingletonProductArgs, Witness}
 import cats.syntax.apply._
 
-case class JDBCRelation[C[_] <: JDBCColumn, T, R <: HList](name: String, sqlMapping: JDBCSQLDialect, all: Columns[C, T, R]) extends SingletonProductArgs {
+case class JDBCRelation[C[_] <: JDBCColumn, T, R <: HList](name: String, sqlMapping: JDBCConfig, all: Columns[C, T, R]) extends SingletonProductArgs {
   def key(k: Witness)(implicit css: ColumnSubsetBuilder[R, k.T :: HNil]): JDBCTable[C, T, R, css.Out] = {
     val (keys, toKey) = all.subset[k.T :: HNil]
     JDBCTable(name, sqlMapping, all, keys, toKey)
@@ -25,10 +25,10 @@ case class JDBCRelation[C[_] <: JDBCColumn, T, R <: HList](name: String, sqlMapp
   }
 }
 
-case class JDBCWriteOp(query: JDBCPreparedQuery, config: JDBCSQLDialect, bind: BindFunc) extends WriteOp
+case class JDBCWriteOp(query: JDBCPreparedQuery, config: JDBCConfig, bind: BindFunc[Seq[BindLog]]) extends WriteOp
 
 case class JDBCTable[C[_] <: JDBCColumn, T, R <: HList, K <: HList]
-(name: String, sqlMapping: JDBCSQLDialect, all: Columns[C, T, R],
+(name: String, config: JDBCConfig, all: Columns[C, T, R],
  keys: ColumnSubset[C, R, K, K], toKey: R => K) {
   def col(w: Witness)(implicit ss: ColumnSubsetBuilder[R, w.T :: HNil]): ColumnSubset[C, R, ss.Out, ss.Out] =
     all.subset._1
@@ -40,7 +40,8 @@ case class JDBCTable[C[_] <: JDBCColumn, T, R <: HList, K <: HList]
     val insertQuery = JDBCInsert(name, all.columns.map(_._1))
 
     override def insertAll: Pipe[JDBCIO, T, WriteOp] = _.map {
-      t => JDBCWriteOp(insertQuery, sqlMapping, bindCols(all, all.iso.to(t)))
+      t => JDBCWriteOp(insertQuery, config, bindCols(all, all.iso.to(t))
+        .map(v => Seq(UpdateBinding(v))))
     }
 
     override def updateAll: Pipe[JDBCIO, (T, T), WriteOp] = _.flatMap {
@@ -52,10 +53,13 @@ case class JDBCTable[C[_] <: JDBCColumn, T, R <: HList, K <: HList]
           Stream(deleteWriteOp(oldKey)) ++ insert(n)
         }
         else {
-          val updateVals = bindCols(all, newRec)
           val whereClause = colsEQ(keys)
+          val binder = for {
+            updateVals <- bindCols(all, newRec)
+            wc <- whereClause.bind(keyVal)
+          } yield Seq(UpdateBinding(updateVals)) ++ wc
           Stream(JDBCWriteOp(JDBCUpdate(name, all.columns.map(_._1),
-            whereClause.clauses), sqlMapping, updateVals *> whereClause.bind(keyVal)))
+            whereClause.clauses), config, binder))
         }
     }
 
@@ -65,7 +69,8 @@ case class JDBCTable[C[_] <: JDBCColumn, T, R <: HList, K <: HList]
 
   private def deleteWriteOp(k: K): JDBCWriteOp = {
     val whereClause = colsEQ(keys)
-    JDBCWriteOp(JDBCDelete(name, whereClause.clauses), sqlMapping, whereClause.bind(k))
+    JDBCWriteOp(JDBCDelete(name, whereClause.clauses), config,
+      whereClause.bind(k).map(_.toList))
   }
 
   def query = new QueryBuilder[C, T, R, K, Unit, T, R](this, all, Bindable.empty, Seq.empty)
@@ -75,7 +80,7 @@ case class JDBCTable[C[_] <: JDBCColumn, T, R <: HList, K <: HList]
   def allRows: Stream[JDBCIO, T] = query.build[Unit].find(Stream(()))
 
   private def writeOp(q: JDBCPreparedQuery) =
-    JDBCWriteOp(q, sqlMapping, Kleisli.pure())
+    JDBCWriteOp(q, config, Kleisli.pure(Seq.empty))
 
   def createTable: JDBCWriteOp = writeOp(JDBCCreateTable(name, all.columns.map {
     case (n, c) => (n, c.nullable, c.sqlType)

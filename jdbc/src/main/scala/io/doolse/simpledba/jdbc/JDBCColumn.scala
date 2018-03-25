@@ -1,6 +1,7 @@
 package io.doolse.simpledba.jdbc
 
 import java.sql._
+import java.util.UUID
 
 trait JDBCColumn {
   type A
@@ -14,14 +15,27 @@ trait JDBCColumn {
   def bind: (Int, A, Connection, PreparedStatement) => Unit
 }
 
+class WrappedColumn[AA](wrapped: StdJDBCColumn[AA]) extends JDBCColumn
+{
+  override type A = AA
+
+  override def sqlType: SQLType = wrapped.sqlType
+
+  override def nullable: Boolean = wrapped.nullable
+
+  override def getByIndex: (Int, ResultSet) => Option[A] = wrapped.getByIndex
+
+  override def bind: (Int, A, Connection, PreparedStatement) => Unit = wrapped.bind
+}
+
 case class StdJDBCColumn[AA](sqlType: SQLType, nullable: Boolean,
-                            getter: (Int, ResultSet) => AA,
+                            getter: ResultSet => Int => AA,
                             bind: (Int, AA, Connection, PreparedStatement) => Unit) extends JDBCColumn
 {
   override type A = AA
 
   override def getByIndex: (Int, ResultSet) => Option[AA] =
-    (i,rs) => Option(getter(i,rs)).filterNot(_ => rs.wasNull())
+    (i,rs) => Option(getter(rs)(i)).filterNot(_ => rs.wasNull())
 
 }
 
@@ -43,28 +57,32 @@ case class SizedSQLType(subType: SQLType, size: Int) extends SQLType {
   def getVendor = "io.doolse.simpledba"
 }
 
-object JDBCColumn
+object StdJDBCColumn
 {
   implicit val stringCol =
     StdJDBCColumn[String](JDBCType.LONGNVARCHAR, false,
-      (i,rs) => rs.getString(i),
+      _.getString,
     (i,v,_, ps) => ps.setString(i, v))
 
   implicit val intCol = StdJDBCColumn[Int](JDBCType.INTEGER, false,
-    (i, rs) => rs.getInt(i),
+    _.getInt,
     (i,v,_, ps) => ps.setInt(i, v))
 
   implicit val longCol = StdJDBCColumn[Long](JDBCType.BIGINT, false,
-    (i, rs) => rs.getLong(i),
+    _.getLong,
     (i,v,_, ps) => ps.setLong(i, v))
 
   implicit val boolCol = StdJDBCColumn[Boolean](JDBCType.BOOLEAN, false,
-    (i, rs) => rs.getBoolean(i),
+    _.getBoolean,
     (i,v,_, ps) => ps.setBoolean(i, v))
 
   implicit val doubleCol = StdJDBCColumn[Double](JDBCType.DOUBLE, false,
-    (i, rs) => rs.getDouble(i),
+    _.getDouble,
     (i, v, _, ps) => ps.setDouble(i, v))
+
+  val uuidCol = StdJDBCColumn[UUID](UuidSQLType, false,
+    (rs) => (i) => rs.getObject(i).asInstanceOf[UUID],
+    (i,v,_,ps) => ps.setObject(i, v))
 
 }
 

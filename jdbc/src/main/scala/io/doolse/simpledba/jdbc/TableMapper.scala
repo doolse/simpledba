@@ -5,9 +5,9 @@ import shapeless.{HList, HNil, LabelledGeneric}
 
 object TableMapper {
 
-  def apply[T](implicit jdbcConfig: JDBCSQLDialect) = new RelationBuilder[T, jdbcConfig.C](jdbcConfig)
+  def apply[T](implicit jdbcConfig: JDBCConfig) = new RelationBuilder[T, jdbcConfig.C](jdbcConfig)
 
-  class RelationBuilder[T, C[_] <: JDBCColumn](config: JDBCSQLDialect)
+  class RelationBuilder[T, C[_] <: JDBCColumn](config: JDBCConfig)
   {
     def embedded[GRepr <: HList, Repr0 <: HList]
     (implicit

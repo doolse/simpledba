@@ -9,16 +9,13 @@ import shapeless.HList
 
 object JDBCProperties
 {
-  lazy val connection = DriverManager.getConnection("jdbc:postgresql:simpledba2",
-    "equellauser", "tle010")
-
-
+  lazy val connection = connectionFromConfig()
 }
 
 trait JDBCProperties {
   import JDBCProperties._
 
-  implicit lazy val config = PostgresMapper.postgresConfig
+  implicit lazy val config = Dialects.hsqldbConfig.withBindingLogger(msg => println(msg()))
 
   def setup[C[_] <: JDBCColumn](bq: JDBCTable[C, _, _  <: HList, _ <: HList]*) : Unit = run(
     (for {

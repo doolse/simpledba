@@ -13,7 +13,7 @@ object Tester extends App {
 
   val connection = DriverManager.getConnection("jdbc:postgresql:simpledba2", "equellauser", "tle010")
 
-  implicit val config = PostgresMapper.postgresConfig
+  implicit val config = Dialects.postgresConfig
   implicit val cols = TableMapper[EmbeddedFields].embedded
   val instTable = TableMapper[Inst].table("inst").key('uniqueid)
   val userTable = TableMapper[User].table("user").key('firstName, 'lastName)
