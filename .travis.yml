@@ -1,0 +1,35 @@
+sudo: required
+
+language: scala
+
+scala:
+  - 2.12.4
+
+secure: "Mx/3VnSwf5W4/OiJRJi4lnrL4lk17twIDqIrt62xoDXn0vZTORDyRl5uPahvchjR4cR1OAPjRAnVg8eKWZNMulqlj8uJzrEKNkk/1EGxG+KBnNhqkuE3H7nKtrE6QaMAL944PJSPlXzl9BqzQoQQpLeioWjXjQZ1U9b20MmMDsgvCSHGybcmQf/Z+cbQw01QX7DMcsjUTumhdYvrwz5nEMLdXW0i0qyWzybkgQRDRH9KMQD2dyjRodgCH2ELonWQ92f8ppXqv/dWK6YGDxQ0cii1lHssKQULFgNoHQxWvV9HhCRL2GXETnhfg6mGFiCB7lOcysxRUaBQuAacbBf0Dd/72fDbIZrum2tYfP1/zq24fARzh438bml8y6yrXvS8UhiW2DUckEvY3MOtPLdXZ3YWteqU5wl1cWXK2/PyGqxQTlPVV8Tnfa+7lL20A3ncevo7ng+F0k3owtiQLyJB8InKzfrnpa3QDMjjkMJxn+mtAZ14woOmR1W5vbk2LCNKUjN4QTI3iimbOfu/CxVRtaya7rIlcp7pmb/lpiirsQVie2xMOY80ZaGX9m2rswHxWKIT2Xd1bMELJawKf4B1oIxmtnQJHUswrvbzmPGo1OdKQXQMXoEXPfV89lw0hQpYdIX6YZl1akQ07kyZEyEzQU0LlHxttbsXXhgnz/a4laA="
+
+services:
+  - docker
+
+before_install:
+  - docker run -d --name cassandra -p 9043:9043 -p 7000:7000 -p 7001:7001 -p 9042:9042 -p 7199:7199 -p 9160:9160 cassandra
+  - docker run --name dynamodb -d -p 8000:8000 tray/dynamodb-local -inMemory
+
+script:
+  - sbt clean coverage test coverageReport &&
+    sbt coverageAggregate
+
+after_success:
+  - sbt coveralls
+
+cache:
+  directories:
+  - $HOME/.sbt/0.13/dependency
+  - $HOME/.sbt/boot/scala*
+  - $HOME/.sbt/launchers
+  - $HOME/.ivy2/cache
+
+before_cache:
+  - du -h -d 1 $HOME/.ivy2/cache
+  - du -h -d 2 $HOME/.sbt/
+  - find $HOME/.sbt -name "*.lock" -type f -delete
+  - find $HOME/.ivy2/cache -name "ivydata-*.properties" -type f -delete

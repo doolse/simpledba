@@ -1,19 +1,62 @@
-name := "simpledba2"
+import com.typesafe.config.ConfigFactory
+import sbt.Keys._
+import sbt.{Resolver, addCompilerPlugin}
 
-version := "0.1"
+name := "simpledba"
 
-scalaVersion := "2.12.4"
+lazy val prjDir = file("project")
+lazy val config = ConfigFactory.parseFile(prjDir / "application.conf")
+  .withFallback(ConfigFactory.parseFile(prjDir / "reference.conf"))
 
-libraryDependencies ++= Seq(
-  "com.chuusai" %% "shapeless" % "2.3.3",
-  "co.fs2" %% "fs2-core" % "0.10.2",
-  "org.postgresql" % "postgresql" % "42.2.1"
+val commonSettings = Seq(
+  organization := "io.github.doolse",
+  version := "0.1.4-SNAPSHOT",
+  scalaVersion := "2.12.4",
+  resolvers += Resolver.sonatypeRepo("snapshots"),
+
+  licenses := Seq("BSD-style" -> url("http://www.opensource.org/licenses/bsd-license.php")),
+
+  homepage := Some(url("https://github.com/doolse/simpledba")),
+  scmInfo := Some(
+    ScmInfo(
+      url("https://github.com/doolse/simpledba"),
+      "scm:git@github.com:doolse/simpledba.git"
+    )
+  ),
+  developers := List(
+    Developer(
+      id = "doolse",
+      name = "Jolse Maginnis",
+      email = "doolse@gmail.com",
+      url = url("https://github.com/doolse/simpledba")
+    )
+  ),
+  publishMavenStyle := true,
+  publishTo := {
+    val nexus = "https://oss.sonatype.org/"
+    if (isSnapshot.value)
+      Some("snapshots" at nexus + "content/repositories/snapshots")
+    else
+      Some("releases" at nexus + "service/local/staging/deploy/maven2")
+  }
 )
 
-scalacOptions += "-Ypartial-unification"
+val subSettings = Seq(
+  name := "simpledba-" + baseDirectory.value.getName,
+  testOptions in Test += Tests.Argument(TestFrameworks.ScalaCheck, "-s", "10"),
+  scalacOptions += "-Ypartial-unification",
+  scalacOptions ++= Seq("-P:splain:implicits:true", "-P:splain:color:false"),
+  addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.3"),
+  addCompilerPlugin("io.tryp" % "splain" % "0.2.7" cross CrossVersion.patch)
+) ++ commonSettings
 
-scalacOptions ++= Seq("-P:splain:implicits:true", "-P:splain:color:false")
+lazy val coreDep = core % "test->test;compile->compile"
+//lazy val dynamodb = project.settings(subSettings: _*).dependsOn(coreDep)
+//lazy val cassandra = project.settings(subSettings: _*).dependsOn(coreDep)
+lazy val jdbc = project.settings(subSettings: _*).dependsOn(coreDep)
+//lazy val circe = project.settings(subSettings: _*).dependsOn(core)
+lazy val core = project.settings(subSettings: _*)
 
-addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.3")
-addCompilerPlugin("io.tryp" % "splain" % "0.2.7" cross CrossVersion.patch)
+lazy val parent = (project in file(".")).aggregate(core, jdbc)
 
+commonSettings
