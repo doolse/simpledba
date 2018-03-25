@@ -1,12 +1,32 @@
 package io.doolse.simpledba2.jdbc
 
-class JDBCSQLConfig(val escapeTableName: String => String,
-                    val escapeColumnName: String => String)
-{
+import java.sql.SQLType
+
+trait JDBCSQLDialect {
+
   type C[A] <: JDBCColumn
+
+  def escapeTableName: String => String
+  def escapeColumnName: String => String
+  def sqlTypeToString: SQLType => String
+  def dropTable: String => String
+
+  def dropTableSQL(dt: JDBCDropTable) : String = dropTable(escapeTableName(dt.name))
+}
+
+case class JDBCSQLConfig[C0[_] <: JDBCColumn](escapeTableName: String => String, escapeColumnName: String => String,
+                                sqlTypeToString: SQLType => String, dropTable: String => String) extends JDBCSQLDialect
+{
+  type C[A] = C0[A]
 }
 
 sealed trait JDBCPreparedQuery
+
+case class JDBCDropTable(name: String) extends JDBCPreparedQuery
+
+case class JDBCCreateTable(name: String, columns: Seq[(String, SQLType)], primaryKey: Seq[String]) extends JDBCPreparedQuery
+
+case class JDBCTruncate(name: String) extends JDBCPreparedQuery
 
 case class JDBCInsert(table: String, columns: Seq[String]) extends JDBCPreparedQuery
 
@@ -34,7 +54,7 @@ object JDBCPreparedQuery {
 
   def brackets(c: Iterable[String]): String = c.mkString("(", ",", ")")
 
-  def asSQL[C[_]](q: JDBCPreparedQuery, mc: JDBCSQLConfig) = {
+  def asSQL[C[_]](q: JDBCPreparedQuery, mc: JDBCSQLDialect) : String = {
     def whereClause(w: Seq[JDBCWhereClause]): String = {
       def singleCC(c: String, op: String) = s"${mc.escapeColumnName(c)} ${op} ?"
 
@@ -63,6 +83,14 @@ object JDBCPreparedQuery {
         val asgns = a.map(c => s"${mc.escapeColumnName(c)} = ?")
         s"UPDATE ${mc.escapeTableName(t)} SET ${asgns.mkString(",")} ${whereClause(w)}"
       case JDBCRawSQL(sql) => sql
+      case JDBCCreateTable(t, c, pk) =>
+        val colStrings = c.map {
+          case (cn, ct) => s"${mc.escapeColumnName(cn)} ${mc.sqlTypeToString(ct)}"
+        }
+        val withPK = colStrings :+ s"PRIMARY KEY${brackets(pk.map(mc.escapeColumnName))}"
+        s"CREATE TABLE ${mc.escapeTableName(t)} ${brackets(withPK)}"
+      case JDBCTruncate(t) => s"TRUNCATE TABLE ${mc.escapeTableName(t)}"
+      case dt: JDBCDropTable => mc.dropTableSQL(dt)
     }
   }
 }

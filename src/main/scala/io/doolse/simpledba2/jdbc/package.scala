@@ -10,4 +10,7 @@ package object jdbc {
   type JDBCIO[A] = StateT[IO, Connection, A]
 
 
+  implicit val flusher : Flushable[JDBCIO] = new Flushable[JDBCIO] {
+    def flush = JDBCQueries.flush
+  }
 }

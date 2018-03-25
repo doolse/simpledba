@@ -1,7 +1,11 @@
 package io.doolse.simpledba2
-import fs2.{Pipe, Stream}
+import fs2.{Pipe, Sink, Stream}
 
 trait WriteOp
+
+trait Flushable[F[_]] {
+  def flush : Sink[F, WriteOp]
+}
 
 trait WriteQueries[F[_], T] {
 

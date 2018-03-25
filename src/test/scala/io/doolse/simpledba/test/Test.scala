@@ -4,9 +4,10 @@ import cats.Monad
 import cats.effect.Sync
 import fs2.{Pipe, Stream}
 import io.doolse.simpledba.test.Test.User
-import io.doolse.simpledba2.{ReadQueries, WriteQueries}
+import io.doolse.simpledba2.{Flushable, ReadQueries, WriteQueries}
 import cats.instances.option._
 import cats.syntax.all._
+import io.doolse.simpledba2.syntax._
 
 object Test {
 
@@ -21,8 +22,8 @@ object Test {
   case class Queries[F[_]](writeInst: WriteQueries[F, Inst],
                            writeUsers: WriteQueries[F, User],
                            instByPK: ReadQueries[F, Long, Inst],
-                           querybyFirstName: Boolean => ReadQueries[F, String, User],
-                           queryByLastName: Boolean => ReadQueries[F, String, User],
+                           querybyFirstNameAsc: ReadQueries[F, String, User],
+                           queryByLastNameDesc: ReadQueries[F, String, User],
                            queryByFullName: ReadQueries[F, Username, User]
                           )
 
@@ -38,18 +39,18 @@ object Test {
     )) ++ writeInst.insert(orig)
   }
 
-  def doTest[F[_] : Monad : Sync](q: Queries[F]) = {
+  def doTest[F[_] : Monad : Sync : Flushable](q: Queries[F]) = {
     import q._
     for {
-      _ <- insertData(q.writeInst, q.writeUsers)
-      res2 <- instByPK(1L)
-      res <- instByPK(517573426L)
-      _ <- writeInst.update(orig, updated)
+      _ <- insertData(q.writeInst, q.writeUsers).flush
+      res2 <- instByPK(1L).last
+      res <- instByPK(517573426L).last
+      _ <- writeInst.update(orig, updated).flush
       res3 <- instByPK(2L).last
-      _ <- writeInst.update(updated, updatedAgain)
+      _ <- writeInst.update(updated, updatedAgain).flush
       res4 <- instByPK(2L).last
-      all <- Stream.eval(queryByLastName(true)("Maginnis").compile.toVector)
-      allFirst <- Stream.eval(querybyFirstName(false)("Jolse").compile.toVector)
+      all <- Stream.eval(queryByLastNameDesc("Maginnis").compile.toVector)
+      allFirst <- Stream.eval(querybyFirstNameAsc("Jolse").compile.toVector)
       fullPK <- Stream.eval(queryByFullName(Username("Jolse", "Maginnis")).compile.toVector)
       _ <- res4.map(writeInst.delete).sequence
     } yield {
