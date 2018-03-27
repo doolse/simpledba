@@ -7,7 +7,8 @@ import cats.effect.Sync
 import cats.syntax.all._
 import io.doolse.simpledba._
 import CompositeRelations._
-import io.doolse.simpledba.{Flushable, ReadQueries, WriteQueries}
+import fs2.Stream
+import io.doolse.simpledba.{Flushable, WriteQueries}
 import org.scalacheck.Shapeless._
 
 /**
@@ -19,9 +20,9 @@ object CompositeRelations {
 
   case class Composite3(pkInt: Int, pkString: String, pkBool: Boolean, fieldLong: Long, fieldUUID: UUID)
 
-  case class Queries2[F[_]](updates: WriteQueries[F, Composite2], byPK: ReadQueries[F, (Long, UUID), Composite2])
+  case class Queries2[F[_]](updates: WriteQueries[F, Composite2], byPK: ((Long, UUID)) => Stream[F, Composite2])
 
-  case class Queries3[F[_]](updates: WriteQueries[F, Composite3], byPK: ReadQueries[F, (Int, String, Boolean), Composite3])
+  case class Queries3[F[_]](updates: WriteQueries[F, Composite3], byPK: ((Int, String, Boolean)) => Stream[F, Composite3])
 
 }
 

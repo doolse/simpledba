@@ -5,10 +5,10 @@ import java.sql.{Connection, PreparedStatement, ResultSet}
 import cats.data.{Kleisli, StateT}
 import cats.effect.IO
 import cats.effect.implicits._
-import fs2.{Pipe, Sink, Stream}
+import fs2.{Pipe, Pure, Sink, Stream}
 import io.doolse.simpledba._
 import shapeless.ops.record.{Keys, SelectAll, ToMap}
-import shapeless.{::, HList, HNil, Witness}
+import shapeless.{::, DepFn2, HList, HNil, Witness}
 import shapeless.labelled._
 
 import scala.annotation.tailrec
@@ -36,20 +36,49 @@ object JDBCQueries {
     }.compile.drain)
   }
 
-  case class Bindable[R, A, V](clauses: Seq[A], bind: V => BindFunc[Option[BindLog]])
+  object BindNone
+  case class BindOne[R, A, V](bind: V => (Seq[A], BindFunc[Option[BindLog]]))
+  case class BindMany[R, A, V](bind: V => (Stream[Pure, (Seq[A], BindFunc[Option[BindLog]])]))
+  case class BindTwo[R, A, B1, B2](f: B1, s: B2)
 
-  object Bindable
-  {
-    def empty[R, A] : Bindable[R, A, Unit] = Bindable(Seq.empty,
-      _ => Kleisli.pure(None))
+  trait BindableCombiner[B, B2] extends DepFn2[B, B2]
+
+  trait BindStream[B, A, V] {
+    def apply(b: B, v: V): Stream[Pure, (Seq[A], BindFunc[Seq[BindLog]])]
   }
 
-  def colsEQ[C[_] <: JDBCColumn, R <: HList, K, KL <: HList](where: ColumnSubset[C, R, K, KL]): Bindable[R, JDBCWhereClause, K]
-    = Bindable[R, JDBCWhereClause, K](where.columns.map(c => EQ(c._1)),
-    k => bindCols(where, where.iso.to(k)).map(v => Some(WhereBinding(v))))
+  object BindStream {
+    implicit def bindNone[R, A, Unit] = new BindStream[BindNone.type, A, Unit] {
+      override def apply(b: BindNone.type, v: Unit) = Stream.empty
+    }
+    implicit def bindOne[R, A, V] = new BindStream[BindOne[R, A, V], A, V] {
+      override def apply(b: BindOne[R, A, V], v: V): Stream[Pure, (Seq[A], BindFunc[Seq[BindLog]])] = {
+        val (clauses,bind) = b.bind(v)
+        Stream((clauses, bind.map(_.toSeq)))
+      }
+    }
+  }
 
-  case class QueryBuilder[C[_] <: JDBCColumn, T, R <: HList, K <: HList, W, O, OL <: HList](table: JDBCTable[C, T, R, K],
-                                               resultCols: Columns[C, O, OL], queryParams: Bindable[R, JDBCWhereClause, W],
+  object BindableCombiner
+  {
+    implicit def combineNoneLeft[B2] = new BindableCombiner[BindNone.type, B2] {
+      type Out = B2
+
+      override def apply(t: BindNone.type, u: B2) = u
+    }
+  }
+
+  def colsEQ[C[_] <: JDBCColumn, R <: HList, K, KL <: HList](where: ColumnSubset[C, R, K, KL]): BindOne[R, JDBCWhereClause, K]
+    = BindOne[R, JDBCWhereClause, K] { (k: K) =>
+    val clauses = where.columns.map(c => EQ(c._1))
+    (clauses, bindCols(where, where.iso.to(k)).map(v => Some(WhereBinding(v))))
+  }
+
+
+  case class QueryBuilder[C[_] <: JDBCColumn, T, R <: HList, K <: HList,
+  W, B,
+  O, OL <: HList]
+  (table: JDBCTable[C, T, R, K], resultCols: Columns[C, O, OL], where: B,
     orderCols: Seq[(String, Boolean)])
   {
     def orderBy[T <: Symbol](w: Witness, asc: Boolean)
@@ -59,24 +88,25 @@ object JDBCQueries {
                 sel: ColumnSubsetBuilder[R, w.T :: HNil])
       = orderWith(field[w.T](asc) :: HNil)
 
-    def orderWith[OR <: HList, ORK <: HList, T <: Symbol](or: OR)(implicit keys: Keys.Aux[OR, ORK], toMap: ToMap.Aux[OR, T, Boolean],
-                                          cssb: ColumnSubsetBuilder[R, ORK]) = {
+    def orderWith[OR <: HList, ORK <: HList, Syms <: Symbol](or: OR)(implicit keys: Keys.Aux[OR, ORK], toMap: ToMap.Aux[OR, Syms, Boolean],
+                                          cssb: ColumnSubsetBuilder[R, ORK]) : QueryBuilder[C, T, R, K, W, B, O, OL] = {
       val m = toMap(or).map { case (s,b) => (s.name, b)}
       val cols = cssb.apply()._1.map(cn => (cn, m(cn)))
       copy(orderCols = cols)
     }
 
-    def whereEQ[W2 <: HList](where: ColumnSubset[C, R, W2, W2]) = {
-      copy(queryParams = colsEQ(where))
+    def whereEQ[W2 <: HList](whereEQ: ColumnSubset[C, R, W2, W2])(implicit combiner: BindableCombiner[B, BindOne[R, JDBCWhereClause, W2]]) = {
+      copy[C, T, R, K, W2, combiner.Out, O, OL](where = combiner(where, colsEQ(whereEQ)))
     }
 
-    private def jdbcSelect = JDBCSelect(table.name, resultCols.columns.map(_._1),
-      queryParams.clauses, orderCols, false)
-
-    def build[W2](implicit c: AutoConvert[W2, W]) : ReadQueries[JDBCIO, W2, O] = new ReadQueries[JDBCIO, W2, O] {
-      override def find: Pipe[JDBCIO, W2, O] = _.flatMap { key =>
-        streamForQuery(jdbcSelect, queryParams.bind(c(key)).map(_.toSeq))
-      }
+    def build[W2](implicit c: AutoConvert[W2, W], binder: BindStream[B, JDBCWhereClause, W]) : W2 => Stream[JDBCIO, O] = {
+      val baseSel = JDBCSelect(table.name, resultCols.columns.map(_._1),
+        Seq.empty, orderCols, false)
+        (w2 : W2) => {
+          binder(where, c.apply(w2)).covary[JDBCIO].flatMap {
+            case (wc, bind) => streamForQuery(baseSel.copy(where = wc), bind)
+          }
+        }
     }
 
     def streamForQuery(select: JDBCSelect, bind: BindFunc[Seq[BindLog]])

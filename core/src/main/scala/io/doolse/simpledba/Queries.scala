@@ -23,10 +23,3 @@ trait WriteQueries[F[_], T] {
 
   def truncate: Stream[F, WriteOp]
 }
-
-trait ReadQueries[F[_], K, T] extends (K => Stream[F, T])
-{
-  def apply(k: K): Stream[F, T] = find(Stream(k))
-
-  def find: Pipe[F, K, T]
-}

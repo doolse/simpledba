@@ -4,16 +4,27 @@ import java.sql.JDBCType.{SQLXML => _, _}
 import java.sql._
 import java.util.UUID
 
-case class PostgresColumn[AA](wrapped: StdJDBCColumn[AA]) extends WrappedColumn[AA](wrapped)
+import io.doolse.simpledba.Iso
+
+case class PostgresColumn[AA](wrapped: StdJDBCColumn[AA]) extends WrappedColumn[AA, PostgresColumn]
+{
+  def mapped[B] = PostgresColumn.apply[B]
+}
 
 object PostgresColumn
 {
   implicit def stdCol[A](implicit std: StdJDBCColumn[A]) = PostgresColumn(std)
 
+  implicit def isoCol[A, B](implicit iso: Iso[B, A], pgCol: PostgresColumn[A]): PostgresColumn[B]
+    = pgCol.isoMap(iso)
+
   implicit def uuidCol = PostgresColumn[UUID](StdJDBCColumn.uuidCol)
 }
 
-case class HSQLColumn[AA](wrapped: StdJDBCColumn[AA]) extends WrappedColumn[AA](wrapped)
+case class HSQLColumn[AA](wrapped: StdJDBCColumn[AA]) extends WrappedColumn[AA, HSQLColumn]
+{
+  def mapped[B] = HSQLColumn.apply[B]
+}
 
 object HSQLColumn
 {

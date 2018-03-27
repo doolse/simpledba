@@ -6,7 +6,7 @@ import cats.instances.option._
 import cats.syntax.all._
 import fs2.Stream
 import io.doolse.simpledba.syntax._
-import io.doolse.simpledba.{Flushable, ReadQueries, WriteQueries}
+import io.doolse.simpledba.{Flushable, WriteQueries}
 
 object Test {
 
@@ -20,10 +20,10 @@ object Test {
 
   case class Queries[F[_]](writeInst: WriteQueries[F, Inst],
                            writeUsers: WriteQueries[F, User],
-                           instByPK: ReadQueries[F, Long, Inst],
-                           querybyFirstNameAsc: ReadQueries[F, String, User],
-                           queryByLastNameDesc: ReadQueries[F, String, User],
-                           queryByFullName: ReadQueries[F, Username, User]
+                           instByPK: Long => Stream[F, Inst],
+                           querybyFirstNameAsc: String => Stream[F, User],
+                           queryByLastNameDesc: String => Stream[F, User],
+                           queryByFullName: Username => Stream[F, User]
                           )
 
   val orig = Inst(1L, EmbeddedFields("pass", enabled = true))

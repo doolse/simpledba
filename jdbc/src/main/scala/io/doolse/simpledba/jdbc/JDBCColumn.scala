@@ -3,6 +3,8 @@ package io.doolse.simpledba.jdbc
 import java.sql._
 import java.util.UUID
 
+import io.doolse.simpledba.Iso
+
 trait JDBCColumn {
   type A
 
@@ -15,8 +17,10 @@ trait JDBCColumn {
   def bind: (Int, A, Connection, PreparedStatement) => Unit
 }
 
-class WrappedColumn[AA](wrapped: StdJDBCColumn[AA]) extends JDBCColumn
+trait WrappedColumn[AA, C[_]] extends JDBCColumn
 {
+  val wrapped: StdJDBCColumn[AA]
+
   override type A = AA
 
   override def sqlType: SQLType = wrapped.sqlType
@@ -26,6 +30,13 @@ class WrappedColumn[AA](wrapped: StdJDBCColumn[AA]) extends JDBCColumn
   override def getByIndex: (Int, ResultSet) => Option[A] = wrapped.getByIndex
 
   override def bind: (Int, A, Connection, PreparedStatement) => Unit = wrapped.bind
+
+  def mapped[A0]: StdJDBCColumn[A0] => C[A0]
+
+  def isoMap[B](iso: Iso[B, AA]): C[B] = {
+    mapped(wrapped.copy(getter =
+      wrapped.getter.andThen(_.andThen(iso.from)), bind = (i, b, c, ps) => wrapped.bind(i, iso.to(b), c, ps)))
+  }
 }
 
 case class StdJDBCColumn[AA](sqlType: SQLType, nullable: Boolean,

@@ -25,7 +25,7 @@ case class JDBCRelation[C[_] <: JDBCColumn, T, R <: HList](name: String, sqlMapp
   }
 }
 
-case class JDBCWriteOp(query: JDBCPreparedQuery, config: JDBCConfig, bind: BindFunc[Seq[BindLog]]) extends WriteOp
+case class JDBCWriteOp(q: JDBCPreparedQuery, config: JDBCConfig, binder: BindFunc[Seq[BindLog]]) extends WriteOp
 
 case class JDBCTable[C[_] <: JDBCColumn, T, R <: HList, K <: HList]
 (name: String, config: JDBCConfig, all: Columns[C, T, R],
@@ -53,13 +53,13 @@ case class JDBCTable[C[_] <: JDBCColumn, T, R <: HList, K <: HList]
           Stream(deleteWriteOp(oldKey)) ++ insert(n)
         }
         else {
-          val whereClause = colsEQ(keys)
+          val (whereClauses,bind) = colsEQ(keys).bind(keyVal)
           val binder = for {
             updateVals <- bindCols(all, newRec)
-            wc <- whereClause.bind(keyVal)
+            wc <- bind
           } yield Seq(UpdateBinding(updateVals)) ++ wc
           Stream(JDBCWriteOp(JDBCUpdate(name, all.columns.map(_._1),
-            whereClause.clauses), config, binder))
+            whereClauses), config, binder))
         }
     }
 
@@ -68,16 +68,20 @@ case class JDBCTable[C[_] <: JDBCColumn, T, R <: HList, K <: HList]
   }
 
   private def deleteWriteOp(k: K): JDBCWriteOp = {
-    val whereClause = colsEQ(keys)
-    JDBCWriteOp(JDBCDelete(name, whereClause.clauses), config,
-      whereClause.bind(k).map(_.toList))
+    val (whereClauses,bindVals) = colsEQ(keys).bind(k)
+    JDBCWriteOp(JDBCDelete(name, whereClauses), config,
+      bindVals.map(_.toList))
   }
 
-  def query = new QueryBuilder[C, T, R, K, Unit, T, R](this, all, Bindable.empty, Seq.empty)
+  def query = new QueryBuilder[C, T, R, K, Unit, BindNone.type, T, R](this, all, BindNone, Seq.empty)
 
-  def queryByPK[K2](implicit c: AutoConvert[K2, K]) = query.whereEQ(keys).build[K2]
+  def byColumn[K2](column: Witness)(implicit cs: ColumnSubsetBuilder.Aux[R, column.T :: HNil, K],
+                                 c: AutoConvert[K2, K]) : K2 => Stream[JDBCIO, T] =
+    query.whereEQ(col(column)).build[K2]
 
-  def allRows: Stream[JDBCIO, T] = query.build[Unit].find(Stream(()))
+  def byPK[K2](implicit c: AutoConvert[K2, K]) : K2 => Stream[JDBCIO, T] = query.whereEQ(keys).build[K2]
+
+  def allRows: Stream[JDBCIO, T] = query.build[Unit].apply()
 
   private def writeOp(q: JDBCPreparedQuery) =
     JDBCWriteOp(q, config, Kleisli.pure(Seq.empty))

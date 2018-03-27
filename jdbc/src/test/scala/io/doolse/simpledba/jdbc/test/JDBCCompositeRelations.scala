@@ -11,11 +11,11 @@ object JDBCCompositeRelations extends CompositeRelations[JDBCIO]("JDBC Composite
 
   lazy val queries2 = {
     setup(compTable)
-    Queries2(compTable.writes, compTable.queryByPK)
+    Queries2(compTable.writes, compTable.byPK)
   }
 
-  lazy val queries3 = {
+  lazy val queries3 : Queries3[JDBCIO] = {
     setup(compRel3)
-    Queries3(compRel3.writes, compRel3.queryByPK)
+    Queries3(compRel3.writes, compRel3.byPK)
   }
 }
