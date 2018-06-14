@@ -70,7 +70,7 @@ object JDBCQueries {
 
   def colsEQ[C[_] <: JDBCColumn, R <: HList, K, KL <: HList](where: ColumnSubset[C, R, K, KL]): BindOne[R, JDBCWhereClause, K]
     = BindOne[R, JDBCWhereClause, K] { (k: K) =>
-    val clauses = where.columns.map(c => EQ(c._1))
+    val clauses = where.columns.map(c => EQ(JDBCColumnBinding(c)))
     (clauses, bindCols(where, where.iso.to(k)).map(v => Some(WhereBinding(v))))
   }
 
@@ -79,7 +79,7 @@ object JDBCQueries {
   W, B,
   O, OL <: HList]
   (table: JDBCTable[C, T, R, K], resultCols: Columns[C, O, OL], where: B,
-    orderCols: Seq[(String, Boolean)])
+    orderCols: Seq[(JDBCColumnBinding, Boolean)])
   {
     def orderBy[T <: Symbol](w: Witness, asc: Boolean)
                (implicit
@@ -91,7 +91,8 @@ object JDBCQueries {
     def orderWith[OR <: HList, ORK <: HList, Syms <: Symbol](or: OR)(implicit keys: Keys.Aux[OR, ORK], toMap: ToMap.Aux[OR, Syms, Boolean],
                                           cssb: ColumnSubsetBuilder[R, ORK]) : QueryBuilder[C, T, R, K, W, B, O, OL] = {
       val m = toMap(or).map { case (s,b) => (s.name, b)}
-      val cols = cssb.apply()._1.map(cn => (cn, m(cn)))
+      val actColMap = table.all.columns.toMap
+      val cols = cssb.apply()._1.map(cn => (JDBCColumnBinding((cn, actColMap(cn))), m(cn)))
       copy(orderCols = cols)
     }
 
@@ -100,7 +101,7 @@ object JDBCQueries {
     }
 
     def build[W2](implicit c: AutoConvert[W2, W], binder: BindStream[B, JDBCWhereClause, W]) : W2 => Stream[JDBCIO, O] = {
-      val baseSel = JDBCSelect(table.name, resultCols.columns.map(_._1),
+      val baseSel = JDBCSelect(table.name, resultCols.columns.map(JDBCColumnBinding[C]),
         Seq.empty, orderCols, false)
         (w2 : W2) => {
           binder(where, c.apply(w2)).covary[JDBCIO].flatMap {
@@ -159,7 +160,7 @@ object JDBCQueries {
     def loop(offs: Int, l: HList): HList = {
       if (offs < 0) l else {
         val (name, col) = cols.columns(offs)
-        col.getByIndex(offs + i, rs) match {
+        col.read(offs + i, rs) match {
           case None => throw new Error(s"Column $name is null")
           case Some(v) => loop(offs - 1, v :: l)
         }

@@ -7,7 +7,8 @@ trait JDBCConfig {
   type C[A] <: JDBCColumn
 
   def escapeTableName: String => String
-  def escapeColumnName: String => String
+  def escapeColumnName: JDBCColumnBinding => String
+  def createParamString: JDBCColumnBinding => String
   def sqlTypeToString: SQLType => String
   def dropTable: String => String
   def logPrepare: String => Unit
@@ -17,7 +18,8 @@ trait JDBCConfig {
 }
 
 case class JDBCSQLConfig[C0[_] <: JDBCColumn]
-(escapeTableName: String => String, escapeColumnName: String => String,
+(escapeTableName: String => String, escapeColumnName: JDBCColumnBinding => String,
+ createParamString: JDBCColumnBinding => String,
  sqlTypeToString: SQLType => String, dropTable: String => String,
  logPrepare: String => Unit = _ => (),
  logBind: (() => (String, Seq[BindLog])) => Unit = _ => ()) extends JDBCConfig
@@ -32,33 +34,41 @@ case class UpdateBinding(vals: Seq[Any]) extends BindLog
 
 sealed trait JDBCPreparedQuery
 
+case class JDBCColumnBinding(name: String, sqlType: SQLType, nullable: Boolean)
+
+object JDBCColumnBinding
+{
+  def apply[C[_] <: JDBCColumn](p: (String, C[_])): JDBCColumnBinding = JDBCColumnBinding(p._1, p._2.sqlType, p._2.nullable)
+}
+
 case class JDBCDropTable(name: String) extends JDBCPreparedQuery
 
-case class JDBCCreateTable(name: String, columns: Seq[(String, Boolean, SQLType)], primaryKey: Seq[String]) extends JDBCPreparedQuery
+case class JDBCCreateTable(name: String, columns: Seq[JDBCColumnBinding], primaryKey: Seq[JDBCColumnBinding]) extends JDBCPreparedQuery
 
 case class JDBCTruncate(name: String) extends JDBCPreparedQuery
 
-case class JDBCInsert(table: String, columns: Seq[String]) extends JDBCPreparedQuery
+case class JDBCInsert(table: String, columns: Seq[JDBCColumnBinding]) extends JDBCPreparedQuery
 
-case class JDBCUpdate(table: String, assignments: Seq[String], where: Seq[JDBCWhereClause]) extends JDBCPreparedQuery
+case class JDBCUpdate(table: String, assignments: Seq[JDBCColumnBinding], where: Seq[JDBCWhereClause]) extends JDBCPreparedQuery
 
 case class JDBCDelete(table: String, where: Seq[JDBCWhereClause]) extends JDBCPreparedQuery
 
-case class JDBCSelect(table: String, columns: Seq[String], where: Seq[JDBCWhereClause], ordering: Seq[(String, Boolean)], limit: Boolean) extends JDBCPreparedQuery
+case class JDBCSelect(table: String, columns: Seq[JDBCColumnBinding], where: Seq[JDBCWhereClause],
+                      ordering: Seq[(JDBCColumnBinding, Boolean)], limit: Boolean) extends JDBCPreparedQuery
 
 case class JDBCRawSQL(sql: String) extends JDBCPreparedQuery
 
 sealed trait JDBCWhereClause
 
-case class EQ(column: String) extends JDBCWhereClause
+case class EQ(column: JDBCColumnBinding) extends JDBCWhereClause
 
-case class GT[A](column: String) extends JDBCWhereClause
+case class GT[A](column: JDBCColumnBinding) extends JDBCWhereClause
 
-case class GTE[A](column: String) extends JDBCWhereClause
+case class GTE[A](column: JDBCColumnBinding) extends JDBCWhereClause
 
-case class LT[A](column: String) extends JDBCWhereClause
+case class LT[A](column: JDBCColumnBinding) extends JDBCWhereClause
 
-case class LTE[A](column: String) extends JDBCWhereClause
+case class LTE[A](column: JDBCColumnBinding) extends JDBCWhereClause
 
 object JDBCPreparedQuery {
 
@@ -66,7 +76,7 @@ object JDBCPreparedQuery {
 
   def asSQL[C[_]](q: JDBCPreparedQuery, mc: JDBCConfig) : String = {
     def whereClause(w: Seq[JDBCWhereClause]): String = {
-      def singleCC(c: String, op: String) = s"${mc.escapeColumnName(c)} ${op} ?"
+      def singleCC(c: JDBCColumnBinding, op: String) = s"${mc.escapeColumnName(c)} $op ${mc.createParamString(c)}"
 
       def clauseToString(c: JDBCWhereClause) = c match {
         case EQ(column) => singleCC(column, "=")
@@ -79,23 +89,23 @@ object JDBCPreparedQuery {
       if (w.isEmpty) "" else s"WHERE ${w.map(clauseToString).mkString(" AND ")}"
     }
 
-    def orderBy(oc: Seq[(String, Boolean)]): String = {
-      def orderClause(t: (String, Boolean)) = s"${mc.escapeColumnName(t._1)} ${if (t._2) "ASC" else "DESC"}"
+    def orderBy(oc: Seq[(JDBCColumnBinding, Boolean)]): String = {
+      def orderClause(t: (JDBCColumnBinding, Boolean)) = s"${mc.escapeColumnName(t._1)} ${if (t._2) "ASC" else "DESC"}"
 
       if (oc.isEmpty) "" else s"ORDER BY ${oc.map(orderClause).mkString(",")}"
     }
 
     q match {
       case JDBCSelect(t, c, w, o, l) => s"SELECT ${c.map(mc.escapeColumnName).mkString(",")} FROM ${mc.escapeTableName(t)} ${whereClause(w)} ${orderBy(o)}"
-      case JDBCInsert(t, c) => s"INSERT INTO ${mc.escapeTableName(t)} ${brackets(c.map(mc.escapeColumnName))} VALUES ${brackets(c.map(_ => "?"))}"
+      case JDBCInsert(t, c) => s"INSERT INTO ${mc.escapeTableName(t)} ${brackets(c.map(mc.escapeColumnName))} VALUES ${brackets(c.map(mc.createParamString))}))}"
       case JDBCDelete(t, w) => s"DELETE FROM ${mc.escapeTableName(t)} ${whereClause(w)}"
       case JDBCUpdate(t, a, w) =>
-        val asgns = a.map(c => s"${mc.escapeColumnName(c)} = ?")
+        val asgns = a.map(c => s"${mc.escapeColumnName(c)} = ${mc.createParamString(c)}")
         s"UPDATE ${mc.escapeTableName(t)} SET ${asgns.mkString(",")} ${whereClause(w)}"
       case JDBCRawSQL(sql) => sql
       case JDBCCreateTable(t, c, pk) =>
-        val colStrings = c.map {
-          case (cn, nullable, ct) => s"${mc.escapeColumnName(cn)} ${mc.sqlTypeToString(ct)}${if (!nullable) " NOT NULL" else ""}"
+        val colStrings = c.map { cb =>
+          s"${mc.escapeColumnName(cb)} ${mc.sqlTypeToString(cb.sqlType)}${if (!cb.nullable) " NOT NULL" else ""}"
         }
         val withPK = colStrings :+ s"PRIMARY KEY${brackets(pk.map(mc.escapeColumnName))}"
         s"CREATE TABLE ${mc.escapeTableName(t)} ${brackets(withPK)}"

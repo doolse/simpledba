@@ -51,12 +51,14 @@ val subSettings = Seq(
 ) ++ commonSettings
 
 lazy val coreDep = core % "test->test;compile->compile"
+lazy val jdbcDep = jdbc % "test->test;compile->compile"
 //lazy val dynamodb = project.settings(subSettings: _*).dependsOn(coreDep)
 //lazy val cassandra = project.settings(subSettings: _*).dependsOn(coreDep)
 lazy val jdbc = project.settings(subSettings: _*).dependsOn(coreDep)
+lazy val postgres = project.settings(subSettings: _*).dependsOn(jdbcDep)
 //lazy val circe = project.settings(subSettings: _*).dependsOn(core)
 lazy val core = project.settings(subSettings: _*)
 
-lazy val parent = (project in file(".")).aggregate(core, jdbc)
+lazy val parent = (project in file(".")).aggregate(core, jdbc, postgres)
 
 commonSettings

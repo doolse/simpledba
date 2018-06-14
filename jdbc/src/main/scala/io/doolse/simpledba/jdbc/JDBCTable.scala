@@ -37,7 +37,7 @@ case class JDBCTable[C[_] <: JDBCColumn, T, R <: HList, K <: HList]
 
     def truncate = Stream(writeOp(JDBCTruncate(name)))
 
-    val insertQuery = JDBCInsert(name, all.columns.map(_._1))
+    val insertQuery = JDBCInsert(name, all.columns.map(JDBCColumnBinding.apply[C]))
 
     override def insertAll: Pipe[JDBCIO, T, WriteOp] = _.map {
       t => JDBCWriteOp(insertQuery, config, bindCols(all, all.iso.to(t))
@@ -58,7 +58,7 @@ case class JDBCTable[C[_] <: JDBCColumn, T, R <: HList, K <: HList]
             updateVals <- bindCols(all, newRec)
             wc <- bind
           } yield Seq(UpdateBinding(updateVals)) ++ wc
-          Stream(JDBCWriteOp(JDBCUpdate(name, all.columns.map(_._1),
+          Stream(JDBCWriteOp(JDBCUpdate(name, all.columns.map(JDBCColumnBinding.apply[C]),
             whereClauses), config, binder))
         }
     }
@@ -86,10 +86,8 @@ case class JDBCTable[C[_] <: JDBCColumn, T, R <: HList, K <: HList]
   private def writeOp(q: JDBCPreparedQuery) =
     JDBCWriteOp(q, config, Kleisli.pure(Seq.empty))
 
-  def createTable: JDBCWriteOp = writeOp(JDBCCreateTable(name, all.columns.map {
-    case (n, c) => (n, c.nullable, c.sqlType)
-  },
-    keys.columns.map(_._1)))
+  def createTable: JDBCWriteOp = writeOp(JDBCCreateTable(name, all.columns.map(JDBCColumnBinding.apply[C]),
+    keys.columns.map(JDBCColumnBinding.apply[C])))
 
   def dropTable: JDBCWriteOp = writeOp(JDBCDropTable(name))
 }

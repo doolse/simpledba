@@ -6,20 +6,6 @@ import java.util.UUID
 
 import io.doolse.simpledba.Iso
 
-case class PostgresColumn[AA](wrapped: StdJDBCColumn[AA]) extends WrappedColumn[AA, PostgresColumn]
-{
-  def mapped[B] = PostgresColumn.apply[B]
-}
-
-object PostgresColumn
-{
-  implicit def stdCol[A](implicit std: StdJDBCColumn[A]) = PostgresColumn(std)
-
-  implicit def isoCol[A, B](implicit iso: Iso[B, A], pgCol: PostgresColumn[A]): PostgresColumn[B]
-    = pgCol.isoMap(iso)
-
-  implicit def uuidCol = PostgresColumn[UUID](StdJDBCColumn.uuidCol)
-}
 
 case class HSQLColumn[AA](wrapped: StdJDBCColumn[AA]) extends WrappedColumn[AA, HSQLColumn]
 {
@@ -52,13 +38,6 @@ object Dialects {
     case LONGNVARCHAR => "LONGVARCHAR"
   } : PartialFunction[SQLType, String]) orElse stdSQLTypeNames
 
-  val pgsqlTypeNames : SQLType => String = ({
-    case FLOAT => "REAL"
-    case DOUBLE => "DOUBLE PRECISION"
-    case LONGNVARCHAR => "TEXT"
-    case UuidSQLType => "UUID"
-  } : PartialFunction[SQLType, String]) orElse stdSQLTypeNames
-
   val sqlServerTypeNames : SQLType => String = ({
     case LONGNVARCHAR => "NVARCHAR(MAX)"
     case TIMESTAMP => "DATETIME"
@@ -72,12 +51,13 @@ object Dialects {
     case BOOLEAN => "NUMBER(1,0)"
   } : PartialFunction[SQLType, String]) orElse stdSQLTypeNames
 
-  val DefaultReserved = Set("user", "begin", "end")
+  val DefaultReserved = Set("user", "begin", "end", "order", "by", "select", "from")
 
   val defaultEscapeReserved = escapeReserved(DefaultReserved) _
-  val hsqldbConfig = JDBCSQLConfig[HSQLColumn](defaultEscapeReserved, defaultEscapeReserved, hsqlTypeNames, defaultDropTableSQL)
-  val postgresConfig = JDBCSQLConfig[PostgresColumn](defaultEscapeReserved, defaultEscapeReserved, pgsqlTypeNames,
-    t => s"DROP TABLE IF EXISTS $t CASCADE")
+  val defaultEscapeColumn = (escapeReserved(DefaultReserved) _).compose[JDBCColumnBinding](_.name)
+  val defaultParam = (_: JDBCColumnBinding) => "?"
+  val hsqldbConfig = JDBCSQLConfig[HSQLColumn](defaultEscapeReserved, defaultEscapeColumn, defaultParam, hsqlTypeNames, defaultDropTableSQL)
+
 //  val sqlServerConfig = JDBCSQLConfig(defaultEscapeReserved, defaultEscapeReserved, sqlServerTypeNames,
 //    t => s"DROP TABLE IF EXISTS $t", stdSpecialCols)
 //
