@@ -21,5 +21,4 @@ trait WriteQueries[F[_], T] {
 
   def delete(t: T) = deleteAll(Stream(t))
 
-  def truncate: Stream[F, WriteOp]
 }

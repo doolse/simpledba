@@ -3,7 +3,7 @@ package io.doolse.simpledba.jdbc.test
 import cats._
 import cats.effect.Sync
 import fs2._
-import io.doolse.simpledba.{Flushable, WriteQueries}
+import io.doolse.simpledba.{Flushable, WriteOp, WriteQueries}
 import org.scalacheck.{Arbitrary, Gen, Prop}
 import Arbitrary._
 
@@ -13,8 +13,8 @@ import Arbitrary._
 abstract class AbstractRelationsProperties[F[_] : Flushable : Sync](name: String)(implicit M: Monad[F]) extends SimpleDBAProperties(name) {
   implicit def runProp(fa: F[Prop]): Prop = run(fa)
 
-  def crudProps[A : Arbitrary, K](wq: WriteQueries[F, A], f: A => Stream[F, A], expected: Int, genUpdate: Gen[(A, A)]) =
-    CrudProperties[F, A, K](interpret, wq, f, expected, genUpdate)
+  def crudProps[A : Arbitrary, K](wq: WriteQueries[F, A], truncate: Stream[F, WriteOp], f: A => Stream[F, A], expected: Int, genUpdate: Gen[(A, A)]) =
+    CrudProperties[F, A, K](interpret, wq, truncate, f, expected, genUpdate)
 
   val interpret = new (F ~> Id) {
     def apply[A](fa: F[A]): Id[A] = run(fa)

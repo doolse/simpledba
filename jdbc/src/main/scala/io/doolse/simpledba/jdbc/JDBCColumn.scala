@@ -60,12 +60,6 @@ case class ArraySQLType(elementType: SQLType) extends SQLType {
   def getVendor = "io.doolse.simpledba"
 }
 
-case class SizedSQLType(subType: SQLType, size: Int) extends SQLType {
-  def getName = "SIZED"
-  def getVendorTypeNumber = 3
-  def getVendor = "io.doolse.simpledba"
-}
-
 object StdJDBCColumn
 {
   def colFromGetter[A](sql: SQLType, nullable: Boolean, getter: ResultSet => Int => A,

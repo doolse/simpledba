@@ -25,17 +25,13 @@ case class JDBCRelation[C[_] <: JDBCColumn, T, R <: HList](name: String, sqlMapp
   }
 }
 
-case class JDBCWriteOp(q: JDBCPreparedQuery, config: JDBCConfig, binder: BindFunc[Seq[BindLog]]) extends WriteOp
-
 case class JDBCTable[C[_] <: JDBCColumn, T, R <: HList, K <: HList]
 (name: String, config: JDBCConfig, all: Columns[C, T, R],
  keys: ColumnSubset[C, R, K, K], toKey: R => K) {
   def col(w: Witness)(implicit ss: ColumnSubsetBuilder[R, w.T :: HNil]): ColumnSubset[C, R, ss.Out, ss.Out] =
     all.subset._1
 
-  def writes = new WriteQueries[JDBCIO, T] {
-
-    def truncate = Stream(writeOp(JDBCTruncate(name)))
+  def writes: WriteQueries[JDBCIO, T] = new WriteQueries[JDBCIO, T] {
 
     val insertQuery = JDBCInsert(name, all.columns.map(JDBCColumnBinding.apply[C]))
 
@@ -83,11 +79,6 @@ case class JDBCTable[C[_] <: JDBCColumn, T, R <: HList, K <: HList]
 
   def allRows: Stream[JDBCIO, T] = query.build[Unit].apply()
 
-  private def writeOp(q: JDBCPreparedQuery) =
-    JDBCWriteOp(q, config, Kleisli.pure(Seq.empty))
-
-  def createTable: JDBCWriteOp = writeOp(JDBCCreateTable(name, all.columns.map(JDBCColumnBinding.apply[C]),
-    keys.columns.map(JDBCColumnBinding.apply[C])))
-
-  def dropTable: JDBCWriteOp = writeOp(JDBCDropTable(name))
+  def definition: JDBCTableDefinition = JDBCTableDefinition(name, all.columns.map(JDBCColumnBinding.apply[C]),
+    keys.columns.map(_._1))
 }

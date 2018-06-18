@@ -14,7 +14,7 @@ import io.doolse.simpledba.syntax._
   */
 
 object CrudProperties {
-  def apply[F[_] : Monad : Sync : Flushable, A: Arbitrary, K](run: F ~> Id, writes: WriteQueries[F, A],
+  def apply[F[_] : Monad : Sync : Flushable, A: Arbitrary, K](run: F ~> Id, writes: WriteQueries[F, A],  truncate: Stream[F, WriteOp],
                                                                    findAll: A => Stream[F, A], expected: Int, genUpdate: Gen[(A, A)])
   = {
     implicit def runProp(fa: F[Prop]): Prop = run(fa)
@@ -27,7 +27,7 @@ object CrudProperties {
 
       property("createReadDelete") = forAll { (a: A) =>
         for {
-          _ <- flushed(writes.truncate ++ writes.insert(a))
+          _ <- flushed(truncate ++ writes.insert(a))
           count <- countAll(a)
           _ <- flushed(writes.delete(a))
           afterDel <- countAll(a)
@@ -40,7 +40,7 @@ object CrudProperties {
 
       property("update") = forAll(genUpdate) { case (a1, a2) =>
         for {
-          _ <- flushed(writes.truncate ++ writes.insert(a1))
+          _ <- flushed(truncate ++ writes.insert(a1))
           _ <- flushed(writes.update(a1, a2))
           countOrig <- countAll(a1)
           countNew <- countAll(a2)

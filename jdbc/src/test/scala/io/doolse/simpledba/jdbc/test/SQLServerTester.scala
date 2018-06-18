@@ -1,21 +1,20 @@
-package io.doolse.simpledba.postgres.test
+package io.doolse.simpledba.jdbc.test
 
 import java.sql.DriverManager
 
 import fs2.Stream
 import io.doolse.simpledba.jdbc._
-import io.doolse.simpledba.jdbc.test.Test
+import io.doolse.simpledba.jdbc.sqlserver._
 import io.doolse.simpledba.jdbc.test.Test._
-import io.doolse.simpledba.postgres._
 import io.doolse.simpledba.syntax._
 import shapeless._
 import shapeless.syntax.singleton._
 
-object Tester extends App {
+object SQLServerTester extends App {
 
-  val connection = DriverManager.getConnection("jdbc:postgresql:simpledba2", "equellauser", "tle010")
+  val connection = DriverManager.getConnection("jdbc:sqlserver://localhost:1433;database=simpledba;", "testuser", "testPassword12")
 
-  implicit val config = postgresConfig
+  implicit val config = sqlServerConfig.withBindingLogger(msg => println(msg()._1))
   implicit val cols = TableMapper[EmbeddedFields].embedded
   val instTable = TableMapper[Inst].table("inst").key('uniqueid)
   val userTable = TableMapper[User].table("user").key('firstName, 'lastName)
@@ -29,8 +28,10 @@ object Tester extends App {
     userTable.query.whereEQ(userTable.keys).build[Username])
 
   val prog = for {
-    _ <- Stream(instTable.dropTable, instTable.createTable,
-        userTable.dropTable, userTable.createTable).covary[JDBCIO].flush
+    t <- Stream(instTable, userTable).flatMap { t =>
+      val d = t.definition
+      dropTable(d) ++ createTable(d)
+    }.flush
     r <- Test.doTest(q)
   } yield r
 

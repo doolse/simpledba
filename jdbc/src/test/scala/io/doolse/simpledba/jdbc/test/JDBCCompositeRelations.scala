@@ -11,11 +11,13 @@ object JDBCCompositeRelations extends CompositeRelations[JDBCIO]("JDBC Composite
 
   lazy val queries2 = {
     setup(compTable)
-    Queries2(compTable.writes, compTable.byPK)
+    Queries2(compTable.writes, compTable.byPK,
+      rawSQL(StandardJDBC.stdTruncateTable(compTable.definition)))
   }
 
   lazy val queries3 : Queries3[JDBCIO] = {
     setup(compRel3)
-    Queries3(compRel3.writes, compRel3.byPK)
+    Queries3(compRel3.writes, compRel3.byPK,
+      rawSQL(StandardJDBC.stdTruncateTable(compRel3.definition)))
   }
 }
