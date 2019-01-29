@@ -9,12 +9,12 @@ object TableMapper {
 
   class RelationBuilder[T, C[_] <: JDBCColumn](config: JDBCConfig)
   {
-    def embedded[GRepr <: HList, Repr0 <: HList]
+    def embedded[GR <: HList, R <: HList]
     (implicit
-     gen: LabelledGeneric.Aux[T, GRepr],
-     columns: ColumnBuilder.Aux[C, GRepr, Repr0]):
-     ColumnBuilder.Aux[C, T, Repr0] = new ColumnBuilder[C, T] {
-      type Repr = Repr0
+     gen: LabelledGeneric.Aux[T, GR],
+     columns: ColumnBuilder.Aux[C, GR, R]):
+     ColumnBuilder.Aux[C, T, R] = new ColumnBuilder[C, T] {
+      type Repr = R
       def apply() = columns().compose(Iso(gen.to, gen.from))
     }
 

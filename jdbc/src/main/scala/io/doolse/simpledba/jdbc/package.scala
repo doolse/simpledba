@@ -5,14 +5,15 @@ import java.sql.{Connection, DriverManager, PreparedStatement}
 import cats.data.{Kleisli, StateT}
 import cats.effect.IO
 import com.typesafe.config.{Config, ConfigFactory}
-import fs2.Sink
-import fs2.Stream
+import fs2.{Sink, Stream}
 
 package object jdbc {
 
   type JDBCIO[A] = StateT[IO, Connection, A]
 
   type BindFunc[A] = Kleisli[StateT[IO, Int, ?], (Connection, PreparedStatement), A]
+
+  type ParamBinder = (Int, Connection, PreparedStatement) => Unit
 
   implicit val flusher : Flushable[JDBCIO] = new Flushable[JDBCIO] {
     def flush: Sink[JDBCIO, WriteOp] = JDBCQueries.flush
@@ -27,8 +28,11 @@ package object jdbc {
     } else DriverManager.getConnection(jdbcUrl)
   }
 
-  def rawSQL(sql: String)(implicit config: JDBCConfig): Stream[JDBCIO, WriteOp] = {
-    Stream.emit(JDBCWriteOp(JDBCRawSQL(sql), config, Kleisli.pure(Seq.empty)))
+  def rawSQL(sql: String)(implicit config: JDBCConfig): WriteOp = {
+    JDBCWriteOp(JDBCRawSQL(sql), config, Kleisli.pure(Seq.empty))
   }
 
+  def rawSQLStream(sql: Stream[JDBCIO, String])(implicit config: JDBCConfig): Stream[JDBCIO, WriteOp] = {
+    sql.map(rawSQL)
+  }
 }

@@ -1,12 +1,13 @@
 package io.doolse.simpledba
 
+import cats.Functor
 import cats.arrow.{Compose, Profunctor}
-import shapeless.{::, Generic, HList, HNil, Nat, Witness}
-import shapeless.labelled.FieldType
-import shapeless.ops.hlist.{Length, Prepend, Split, ToList, ZipWithKeys}
-import shapeless.ops.record.{Keys, SelectAll}
-import cats.syntax.compose._
 import cats.instances.function._
+import cats.syntax.compose._
+import shapeless.labelled.FieldType
+import shapeless.ops.hlist.{Length, LiftAll, Prepend, Split, ToList, ZipWithKeys}
+import shapeless.ops.record.{Keys, SelectAll}
+import shapeless.{::, HList, HNil, Nat, Witness}
 
 case class Iso[A, B](to: A => B, from: B => A)
 
@@ -18,37 +19,53 @@ object Iso {
   }
 }
 
-trait AutoConvert[A, B] extends (A => B)
-
-object AutoConvert
+class Cols[Keys <: HList]
 {
-  implicit def oneElement[A] = new AutoConvert[A, A :: HNil] {
-    override def apply(a: A): A :: HNil = a :: HNil
-  }
-
-  implicit def unitConvert[A] = new AutoConvert[A, Unit] {
-    def apply(a: A) = ()
-  }
-
-  implicit def genConvert[A, Repr](implicit gen: Generic.Aux[A, Repr]) = new AutoConvert[A, Repr] {
-    def apply(a: A) = gen.to(a)
-  }
+  def ++[Keys2 <: HList](cols2: Cols[Keys2])(implicit prepend: Prepend[Keys, Keys2]): Cols[prepend.Out] = new Cols[prepend.Out]
 }
 
-trait ColumnRecord[C[_], R <: HList]
+object Cols
 {
-  def columns: Seq[(String, C[_])]
+  def apply(w1: Witness): Cols[w1.T :: HNil] = new Cols
+  def apply(w1: Witness, w2: Witness): Cols[w1.T :: w2.T :: HNil] = new Cols
+  def apply(w1: Witness, w2: Witness, w3: Witness): Cols[w1.T :: w2.T :: w3.T :: HNil] = new Cols
+  def apply(w1: Witness, w2: Witness, w3: Witness, w4: Witness): Cols[w1.T :: w2.T :: w3.T :: w4.T :: HNil] = new Cols
+  def apply(w1: Witness, w2: Witness, w3: Witness, w4: Witness, w5: Witness): Cols[w1.T :: w2.T :: w3.T :: w4.T :: w5.T :: HNil] = new Cols
+}
+
+sealed trait ColumnRecord[C[_], A, R <: HList]
+{
+  def columns: Seq[(A, C[_])]
+}
+
+object ColumnRecord
+{
+  def prepend[C[_], A, R1 <: HList, R2 <: HList](c1: ColumnRecord[C, A, R1], c2: ColumnRecord[C, A, R2])(implicit prepend: Prepend[R1, R2]):
+    ColumnRecord[C, A, prepend.Out] = ColumnRecord(c1.columns ++ c2.columns)
+
+  def empty[C[_], A, R <: HList] = new ColumnRecord[C, A, R] {
+    override def columns: Seq[(A, C[_])] = Seq.empty
+  }
+
+  def apply[C[_], A, R <: HList](cols: Seq[(A, C[_])]): ColumnRecord[C, A, R] = new ColumnRecord[C, A, R] {
+    def columns = cols
+  }
+
+  implicit def unitColumnRecord[R <: HList, C[_], OutC <: HList](implicit liftAll: LiftAll.Aux[C, R, OutC],
+                                                                 toList: ToList[OutC, C[_]]): ColumnRecord[C, Unit, R] =
+  ColumnRecord(toList(liftAll.instances).map(c => ((), c)))
+
 }
 
 case class ColumnSubset[C[_], R, T, Repr <: HList](columns: Seq[(String, C[_])], iso: Iso[T, Repr])
-  extends ColumnRecord[C, Repr]
+  extends ColumnRecord[C, String, Repr]
 
 object ColumnSubset
 {
   def empty[C[_], R] = ColumnSubset[C, R, HNil, HNil](Seq.empty, Iso.id)
 }
 
-case class Columns[C[_], T, R <: HList](columns: Seq[(String, C[_])], iso: Iso[T, R]) extends ColumnRecord[C, R]
+case class Columns[C[_], T, R <: HList](columns: Seq[(String, C[_])], iso: Iso[T, R]) extends ColumnRecord[C, String, R]
 {
   def compose[T2](ciso: Iso[T2, T]): Columns[C, T2, R] = copy(iso = ciso >>> iso)
 
@@ -71,7 +88,21 @@ trait ColumnBuilder[C[_], T] {
 }
 
 
-object ColumnBuilder {
+trait ColumnBuilderLP
+{
+  implicit def singleColumn[C[_], K <: Symbol, V]
+  (implicit wk: Witness.Aux[K], headColumn: C[V])
+  : ColumnBuilder.Aux[C, FieldType[K, V], FieldType[K, V] :: HNil]
+  = new ColumnBuilder[C, FieldType[K, V]] {
+    type Repr = FieldType[K, V] :: HNil
+
+    override def apply() =
+      Columns(Seq(wk.value.name -> headColumn),
+        Iso(_ :: HNil, _.head))
+  }
+}
+
+object ColumnBuilder extends ColumnBuilderLP {
   type Aux [C[_], T, Repr0 <: HList] = ColumnBuilder[C, T]
     {
       type Repr = Repr0
@@ -88,16 +119,6 @@ object ColumnBuilder {
   (implicit embeddedCols: ColumnBuilder.Aux[C, V, Repr]) : ColumnBuilder.Aux[C, FieldType[K, V], Repr]
   = embeddedCols.asInstanceOf[ColumnBuilder.Aux[C, FieldType[K, V], Repr]]
 
-  implicit def singleColumn[C[_], K <: Symbol, V]
-  (implicit wk: Witness.Aux[K], headColumn: C[V])
-  : ColumnBuilder.Aux[C, FieldType[K, V], FieldType[K, V] :: HNil]
-  = new ColumnBuilder[C, FieldType[K, V]] {
-    type Repr = FieldType[K, V] :: HNil
-
-    override def apply() =
-      Columns(Seq(wk.value.name -> headColumn),
-        Iso(_ :: HNil, _.head))
-  }
 
   implicit def hconsRelation[C[_], H, HOut <: HList,
   HLen <: Nat, T <: HList, TOut <: HList, Out <: HList]
@@ -134,6 +155,7 @@ object ColumnSubsetBuilder {
   type Aux[Repr, Keys, Out0] = ColumnSubsetBuilder[Repr, Keys] {
     type Out = Out0
   }
+
   implicit def isSubset[Repr <: HList, K <: HList, KOut <: HList, Out0 <: HList, RecOut <: HList]
   (implicit sa: SelectAll.Aux[Repr, K, Out0], withKeys: ZipWithKeys.Aux[K, Out0, RecOut],
    keys : Keys.Aux[RecOut, KOut],

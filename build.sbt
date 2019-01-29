@@ -10,8 +10,8 @@ lazy val config = ConfigFactory.parseFile(prjDir / "application.conf")
 
 val commonSettings = Seq(
   organization := "io.github.doolse",
-  version := "0.1.4-SNAPSHOT",
-  scalaVersion := "2.12.4",
+  version := "0.1.6-SNAPSHOT",
+  scalaVersion := "2.12.6",
   resolvers += Resolver.sonatypeRepo("snapshots"),
 
   licenses := Seq("BSD-style" -> url("http://www.opensource.org/licenses/bsd-license.php")),
@@ -47,16 +47,16 @@ val subSettings = Seq(
   scalacOptions += "-Ypartial-unification",
   scalacOptions ++= Seq("-P:splain:implicits:true", "-P:splain:color:false"),
   addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.3"),
-  addCompilerPlugin("io.tryp" % "splain" % "0.2.7" cross CrossVersion.patch)
+  addCompilerPlugin("io.tryp" % "splain" % "0.3.1" cross CrossVersion.patch)
 ) ++ commonSettings
 
 lazy val coreDep = core % "test->test;compile->compile"
 //lazy val dynamodb = project.settings(subSettings: _*).dependsOn(coreDep)
 //lazy val cassandra = project.settings(subSettings: _*).dependsOn(coreDep)
 lazy val jdbc = project.settings(subSettings: _*).dependsOn(coreDep)
-//lazy val circe = project.settings(subSettings: _*).dependsOn(core)
+lazy val circe = project.settings(subSettings: _*).dependsOn(coreDep)
 lazy val core = project.settings(subSettings: _*)
 
-lazy val parent = (project in file(".")).aggregate(core, jdbc)
+lazy val parent = (project in file(".")).aggregate(core, jdbc, circe)
 
 commonSettings

@@ -1,109 +1,139 @@
 package io.doolse.simpledba.jdbc
 
 import java.sql.{Connection, PreparedStatement, ResultSet, _}
+import java.time.Instant
 import java.util.UUID
 
 import io.doolse.simpledba.Iso
 
+import scala.collection.mutable
+import scala.reflect.ClassTag
+
+case class ColumnType(typeName: String, nullable: Boolean = false, flags: Seq[Any] = Seq.empty)
+{
+  def hasFlag(flag: Any): Boolean = flags.contains(flag)
+
+  def withFlag(a: Any): ColumnType = {
+    copy(flags = flags :+ a)
+  }
+}
+
 trait JDBCColumn {
   type A
 
-  def sqlType: SQLType
+  def jdbcType: JDBCType
 
-  def nullable: Boolean
+  def columnType: ColumnType
+
+  def bindValue: A => ParamBinder
+
+  def bindUpdate: (A, A) => Option[ParamBinder]
 
   def read: (Int, ResultSet) => Option[A]
-
-  def bind: (Int, A, Connection, PreparedStatement) => Unit
 }
 
-trait WrappedColumn[AA, C[_]] extends JDBCColumn
+trait WrappedColumn[AA] extends JDBCColumn
 {
   val wrapped: StdJDBCColumn[AA]
 
   override type A = AA
 
-  override def sqlType: SQLType = wrapped.sqlType
-
-  override def nullable: Boolean = wrapped.nullable
+  override def jdbcType: JDBCType = wrapped.jdbcType
 
   override def read: (Int, ResultSet) => Option[A] = wrapped.read
 
-  override def bind: (Int, A, Connection, PreparedStatement) => Unit = wrapped.bind
+  override def bindValue: AA => ParamBinder = wrapped.bind
 
-  def mapped[A0]: StdJDBCColumn[A0] => C[A0]
-
-  def isoMap[B](iso: Iso[B, AA]): C[B] = {
-    mapped(wrapped.isoMap(iso))
+  override def bindUpdate: (AA, AA) => Option[ParamBinder] = (o,n) => if (o == n) None else {
+    Some(wrapped.bind(n))
   }
+
 }
 
-case class StdJDBCColumn[AA](sqlType: SQLType, nullable: Boolean, read: (Int, ResultSet) => Option[AA],
-                            bind: (Int, AA, Connection, PreparedStatement) => Unit, cast: String => String) extends JDBCColumn
+
+case class SizedIso[A, B](size: Int, to: A => B, from: B => A)
+
+case class StdJDBCColumn[A](jdbcType: JDBCType, read: (Int, ResultSet) => Option[A],
+                            bind: A => (Int, Connection, PreparedStatement) => Unit)
 {
-  override type A = AA
+  def isoMap[B](iso: Iso[B, A]): StdJDBCColumn[B] = {
 
-  def isoMap[B](iso: Iso[B, AA]): StdJDBCColumn[B] = {
-    StdJDBCColumn[B](sqlType, nullable, (i,rs) => read(i, rs).map(iso.from), (i,a,c,rs) => bind(i, iso.to(a), c, rs), cast)
+    StdJDBCColumn[B](jdbcType, (i,rs) => read(i, rs).map(iso.from),
+      b => bind(iso.to(b)))
   }
-}
-
-case object UuidSQLType extends SQLType {
-  def getName = "UUID"
-  def getVendorTypeNumber = 1
-  def getVendor = "io.doolse.simpledba"
-}
-
-case class ArraySQLType(elementType: SQLType) extends SQLType {
-  def getName = "ARRAY"
-  def getVendorTypeNumber = 2
-  def getVendor = "io.doolse.simpledba"
 }
 
 object StdJDBCColumn
 {
-  def colFromGetter[A](sql: SQLType, nullable: Boolean, getter: ResultSet => Int => A,
-                       bind: (Int, A, Connection, PreparedStatement) => Unit): StdJDBCColumn[A] = {
-    StdJDBCColumn[A](sql, nullable,
-      (i, rs) => Option(getter(rs)(i)).filterNot(_ => rs.wasNull()), bind, identity)
+  def instantIso: Iso[Instant, java.sql.Timestamp] = Iso(java.sql.Timestamp.from, _.toInstant)
+
+  def colFromGetter[A](sql: JDBCType, getter: ResultSet => Int => A,
+                       bind: A => (Int, Connection, PreparedStatement) => Unit): StdJDBCColumn[A] = {
+    StdJDBCColumn[A](sql,
+      (i, rs) => Option(getter(rs)(i)).filterNot(_ => rs.wasNull()), bind)
   }
 
-  implicit val stringCol =
-    colFromGetter[String](JDBCType.LONGNVARCHAR, false,
+  val stringCol =
+    colFromGetter[String](JDBCType.LONGVARCHAR,
       _.getString,
-    (i,v,_, ps) => ps.setString(i, v))
+    v => (i,_, ps) => ps.setString(i, v))
 
-  implicit val intCol = colFromGetter[Int](JDBCType.INTEGER, false,
+  val intCol = colFromGetter[Int](JDBCType.INTEGER,
     _.getInt,
-    (i,v,_, ps) => ps.setInt(i, v))
+    v => (i,_, ps) => ps.setInt(i, v))
 
-  implicit val longCol = colFromGetter[Long](JDBCType.BIGINT, false,
+  val longCol = colFromGetter[Long](JDBCType.BIGINT,
     _.getLong,
-    (i,v,_, ps) => ps.setLong(i, v))
+    v => (i,_, ps) => ps.setLong(i, v)
+  )
 
-  implicit val boolCol = colFromGetter[Boolean](JDBCType.BOOLEAN, false,
+  val boolCol = colFromGetter[Boolean](JDBCType.BOOLEAN,
     _.getBoolean,
-    (i,v,_, ps) => ps.setBoolean(i, v))
+    v => (i,_, ps) => ps.setBoolean(i, v))
 
-  implicit val doubleCol = colFromGetter[Double](JDBCType.DOUBLE, false,
+  val floatCol = colFromGetter[Float](JDBCType.FLOAT,
+    _.getFloat,
+    v => (i, _, ps) => ps.setFloat(i, v))
+
+  val doubleCol = colFromGetter[Double](JDBCType.DOUBLE,
     _.getDouble,
-    (i, v, _, ps) => ps.setDouble(i, v))
+    v => (i, _, ps) => ps.setDouble(i, v))
 
-  def objectCol[A](sqlType: SQLType, iso: Iso[A, Object]) : StdJDBCColumn[A] =
-    colFromGetter[Object](sqlType, false, rs => i => rs.getObject(i), (i,v,_,ps) => ps.setObject(i, v)).isoMap(iso)
+  val timestampCol = colFromGetter[java.sql.Timestamp](JDBCType.TIMESTAMP,
+    _.getTimestamp,
+    v => (i, _, ps) => ps.setTimestamp(i, v))
 
-  val uuidCol = colFromGetter[UUID](UuidSQLType, false,
+  val instantCol = timestampCol.isoMap(instantIso)
+
+  def objectCol[A](jdbcType: JDBCType, iso: Iso[A, Object]) : StdJDBCColumn[A] =
+    colFromGetter[Object](jdbcType, rs => i => rs.getObject(i), v => (i,_,ps) => ps.setObject(i, v)).isoMap(iso)
+
+  def uuidCol(jdbcType: JDBCType) = colFromGetter[UUID](jdbcType,
     rs => i => rs.getObject(i).asInstanceOf[UUID],
-    (i,v,_,ps) => ps.setObject(i, v))
+    v => (i,_,ps) => ps.setObject(i, v))
 
-  implicit def optionalStdColumn[A](implicit wrapped: StdJDBCColumn[A]): StdJDBCColumn[Option[A]] = {
-    def bind(i: Int, a: Option[A], c: Connection, ps: PreparedStatement) = a match {
-      case None => ps.setNull(i, wrapped.sqlType.getVendorTypeNumber)
-      case Some(v) => wrapped.bind(i, v, c, ps)
-    }
-    StdJDBCColumn[Option[A]](wrapped.sqlType, nullable = true,
+  def arrayCol[A : ClassTag](typeName: String, inner: StdJDBCColumn[A]) = colFromGetter[scala.Array[A]](JDBCType.ARRAY,
+    rs => i => {
+      val arrs = rs.getArray(i).getResultSet
+      val buf = mutable.Buffer[A]()
+      while(arrs.next())
+      {
+          buf += inner.read(2, arrs).get
+      }
+      buf.toArray[A]
+    },
+    v => (i,con,ps) =>
+      ps.setArray(i, con.createArrayOf(typeName, v.asInstanceOf[scala.Array[AnyRef]]))
+  )
+
+  def optionalColumn[A](wrapped: StdJDBCColumn[A]): StdJDBCColumn[Option[A]] = {
+    def doSetNull = (i:Int,_:Connection,ps:PreparedStatement) => ps.setNull(i, wrapped.jdbcType.getVendorTypeNumber)
+    StdJDBCColumn[Option[A]](wrapped.jdbcType,
       read = (i, rs) => Option(wrapped.read(i, rs)),
-      bind = bind, cast = wrapped.cast)
+      bind = {
+        case None => (i, con, ps) => ps.setNull(i, wrapped.jdbcType.getVendorTypeNumber)
+        case Some(v) => wrapped.bind(v)
+      })
   }
 
 }
