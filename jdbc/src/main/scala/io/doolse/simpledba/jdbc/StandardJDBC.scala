@@ -68,6 +68,7 @@ object StandardJDBC {
           case BinOp.GTE => ">="
           case BinOp.LT => "<"
           case BinOp.LTE => "<="
+          case BinOp.LIKE => "LIKE"
         }
         s"${expr(left)} $opString ${expr(right)}"
     }
