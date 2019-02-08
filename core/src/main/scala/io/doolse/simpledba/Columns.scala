@@ -70,9 +70,8 @@ case class Columns[C[_], T, R <: HList](columns: Seq[(String, C[_])], iso: Iso[T
   def compose[T2](ciso: Iso[T2, T]): Columns[C, T2, R] = copy(iso = ciso >>> iso)
 
   def subset[Keys](implicit ss: ColumnSubsetBuilder[R, Keys]): (ColumnSubset[C, R, ss.Out, ss.Out], R => ss.Out) = {
-    val (_subCols, convert) = ss.apply()
-    val subCols = _subCols.toSet
-    (ColumnSubset(columns.filter(c => subCols(c._1)), Iso.id), convert)
+    val (subCols, convert) = ss.apply()
+    (ColumnSubset(subCols.map(colName => columns.find(_._1 == colName).get), Iso.id), convert)
   }
 }
 

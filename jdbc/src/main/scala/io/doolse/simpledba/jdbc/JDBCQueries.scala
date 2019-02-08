@@ -3,9 +3,9 @@ package io.doolse.simpledba.jdbc
 import java.sql.{Connection, PreparedStatement, ResultSet, Statement}
 
 import cats.data.{Kleisli, StateT}
-import cats.effect.IO
+import cats.effect.{IO, LiftIO}
 import cats.effect.implicits._
-import fs2.{Pure, Sink, Stream}
+import fs2.{Pipe, Pure, Stream}
 import io.doolse.simpledba.{jdbc, _}
 import io.doolse.simpledba.jdbc.BinOp.BinOp
 import io.doolse.simpledba.jdbc.JDBCTable.TableRecord
@@ -19,10 +19,10 @@ import scala.collection.mutable
 
 object JDBCQueries {
 
-  def flush: Sink[JDBCIO, WriteOp] = writes => {
+  def flush: Pipe[JDBCIO, WriteOp, Unit] = writes => {
     Stream.eval(
       writes.evalMap {
-        case JDBCWriteOp(q, config, binder) => StateT.inspectF { con =>
+        case JDBCWriteOp(q, config, binder) => StateT.inspectF { con : Connection =>
           def toSQL() = config.queryToSQL(q)
 
           for {
@@ -224,11 +224,11 @@ object JDBCQueries {
 
   def rowsStream[A](open: JDBCIO[ResultSet]): Stream[JDBCIO, ResultSet] = {
     def nextLoop(rs: ResultSet): Stream[JDBCIO, ResultSet] =
-      Stream.eval(IO(rs.next()).liftIO[JDBCIO]).flatMap {
+      Stream.eval(liftJDBC.liftIO(IO(rs.next()))).flatMap {
         n => if (n) Stream(rs) ++ nextLoop(rs) else Stream.empty
       }
 
-    Stream.bracket(open)(nextLoop, rs => IO(rs.close()).liftIO[JDBCIO])
+    Stream.bracket(open)(rs => liftJDBC.liftIO(IO(rs.close()))).flatMap(nextLoop)
   }
 
   def bindValues[C[_] <: JDBCColumn, R <: HList, A](cols: ColumnRecord[C, A, R], record: R): ColumnRecord[C, (ParameterBinder, A), R] = {
@@ -325,7 +325,7 @@ object JDBCQueries {
    query: JDBCPreparedQuery, bind: BindFunc[Seq[BindLog]], resultCols: ColumnRecord[C, _, Out])
   : Stream[JDBCIO, Out] = {
     prepareAndQuery(config, query, bind).evalMap {
-      rs => getColRecord(resultCols, 1, rs).liftIO[JDBCIO]
+      rs => liftJDBC.liftIO(getColRecord(resultCols, 1, rs))
     }
   }
 
@@ -342,7 +342,7 @@ object JDBCQueries {
    outRec: ColumnRecord[C, _, OutRec])(implicit c: JDBCConfig): Params => Stream[JDBCIO, OutRec] = params => {
     val bindFunc = bindParameters(bindValues(cr, params).columns.map(_._1._1)).map(l => Seq(ValueLog(l): BindLog))
     prepareAndQuery(c, JDBCRawSQL(sql), bindFunc).evalMap { rs =>
-      getColRecord(outRec, 1, rs).liftIO[JDBCIO]
+      liftJDBC.liftIO(getColRecord(outRec, 1, rs))
     }
   }
 

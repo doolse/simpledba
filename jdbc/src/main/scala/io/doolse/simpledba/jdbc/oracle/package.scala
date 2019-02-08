@@ -107,7 +107,7 @@ package object oracle {
           (con,sql) => con.prepareStatement(sql, keyCols.map(_._1).toArray),
           { ps => ps.executeUpdate(); ps.getGeneratedKeys() }
         ).evalMap { rs =>
-          JDBCQueries.getColRecord(Columns(keyCols, Iso.id[A :: HNil]), 1, rs).liftIO[JDBCIO]
+          liftJDBC.liftIO(JDBCQueries.getColRecord(Columns(keyCols, Iso.id[A :: HNil]), 1, rs))
         }.map { a => f(a.head) }
       }
   }

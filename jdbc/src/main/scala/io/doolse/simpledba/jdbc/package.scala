@@ -3,11 +3,13 @@ package io.doolse.simpledba
 import java.sql.{Connection, DriverManager, PreparedStatement}
 
 import cats.data.{Kleisli, StateT}
-import cats.effect.IO
+import cats.effect.{IO, LiftIO}
 import com.typesafe.config.{Config, ConfigFactory}
 import fs2.{Sink, Stream}
 
 package object jdbc {
+
+  val liftJDBC = implicitly[LiftIO[JDBCIO]]
 
   type JDBCIO[A] = StateT[IO, Connection, A]
 
