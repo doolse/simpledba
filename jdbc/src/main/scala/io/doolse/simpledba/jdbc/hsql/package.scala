@@ -9,7 +9,8 @@ import io.doolse.simpledba.{WriteOp, jdbc}
 import io.doolse.simpledba.jdbc.StandardJDBC._
 
 package object hsql {
-  case class HSQLColumn[A](wrapped: StdJDBCColumn[A], columnType: ColumnType) extends WrappedColumn[A]
+  case class HSQLColumn[A](wrapped: StdJDBCColumn[A], columnType: ColumnType)
+      extends WrappedColumn[A]
 
 //  case INTEGER => "INTEGER"
 //  case BIGINT => "BIGINT"
@@ -20,9 +21,9 @@ package object hsql {
 //  case TIMESTAMP => "TIMESTAMP"
 //  case NVARCHAR => "NVARCHAR"
 //
-  object HSQLColumn
-  {
-    implicit val uuidCol = HSQLColumn[UUID](StdJDBCColumn.uuidCol(JDBCType.NVARCHAR), ColumnType("UUID"))
+  object HSQLColumn {
+    implicit val uuidCol =
+      HSQLColumn[UUID](StdJDBCColumn.uuidCol(JDBCType.NVARCHAR), ColumnType("UUID"))
 
     implicit val longCol = HSQLColumn[Long](StdJDBCColumn.longCol, ColumnType("BIGINT"))
 
@@ -33,8 +34,14 @@ package object hsql {
     implicit val boolCol = HSQLColumn[Boolean](StdJDBCColumn.boolCol, ColumnType("BOOLEAN"))
   }
 
-  val hsqldbConfig = JDBCSQLConfig[HSQLColumn](defaultEscapeReserved, defaultEscapeReserved, stdSQLQueries, stdExpressionSQL,
-    stdTypeNames, HSQLSchemaSQL.apply)
+  val hsqldbConfig = JDBCSQLConfig[HSQLColumn](
+    defaultEscapeReserved,
+    defaultEscapeReserved,
+    stdSQLQueries,
+    stdExpressionSQL,
+    stdTypeNames,
+    HSQLSchemaSQL.apply
+  )
 
   case class HSQLSchemaSQL(config: JDBCConfig) extends StandardSchemaSQL(config)
 
