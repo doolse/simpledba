@@ -1,6 +1,6 @@
 package io.doolse.simpledba
 
-import io.circe.{Decoder, Encoder}
+import io.circe.{Decoder, Encoder, Json}
 import io.circe.syntax._
 import io.circe.parser._
 package object circe {
@@ -22,4 +22,15 @@ package object circe {
     _.asJson.noSpaces,
     s => decode[A](s).getOrElse(default)
   )
+
+  def circeJson[A: Encoder](default: A)(implicit dec: Decoder[A]): Iso[A, Json] =
+    new Iso[A, Json](
+      _.asJson, json => dec.decodeJson(json).getOrElse(default)
+    )
+
+  def circeJsonUnsafe[A: Encoder](implicit dec: Decoder[A]): Iso[A, Json] =
+    new Iso[A, Json](
+      _.asJson, json => dec.decodeJson(json).fold(throw _, identity)
+    )
+
 }
