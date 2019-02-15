@@ -25,12 +25,14 @@ package object circe {
 
   def circeJson[A: Encoder](default: A)(implicit dec: Decoder[A]): Iso[A, Json] =
     new Iso[A, Json](
-      _.asJson, json => dec.decodeJson(json).getOrElse(default)
+      _.asJson,
+      json => dec.decodeJson(json).getOrElse(default)
     )
 
   def circeJsonUnsafe[A: Encoder](implicit dec: Decoder[A]): Iso[A, Json] =
     new Iso[A, Json](
-      _.asJson, json => dec.decodeJson(json).fold(throw _, identity)
+      _.asJson,
+      json => dec.decodeJson(json).fold(throw _, identity)
     )
 
 }

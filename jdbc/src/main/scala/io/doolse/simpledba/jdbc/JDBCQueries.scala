@@ -160,7 +160,11 @@ object JDBCQueries {
     }
   }
 
-  case class QueryBuilder[C[_] <: JDBCColumn, DataRec <: HList, B <: BindValues, OutRec <: HList, Out](
+  case class QueryBuilder[C[_] <: JDBCColumn,
+                          DataRec <: HList,
+                          B <: BindValues,
+                          OutRec <: HList,
+                          Out](
       table: TableRecord[C, DataRec],
       projections: ColumnRecord[C, SQLProjection, OutRec],
       mapOut: OutRec => Out,
@@ -241,12 +245,13 @@ object JDBCQueries {
     ): In => Stream[JDBCIO, Out] = {
       val baseSel =
         JDBCSelect(table.name, projections.columns.map(_._1), Seq.empty, orderCols, false)
-      w2: In => {
-        binder(where)(c.apply(w2)).covary[JDBCIO].flatMap {
-          case (wc, bind) =>
-            streamForQuery(table.config, baseSel.copy(where = wc), bind, projections).map(mapOut)
+      w2: In =>
+        {
+          binder(where)(c.apply(w2)).covary[JDBCIO].flatMap {
+            case (wc, bind) =>
+              streamForQuery(table.config, baseSel.copy(where = wc), bind, projections).map(mapOut)
+          }
         }
-      }
     }
   }
 

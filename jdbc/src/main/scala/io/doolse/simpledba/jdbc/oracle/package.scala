@@ -82,7 +82,15 @@ package object oracle {
     }
   }
 
-  def insertWith[A, C[_] <: JDBCColumn, T, R <: HList, KeyNames <: HList, AllCols <: HList, WithoutKeys <: HList, JustKeys <: HList, Res](
+  def insertWith[A,
+                 C[_] <: JDBCColumn,
+                 T,
+                 R <: HList,
+                 KeyNames <: HList,
+                 AllCols <: HList,
+                 WithoutKeys <: HList,
+                 JustKeys <: HList,
+                 Res](
       table: JDBCTable.Aux[C, T, R, A :: HNil, KeyNames],
       sequence: Sequence[A]
   )(

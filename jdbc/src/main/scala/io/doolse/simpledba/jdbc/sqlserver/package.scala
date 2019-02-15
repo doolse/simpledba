@@ -82,7 +82,15 @@ package object sqlserver {
     c.copy(columnType = c.columnType.withFlag(IdentityColumn))
   }
 
-  def insertIdentity[C[_] <: JDBCColumn, T, R <: HList, KeyNames <: HList, AllCols <: HList, WithoutKeys <: HList, JustKeys <: HList, A, Res](
+  def insertIdentity[C[_] <: JDBCColumn,
+                     T,
+                     R <: HList,
+                     KeyNames <: HList,
+                     AllCols <: HList,
+                     WithoutKeys <: HList,
+                     JustKeys <: HList,
+                     A,
+                     Res](
       table: JDBCTable.Aux[C, T, R, A :: HNil, KeyNames]
   )(
       implicit keys: Keys.Aux[R, AllCols],

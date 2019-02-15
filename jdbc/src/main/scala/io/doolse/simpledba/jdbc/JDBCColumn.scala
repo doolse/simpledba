@@ -47,7 +47,7 @@ trait WrappedColumn[AA] extends JDBCColumn {
       if (o == n) None
       else {
         Some(wrapped.bind(n))
-      }
+    }
 
 }
 
@@ -124,7 +124,7 @@ object StdJDBCColumn {
             buf += inner.read(2, arrs).get
           }
           buf.toArray[A]
-        },
+      },
       v =>
         (i, con, ps) =>
           ps.setArray(i, con.createArrayOf(typeName, v.asInstanceOf[scala.Array[AnyRef]]))
@@ -138,7 +138,9 @@ object StdJDBCColumn {
       wrapped.jdbcType,
       read = (i, rs) => Option(wrapped.read(i, rs)),
       bind = {
-        case None    => (i, con, ps) => ps.setNull(i, wrapped.jdbcType.getVendorTypeNumber)
+        case None =>
+          (i, con, ps) =>
+            ps.setNull(i, wrapped.jdbcType.getVendorTypeNumber)
         case Some(v) => wrapped.bind(v)
       }
     )

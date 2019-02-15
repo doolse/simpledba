@@ -131,7 +131,13 @@ object ColumnBuilder extends ColumnBuilderLP {
   ): ColumnBuilder.Aux[C, FieldType[K, V], Repr] =
     embeddedCols.asInstanceOf[ColumnBuilder.Aux[C, FieldType[K, V], Repr]]
 
-  implicit def hconsRelation[C[_], H, HOut <: HList, HLen <: Nat, T <: HList, TOut <: HList, Out <: HList](
+  implicit def hconsRelation[C[_],
+                             H,
+                             HOut <: HList,
+                             HLen <: Nat,
+                             T <: HList,
+                             TOut <: HList,
+                             Out <: HList](
       implicit
       headColumns: ColumnBuilder.Aux[C, H, HOut],
       tailColumns: ColumnBuilder.Aux[C, T, TOut],

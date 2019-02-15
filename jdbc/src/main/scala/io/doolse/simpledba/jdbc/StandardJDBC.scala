@@ -97,7 +97,9 @@ object StandardJDBC {
     }
     q match {
       case JDBCSelect(t, prj, w, o, l) =>
-        s"SELECT ${prj.map(p => expr(p.sql)).mkString(",")} FROM ${mc.escapeTableName(t)} ${stdWhereClause(expr, w)} ${stdOrderBy(mc, o)}"
+        s"SELECT ${prj.map(p => expr(p.sql)).mkString(",")} FROM ${mc.escapeTableName(t)} ${stdWhereClause(
+          expr,
+          w)} ${stdOrderBy(mc, o)}"
       case JDBCInsert(t, c) =>
         s"INSERT INTO ${mc.escapeTableName(t)} ${brackets(c.map(v => escapeCol(v.column)))} VALUES ${brackets(
           c.map(v => expr(v.expression))
