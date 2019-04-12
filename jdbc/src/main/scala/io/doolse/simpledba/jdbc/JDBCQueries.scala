@@ -3,7 +3,7 @@ package io.doolse.simpledba.jdbc
 import java.sql.{Connection, PreparedStatement, ResultSet, Statement}
 
 import cats.data.{Kleisli, StateT}
-import cats.effect.{IO, LiftIO}
+import cats.effect.{IO, LiftIO, Sync}
 import cats.effect.implicits._
 import fs2.{Pipe, Pure, Stream}
 import io.doolse.simpledba.{jdbc, _}
@@ -21,30 +21,37 @@ object JDBCQueries {
 
   def flush: Pipe[JDBCIO, WriteOp, Unit] = writes => {
     Stream.eval(
-      writes
-        .evalMap {
-          case JDBCWriteOp(q, config, binder) =>
-            StateT.inspectF { con: Connection =>
-              def toSQL() = config.queryToSQL(q)
-
-              for {
-                ps <- IO {
-                  val sql = toSQL
-                  config.logPrepare(sql)
-                  con.prepareStatement(sql)
-                }
-                bv <- binder(con, ps).runA(1)
-                _ <- IO {
-                  config.logBind(() => (toSQL(), bv))
-                  ps.execute()
-                }
-              } yield ()
-            }
-        }
-        .compile
-        .drain
+      StateT.inspectF { con: Connection =>
+        flushWriteOps(writes, con, LiftIO[JDBCIO]).runA(con)
+      }
     )
   }
+
+  def flushWriteOps[F[_]: Sync](s: Stream[F, WriteOp],
+                                con: Connection,
+                                liftIO: LiftIO[F]): F[Unit] =
+    s.evalMap {
+        case JDBCWriteOp(q, config, binder) =>
+          def toSQL() = config.queryToSQL(q)
+
+          liftIO.liftIO {
+            for {
+              ps <- IO {
+                val sql = toSQL
+                config.logPrepare(sql)
+                con.prepareStatement(sql)
+              }
+              bv <- binder(con, ps).runA(1)
+              _ <- IO {
+                config.logBind(() => (toSQL(), bv))
+                ps.execute()
+                ps.close()
+              }
+            } yield ()
+          }
+      }
+      .compile
+      .drain
 
   case class ParameterBinder(param: ParamBinder, value: Any)
 
@@ -275,13 +282,21 @@ object JDBCQueries {
     loop(cols.columns.length - 1, HNil).asInstanceOf[R]
   }
 
-  def rowsStream[A](open: JDBCIO[ResultSet]): Stream[JDBCIO, ResultSet] = {
+  def rowsStream[A](open: JDBCIO[(PreparedStatement, ResultSet)]): Stream[JDBCIO, ResultSet] = {
     def nextLoop(rs: ResultSet): Stream[JDBCIO, ResultSet] =
       Stream.eval(liftJDBC.liftIO(IO(rs.next()))).flatMap { n =>
         if (n) Stream(rs) ++ nextLoop(rs) else Stream.empty
       }
 
-    Stream.bracket(open)(rs => liftJDBC.liftIO(IO(rs.close()))).flatMap(nextLoop)
+    Stream
+      .bracket(open) {
+        case (ps, rs) =>
+          liftJDBC.liftIO(IO {
+            ps.close()
+            rs.close()
+          })
+      }
+      .flatMap(rs => nextLoop(rs._2))
   }
 
   def bindValues[C[_] <: JDBCColumn, R <: HList, A](
@@ -381,7 +396,7 @@ object JDBCQueries {
             config.logBind(() => (sql, bv))
             mkResultSet(ps)
           }
-        } yield rs
+        } yield (ps, rs)
       }
     }
   }
