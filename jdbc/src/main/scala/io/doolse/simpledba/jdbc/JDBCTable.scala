@@ -1,9 +1,7 @@
 package io.doolse.simpledba.jdbc
 
-import fs2.{Pipe, Stream}
 import io.doolse.simpledba._
-import io.doolse.simpledba.jdbc.JDBCQueries._
-import shapeless.{::, HList, HNil, SingletonProductArgs, Witness}
+import shapeless.{::, HList, HNil, Witness}
 
 case class JDBCRelation[C[_] <: JDBCColumn, T, R <: HList](
     name: String,
@@ -36,7 +34,8 @@ case class JDBCRelation[C[_] <: JDBCColumn, T, R <: HList](
   }
 }
 
-trait JDBCTable[C[_] <: JDBCColumn] {
+trait JDBCTable {
+  type C[A] <: JDBCColumn
   type Data
   type DataRec <: HList
   type KeyList <: HList
@@ -49,93 +48,6 @@ trait JDBCTable[C[_] <: JDBCColumn] {
   def keyNames                                                    = new Cols[KeyNames]
   lazy val keyColumns: ColumnSubset[C, DataRec, KeyList, KeyList] = cols(keyNames)
   def allColumns: Columns[C, Data, DataRec]
-
-  def writes: WriteQueries[JDBCIO, Data] = new WriteQueries[JDBCIO, Data] {
-
-    override def insertAll: Pipe[JDBCIO, Data, WriteOp] = _.map { t =>
-      val columnBinders = bindValues(allColumns, allColumns.iso.to(t))
-      val insertQuery   = JDBCInsert(name, columnExpressions(columnBinders))
-      JDBCWriteOp(
-        insertQuery,
-        config,
-        bindParameters(columnBinders.columns.map(_._1._1)).map(v => Seq(ValueLog(v)))
-      )
-    }
-
-    override def updateAll: Pipe[JDBCIO, (Data, Data), WriteOp] = _.flatMap {
-      case (o, n) =>
-        val oldRec = allColumns.iso.to(o)
-        val oldKey = toKey(oldRec)
-        val newRec = allColumns.iso.to(n)
-        val keyVal = toKey(newRec)
-        if (oldKey != keyVal) {
-          Stream(deleteWriteOp(oldKey)) ++ insert(n)
-        } else {
-          val (whereClauses, bind) = colsOp(BinOp.EQ, keyColumns).bind(keyVal)
-          val updateColumns        = bindUpdate(allColumns, oldRec, newRec)
-          if (updateColumns.columns.isEmpty) Stream.empty
-          else {
-            val binder = for {
-              updateVals <- bindParameters(updateColumns.columns.map(_._1._1))
-              wc         <- bind
-            } yield Seq(ValueLog(updateVals)) ++ wc
-            Stream(
-              JDBCWriteOp(
-                JDBCUpdate(name, columnExpressions(updateColumns), whereClauses),
-                config,
-                binder
-              )
-            )
-          }
-        }
-    }
-
-    override def deleteAll: Pipe[JDBCIO, Data, WriteOp] =
-      _.map(t => deleteWriteOp(toKey(allColumns.iso.to(t))))
-
-  }
-
-  private def deleteWriteOp(k: KeyList): JDBCWriteOp = {
-    val (whereClauses, bindVals) = colsOp(BinOp.EQ, keyColumns).bind(k)
-    JDBCWriteOp(JDBCDelete(name, whereClauses), config, bindVals.map(_.toList))
-  }
-
-  def select =
-    new QueryBuilder[C, DataRec, BindNone.type, HNil, HNil](
-      this,
-      ColumnRecord.empty,
-      identity,
-      BindNone,
-      Seq.empty
-    )
-
-  def select[ColNames <: HList, Out <: HList](
-      cols: Cols[ColNames]
-  )(implicit css: ColumnSubsetBuilder.Aux[DataRec, ColNames, Out]) =
-    new QueryBuilder[C, DataRec, BindNone.type, HNil, HNil](
-      this,
-      ColumnRecord.empty,
-      identity,
-      BindNone,
-      Seq.empty
-    ).cols[Out, Out, ColNames](cols)
-
-  def delete = new DeleteBuilder[C, DataRec, BindNone.type](this, BindNone)
-
-  def query =
-    new QueryBuilder[C, DataRec, BindNone.type, DataRec, Data](
-      this,
-      toProjection(allColumns),
-      allColumns.iso.from,
-      BindNone,
-      Seq.empty
-    )
-
-  def byPK[K2](implicit c: AutoConvert[K2, KeyList]): K2 => Stream[JDBCIO, Data] = {
-    query.where(new Cols[KeyNames], BinOp.EQ).build[K2]
-  }
-
-  def allRows: Stream[JDBCIO, Data] = query.build[Unit].apply()
 
   def definition: TableDefinition =
     TableDefinition(
@@ -156,24 +68,27 @@ trait JDBCTable[C[_] <: JDBCColumn] {
 }
 
 object JDBCTable {
-  type Aux[C[_] <: JDBCColumn, T, R, K, KeyN] = JDBCTable[C] {
+  type Aux[C2[_] <: JDBCColumn, T, R, K, KeyN] = JDBCTable {
+    type C[A]     = C2[A]
     type Data     = T
     type DataRec  = R
     type KeyNames = KeyN
     type KeyList  = K
   }
 
-  type TableRecord[C[_] <: JDBCColumn, R] = JDBCTable[C] {
+  type TableRecord[C2[_] <: JDBCColumn, R] = JDBCTable {
+    type C[A]    = C2[A]
     type DataRec = R
   }
 
-  def apply[C[_] <: JDBCColumn, T, R <: HList, K <: HList, KeyN <: HList](
+  def apply[C2[_] <: JDBCColumn, T, R <: HList, K <: HList, KeyN <: HList](
       tableName: String,
       jdbcConfig: JDBCConfig,
-      all: Columns[C, T, R],
+      all: Columns[C2, T, R],
       keys: ColumnSubsetBuilder.Aux[R, KeyN, K],
       tkey: R => K
-  ): Aux[C, T, R, K, KeyN] = new JDBCTable[C] {
+  ): Aux[C2, T, R, K, KeyN] = new JDBCTable {
+    override type C[A]     = C2[A]
     override type Data     = T
     override type DataRec  = R
     override type KeyList  = K

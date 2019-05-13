@@ -6,7 +6,6 @@ import io.doolse.simpledba.{ColumnRecord, WriteOp}
 import io.doolse.simpledba.jdbc.AggregateOp.AggregateOp
 import io.doolse.simpledba.jdbc.BinOp.BinOp
 import shapeless.HList
-import shapeless.ops.hlist.LiftAll
 
 trait JDBCSchemaSQL {
   def dropTable(t: TableDefinition): String
@@ -27,7 +26,7 @@ trait JDBCConfig {
   def typeName: (ColumnType, Boolean) => String
   def logPrepare: String => Unit
   def schemaSQL: JDBCSchemaSQL
-  def logBind: (() => (String, Seq[BindLog])) => Unit
+  def logBind: (String, Seq[BindLog]) => Unit
 
   def record[R <: HList](implicit cr: ColumnRecord[C, Unit, R]): ColumnRecord[C, Unit, R] = cr
 
@@ -49,11 +48,11 @@ case class JDBCSQLConfig[C0[_] <: JDBCColumn](
     typeName: (ColumnType, Boolean) => String,
     _schemaSQL: JDBCConfig => JDBCSchemaSQL,
     logPrepare: String => Unit = _ => (),
-    logBind: (() => (String, Seq[BindLog])) => Unit = _ => ()
+    logBind: (String, Seq[BindLog]) => Unit = (_,_) => ()
 ) extends JDBCConfig {
   type C[A] = C0[A]
   def withPrepareLogger(l: String => Unit): JDBCSQLConfig[C0] = copy(logPrepare = l)
-  def withBindingLogger(l: (() => (String, Seq[BindLog])) => Unit): JDBCSQLConfig[C0] =
+  def withBindingLogger(l: (String, Seq[BindLog]) => Unit): JDBCSQLConfig[C0] =
     copy(logBind = l)
   def withTypeName(n: (ColumnType, Boolean) => String): JDBCSQLConfig[C0] = copy(typeName = n)
   def schemaSQL                                                           = _schemaSQL(this)

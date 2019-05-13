@@ -11,9 +11,7 @@ object AutoConvert {
       implicit ctoa: AutoConvert[C, A],
       btod: AutoConvert[B, D]
   ): AutoConvert[A => Stream[F, B], C => Stream[F, D]] =
-    new AutoConvert[A => Stream[F, B], C => Stream[F, D]] {
-      override def apply(v1: A => Stream[F, B]): C => Stream[F, D] = c => v1(ctoa(c)).map(btod)
-    }
+    (v1: A => Stream[F, B]) => c => v1(ctoa(c)).map(btod)
 
   implicit def idConv[A]: AutoConvert[A, A] = new AutoConvert[A, A] {
     def apply(a: A): A = a

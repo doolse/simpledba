@@ -4,9 +4,7 @@ import java.time.Instant
 
 import io.doolse.simpledba.Iso
 
-trait StdColumns {
-
-  type C[A] <: JDBCColumn
+trait StdColumns[C[_] <: JDBCColumn] {
 
   def wrap[A, B](
       col: C[A],

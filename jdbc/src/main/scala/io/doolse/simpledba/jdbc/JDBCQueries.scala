@@ -1,128 +1,177 @@
 package io.doolse.simpledba.jdbc
 
-import java.sql.{Connection, PreparedStatement, ResultSet, Statement}
-
-import cats.data.{Kleisli, StateT}
-import cats.effect.{IO, LiftIO, Sync}
-import cats.effect.implicits._
+import cats.data.{Kleisli, State}
 import fs2.{Pipe, Pure, Stream}
-import io.doolse.simpledba.{jdbc, _}
+import io.doolse.simpledba._
 import io.doolse.simpledba.jdbc.BinOp.BinOp
+import io.doolse.simpledba.jdbc.JDBCQueries._
 import io.doolse.simpledba.jdbc.JDBCTable.TableRecord
 import shapeless.labelled._
-import shapeless.ops.hlist.{Length, Prepend, Split, Take}
+import shapeless.ops.hlist.{Length, Prepend, Split}
 import shapeless.ops.record.{Keys, ToMap}
 import shapeless.{::, DepFn2, HList, HNil, Nat, Witness}
 
 import scala.annotation.tailrec
 import scala.collection.mutable
 
-object JDBCQueries {
+trait BindValues {
+  type Value
+}
 
-  def flush: Pipe[JDBCIO, WriteOp, Unit] = writes => {
-    Stream.eval(
-      StateT.inspectF { con: Connection =>
-        flushWriteOps(writes, con, LiftIO[JDBCIO]).runA(con)
-      }
-    )
+object BindNone extends BindValues {
+  type Value = Unit
+}
+
+case class BindOne[R, A, V](bind: V => (Seq[A], BindFunc[Seq[BindLog]])) extends BindValues {
+  type Value = V
+}
+
+case class BindMany[R, A, V](bind: V => (Stream[Pure, (Seq[A], BindFunc[Option[BindLog]])]))
+    extends BindValues {
+  type Value = V
+}
+
+trait BindableCombiner[B, B2] extends DepFn2[B, B2] {
+  type Out <: BindValues
+}
+
+trait BindStream[B <: BindValues, A] {
+  def apply(b: B)(v: b.Value): Stream[Pure, (Seq[A], BindFunc[Seq[BindLog]])]
+}
+
+object BindStream {
+  implicit def bindNone[A] = new BindStream[BindNone.type, A] {
+    override def apply(b: BindNone.type)(
+        v: Unit
+    ): Stream[Pure, (Seq[A], BindFunc[Seq[BindLog]])] = Stream.empty
   }
 
-  def flushWriteOps[F[_]: Sync](s: Stream[F, WriteOp],
-                                con: Connection,
-                                liftIO: LiftIO[F]): F[Unit] =
-    s.evalMap {
-        case JDBCWriteOp(q, config, binder) =>
-          def toSQL() = config.queryToSQL(q)
+  implicit def bindOne[R, A, V0] = new BindStream[BindOne[R, A, V0], A] {
+    type V = V0
 
-          liftIO.liftIO {
-            for {
-              ps <- IO {
-                val sql = toSQL
-                config.logPrepare(sql)
-                con.prepareStatement(sql)
-              }
-              bv <- binder(con, ps).runA(1)
-              _ <- IO {
-                config.logBind(() => (toSQL(), bv))
-                ps.execute()
-                ps.close()
-              }
-            } yield ()
+    override def apply(
+        b: BindOne[R, A, V]
+    )(v: V): Stream[Pure, (Seq[A], BindFunc[Seq[BindLog]])] = {
+      val (clauses, bind) = b.bind(v)
+      Stream((clauses, bind.map(_.toSeq)))
+    }
+  }
+}
+
+object BindableCombiner {
+  implicit def combineNoneLeft[B2 <: BindValues] = new BindableCombiner[BindNone.type, B2] {
+    type Out = B2
+
+    override def apply(t: BindNone.type, u: B2) = u
+  }
+
+  implicit def bindOneAndOne[R, A, B1 <: HList, B2 <: HList, B <: HList, B1L <: Nat](
+      implicit prepend: Prepend.Aux[B1, B2, B],
+      lenb1: Length.Aux[B1, B1L],
+      split: Split.Aux[B, B1L, B1, B2]
+  ) = new BindableCombiner[BindOne[R, A, B1], BindOne[R, A, B2]] {
+    override type Out = BindOne[R, A, B]
+
+    override def apply(t: BindOne[R, A, B1], u: BindOne[R, A, B2]): BindOne[R, A, B] =
+      BindOne[R, A, B] { r =>
+        val (b1, b2) = split(r)
+        val bind1    = t.bind(b1)
+        val bind2    = u.bind(b2)
+        (bind1._1 ++ bind2._1, bind1._2.flatMap(bl1 => bind2._2.map(bl2 => bl1 ++ bl2)))
+      }
+  }
+
+}
+
+class JDBCQueries[F[_]](implicit val E: JDBCEffect[F]) {
+  def writes(table: JDBCTable): WriteQueries[F, table.Data] =
+    new WriteQueries[F, table.Data] {
+
+      override def insertAll: Pipe[F, table.Data, WriteOp] = _.map { t =>
+        val allColumns    = table.allColumns
+        val columnBinders = bindValues(allColumns, allColumns.iso.to(t))
+        val insertQuery   = JDBCInsert(table.name, columnExpressions(columnBinders))
+        JDBCWriteOp(
+          insertQuery,
+          table.config,
+          bindParameters(columnBinders.columns.map(_._1._1)).map(v => Seq(ValueLog(v)))
+        )
+      }
+
+      override def updateAll: Pipe[F, (table.Data, table.Data), WriteOp] = _.flatMap {
+        case (o, n) =>
+          val allColumns = table.allColumns
+          val oldRec     = allColumns.iso.to(o)
+          val oldKey     = table.toKey(oldRec)
+          val newRec     = allColumns.iso.to(n)
+          val keyVal     = table.toKey(newRec)
+          if (oldKey != keyVal) {
+            Stream(deleteWriteOp(oldKey)) ++ insert(n)
+          } else {
+            val (whereClauses, bind) = colsOp(BinOp.EQ, table.keyColumns).bind(keyVal)
+            val updateColumns        = bindUpdate(allColumns, oldRec, newRec)
+            if (updateColumns.columns.isEmpty) Stream.empty
+            else {
+              val binder = for {
+                updateVals <- bindParameters(updateColumns.columns.map(_._1._1))
+                wc         <- bind
+              } yield Seq(ValueLog(updateVals)) ++ wc
+              Stream(
+                JDBCWriteOp(
+                  JDBCUpdate(table.name, columnExpressions(updateColumns), whereClauses),
+                  table.config,
+                  binder
+                )
+              )
+            }
           }
       }
-      .compile
-      .drain
+
+      override def deleteAll: Pipe[F, table.Data, WriteOp] =
+        _.map(t => deleteWriteOp(table.toKey(table.allColumns.iso.to(t))))
+
+      private def deleteWriteOp(k: table.KeyList): JDBCWriteOp = {
+        val (whereClauses, bindVals) = colsOp(BinOp.EQ, table.keyColumns).bind(k)
+        JDBCWriteOp(JDBCDelete(table.name, whereClauses), table.config, bindVals.map(_.toList))
+      }
+
+    }
+
+  def selectFrom(table: JDBCTable) =
+    new QueryBuilder[F, table.C, table.DataRec, BindNone.type, HNil, HNil](
+      table,
+      ColumnRecord.empty,
+      identity,
+      BindNone,
+      Seq.empty
+    )
+
+  def deleteFrom(table: JDBCTable) =
+    new DeleteBuilder[F, table.C, table.DataRec, BindNone.type](table, BindNone)
+
+  def query(table: JDBCTable) =
+    new QueryBuilder[F, table.C, table.DataRec, BindNone.type, table.DataRec, table.Data](
+      table,
+      toProjection(table.allColumns),
+      table.allColumns.iso.from,
+      BindNone,
+      Seq.empty
+    )
+
+  def byPK[K2](table: JDBCTable)(
+      implicit c: AutoConvert[K2, table.KeyList]): K2 => Stream[F, table.Data] = {
+    implicit val kn = table.keySubset
+    query(table).where(table.keyNames, BinOp.EQ).build[K2]
+  }
+
+  def allRows(table: JDBCTable): Stream[F, table.Data] =
+    query(table).build[Unit].apply()
+
+}
+
+object JDBCQueries {
 
   case class ParameterBinder(param: ParamBinder, value: Any)
-
-  trait BindValues {
-    type Value
-  }
-
-  object BindNone extends BindValues {
-    type Value = Unit
-  }
-
-  case class BindOne[R, A, V](bind: V => (Seq[A], BindFunc[Seq[BindLog]])) extends BindValues {
-    type Value = V
-  }
-
-  case class BindMany[R, A, V](bind: V => (Stream[Pure, (Seq[A], BindFunc[Option[BindLog]])]))
-      extends BindValues {
-    type Value = V
-  }
-
-  trait BindableCombiner[B, B2] extends DepFn2[B, B2] {
-    type Out <: BindValues
-  }
-
-  trait BindStream[B <: BindValues, A] {
-    def apply(b: B)(v: b.Value): Stream[Pure, (Seq[A], BindFunc[Seq[BindLog]])]
-  }
-
-  object BindStream {
-    implicit def bindNone[A] = new BindStream[BindNone.type, A] {
-      override def apply(b: BindNone.type)(
-          v: Unit
-      ): Stream[Pure, (Seq[A], BindFunc[Seq[BindLog]])] = Stream.empty
-    }
-
-    implicit def bindOne[R, A, V0] = new BindStream[BindOne[R, A, V0], A] {
-      type V = V0
-
-      override def apply(
-          b: BindOne[R, A, V]
-      )(v: V): Stream[Pure, (Seq[A], BindFunc[Seq[BindLog]])] = {
-        val (clauses, bind) = b.bind(v)
-        Stream((clauses, bind.map(_.toSeq)))
-      }
-    }
-  }
-
-  object BindableCombiner {
-    implicit def combineNoneLeft[B2 <: BindValues] = new BindableCombiner[BindNone.type, B2] {
-      type Out = B2
-
-      override def apply(t: BindNone.type, u: B2) = u
-    }
-
-    implicit def bindOneAndOne[R, A, B1 <: HList, B2 <: HList, B <: HList, B1L <: Nat](
-        implicit prepend: Prepend.Aux[B1, B2, B],
-        lenb1: Length.Aux[B1, B1L],
-        split: Split.Aux[B, B1L, B1, B2]
-    ) = new BindableCombiner[BindOne[R, A, B1], BindOne[R, A, B2]] {
-      override type Out = BindOne[R, A, B]
-
-      override def apply(t: BindOne[R, A, B1], u: BindOne[R, A, B2]): BindOne[R, A, B] =
-        BindOne[R, A, B] { r =>
-          val (b1, b2) = split(r)
-          val bind1    = t.bind(b1)
-          val bind2    = u.bind(b2)
-          (bind1._1 ++ bind2._1, bind1._2.flatMap(bl1 => bind2._2.map(bl2 => bl1 ++ bl2)))
-        }
-    }
-
-  }
 
   def colsOp[C[_] <: JDBCColumn, R <: HList, K, KL <: HList](
       op: BinOp,
@@ -136,7 +185,7 @@ object JDBCQueries {
     (colWhere, bindParameters(columnExprs.map(_._1._1)).map(v => Seq(WhereLog(v))))
   }
 
-  case class DeleteBuilder[C[_] <: JDBCColumn, DataRec <: HList, B <: BindValues](
+  case class DeleteBuilder[F[_], C[_] <: JDBCColumn, DataRec <: HList, B <: BindValues](
       table: TableRecord[C, DataRec],
       whereClause: B
   ) {
@@ -144,7 +193,7 @@ object JDBCQueries {
         implicit css: ColumnSubsetBuilder.Aux[DataRec, ColNames, W2],
         combiner: BindableCombiner[B, BindOne[DataRec, JDBCWhereClause, W2]]
     ) = {
-      copy[C, DataRec, combiner.Out](
+      copy[F, C, DataRec, combiner.Out](
         whereClause = combiner(whereClause, colsOp(op, table.cols(cols)))
       )
     }
@@ -153,7 +202,7 @@ object JDBCQueries {
         implicit cols: ColumnSubsetBuilder.Aux[DataRec, col.T :: HNil, W2],
         combiner: BindableCombiner[B, BindOne[DataRec, JDBCWhereClause, W2]]
     ) = {
-      copy[C, DataRec, combiner.Out](
+      copy[F, C, DataRec, combiner.Out](
         whereClause = combiner(whereClause, colsOp(op, table.cols(Cols(col))))
       )
     }
@@ -161,13 +210,14 @@ object JDBCQueries {
     def build[W2](
         implicit b: BindStream[B, JDBCWhereClause],
         c: AutoConvert[W2, whereClause.Value]
-    ): W2 => Stream[JDBCIO, WriteOp] = w => {
+    ): W2 => Stream[F, WriteOp] = w => {
       b.apply(whereClause)(w)
         .map(a => JDBCWriteOp(JDBCDelete(table.name, a._1), table.config, a._2))
     }
   }
 
-  case class QueryBuilder[C[_] <: JDBCColumn,
+  case class QueryBuilder[F[_],
+                          C[_] <: JDBCColumn,
                           DataRec <: HList,
                           B <: BindValues,
                           OutRec <: HList,
@@ -177,18 +227,18 @@ object JDBCQueries {
       mapOut: OutRec => Out,
       where: B,
       orderCols: Seq[(NamedColumn, Boolean)]
-  ) {
+  )(implicit val E: JDBCEffect[F]) {
 
     def count(
         implicit intCol: C[Int]
-    ): QueryBuilder[C, DataRec, B, Int :: OutRec, Int :: OutRec] = {
+    ): QueryBuilder[F, C, DataRec, B, Int :: OutRec, Int :: OutRec] = {
       val newProjection = ColumnRecord.prepend(
         ColumnRecord[C, SQLProjection, Int :: HNil](
           Seq(SQLProjection(intCol.columnType, Aggregate(AggregateOp.Count, None)) -> intCol)
         ),
         projections
       )
-      copy[C, DataRec, B, Int :: OutRec, Int :: OutRec](
+      copy[F, C, DataRec, B, Int :: OutRec, Int :: OutRec](
         projections = newProjection,
         mapOut = identity
       )
@@ -197,10 +247,11 @@ object JDBCQueries {
     def cols[CT <: HList, NewOutRec <: HList, ColNames <: HList](cols: Cols[ColNames])(
         implicit c: ColumnSubsetBuilder.Aux[DataRec, ColNames, CT],
         prepend: Prepend.Aux[CT, OutRec, NewOutRec]
-    ): QueryBuilder[C, DataRec, B, NewOutRec, NewOutRec] = {
+    ): QueryBuilder[F, C, DataRec, B, NewOutRec, NewOutRec] = {
       val newProjection =
         ColumnRecord.prepend(toProjection(table.allColumns.subset(c)._1), projections)
-      copy[C, DataRec, B, prepend.Out, prepend.Out](projections = newProjection, mapOut = identity)
+      copy[F, C, DataRec, B, prepend.Out, prepend.Out](projections = newProjection,
+                                                       mapOut = identity)
     }
 
     def orderBy[T <: Symbol](w: Witness, asc: Boolean)(
@@ -214,7 +265,7 @@ object JDBCQueries {
         implicit keys: Keys.Aux[OR, ORK],
         toMap: ToMap.Aux[OR, Syms, Boolean],
         cssb: ColumnSubsetBuilder[DataRec, ORK]
-    ): QueryBuilder[C, DataRec, B, OutRec, Out] = {
+    ): QueryBuilder[F, C, DataRec, B, OutRec, Out] = {
       val m         = toMap(or).map { case (s, b) => (s.name, b) }
       val actColMap = table.allColumns.columns.toMap
       val cols      = cssb.apply()._1.map(cn => (NamedColumn((cn, actColMap(cn))), m(cn)))
@@ -225,7 +276,7 @@ object JDBCQueries {
         implicit csb: ColumnSubsetBuilder.Aux[DataRec, whereCol.T :: HNil, W2],
         combiner: BindableCombiner[B, BindOne[DataRec, JDBCWhereClause, W2]]
     ) = {
-      copy[C, DataRec, combiner.Out, OutRec, Out](
+      copy[F, C, DataRec, combiner.Out, OutRec, Out](
         where = combiner(where, colsOp(binOp, table.cols(Cols(whereCol))))
       )
     }
@@ -235,7 +286,7 @@ object JDBCQueries {
         css: ColumnSubsetBuilder.Aux[DataRec, ColNames, W2],
         combiner: BindableCombiner[B, BindOne[DataRec, JDBCWhereClause, W2]]
     ) = {
-      copy[C, DataRec, combiner.Out, OutRec, Out](
+      copy[F, C, DataRec, combiner.Out, OutRec, Out](
         where = combiner(where, colsOp(binOp, table.cols(whereCols)))
       )
     }
@@ -244,59 +295,23 @@ object JDBCQueries {
         implicit c: AutoConvert[In, where.Value],
         cout: AutoConvert[Out, Out2],
         binder: BindStream[B, JDBCWhereClause]
-    ): In => Stream[JDBCIO, Out2] = build[In].andThen(_.map(cout.apply))
+    ): In => Stream[F, Out2] = build[In].andThen(_.map(cout.apply))
 
     def build[In](
         implicit c: AutoConvert[In, where.Value],
         binder: BindStream[B, JDBCWhereClause]
-    ): In => Stream[JDBCIO, Out] = {
+    ): In => Stream[F, Out] = {
       val baseSel =
         JDBCSelect(table.name, projections.columns.map(_._1), Seq.empty, orderCols, false)
       w2: In =>
         {
-          binder(where)(c.apply(w2)).covary[JDBCIO].flatMap {
+          binder(where)(c.apply(w2)).covary[F].flatMap {
             case (wc, bind) =>
-              streamForQuery(table.config, baseSel.copy(where = wc), bind, projections).map(mapOut)
+              E.streamForQuery(table.config, baseSel.copy(where = wc), bind, projections)
+                .map(mapOut)
           }
         }
     }
-  }
-
-  def getColRecord[C[_] <: JDBCColumn, R <: HList](
-      cols: ColumnRecord[C, _, R],
-      i: Int,
-      rs: ResultSet
-  ): IO[R] = IO {
-    @tailrec
-    def loop(offs: Int, l: HList): HList = {
-      if (offs < 0) l
-      else {
-        val (name, col) = cols.columns(offs)
-        col.read(offs + i, rs) match {
-          case None    => throw new Error(s"Column $name is null")
-          case Some(v) => loop(offs - 1, v :: l)
-        }
-      }
-    }
-
-    loop(cols.columns.length - 1, HNil).asInstanceOf[R]
-  }
-
-  def rowsStream[A](open: JDBCIO[(PreparedStatement, ResultSet)]): Stream[JDBCIO, ResultSet] = {
-    def nextLoop(rs: ResultSet): Stream[JDBCIO, ResultSet] =
-      Stream.eval(liftJDBC.liftIO(IO(rs.next()))).flatMap { n =>
-        if (n) Stream(rs) ++ nextLoop(rs) else Stream.empty
-      }
-
-    Stream
-      .bracket(open) {
-        case (ps, rs) =>
-          liftJDBC.liftIO(IO {
-            ps.close()
-            rs.close()
-          })
-      }
-      .flatMap(rs => nextLoop(rs._2))
   }
 
   def bindValues[C[_] <: JDBCColumn, R <: HList, A](
@@ -336,9 +351,8 @@ object JDBCQueries {
           val (a, col) = cols.columns(i)
           val oldv     = hex.asInstanceOf[col.A]
           val newv     = hnr.asInstanceOf[col.A]
-          col.bindUpdate(oldv, newv).foreach {
-            case binder =>
-              binds += Tuple2((ParameterBinder(binder, newv), a), col)
+          col.bindUpdate(oldv, newv).foreach { binder =>
+            binds += Tuple2((ParameterBinder(binder, newv), a), col)
           }
           loop(i + 1, tailold, tailnew)
         case _ => ()
@@ -351,7 +365,7 @@ object JDBCQueries {
 
   def bindParameters(params: Seq[ParameterBinder]): BindFunc[List[Any]] = Kleisli {
     case (con, ps) =>
-      StateT { offs =>
+      State { offs =>
         @tailrec
         def loop(i: Int, outvals: List[Any]): (Int, List[Any]) = {
           if (i < params.length) {
@@ -361,9 +375,7 @@ object JDBCQueries {
           } else (i + offs, outvals)
         }
 
-        IO {
-          loop(0, Nil)
-        }
+        loop(0, Nil)
       }
   }
 
@@ -374,43 +386,6 @@ object JDBCQueries {
       case ((_, name), col) =>
         ColumnExpression(NamedColumn(name, col.columnType), Parameter(col.columnType))
     }
-
-  def prepareAndQuery(
-      config: JDBCConfig,
-      query: JDBCPreparedQuery,
-      bind: BindFunc[Seq[BindLog]],
-      mkStatement: (Connection, String) => PreparedStatement = (con, sql) =>
-        con.prepareStatement(sql),
-      mkResultSet: PreparedStatement => ResultSet = _.executeQuery()
-  ): Stream[JDBCIO, ResultSet] = {
-    rowsStream {
-      StateT.inspectF { con =>
-        val sql = config.queryToSQL(query)
-        for {
-          ps <- IO {
-            config.logPrepare(sql)
-            mkStatement(con, sql)
-          }
-          bv <- bind(con, ps).runA(1)
-          rs <- IO {
-            config.logBind(() => (sql, bv))
-            mkResultSet(ps)
-          }
-        } yield (ps, rs)
-      }
-    }
-  }
-
-  def streamForQuery[C[_] <: JDBCColumn, Out <: HList](
-      config: JDBCConfig,
-      query: JDBCPreparedQuery,
-      bind: BindFunc[Seq[BindLog]],
-      resultCols: ColumnRecord[C, _, Out]
-  ): Stream[JDBCIO, Out] = {
-    prepareAndQuery(config, query, bind).evalMap { rs =>
-      liftJDBC.liftIO(getColRecord(resultCols, 1, rs))
-    }
-  }
 
   def toProjection[C[_] <: JDBCColumn, R <: HList](
       cols: ColumnRecord[C, String, R]
@@ -423,16 +398,17 @@ object JDBCQueries {
     }
   }
 
-  def queryRawSQL[C[_] <: JDBCColumn, Params <: HList, OutRec <: HList](
+  def queryRawSQL[F[_], C[_] <: JDBCColumn, Params <: HList, OutRec <: HList](
       sql: String,
       cr: ColumnRecord[C, _, Params],
       outRec: ColumnRecord[C, _, OutRec]
-  )(implicit c: JDBCConfig): Params => Stream[JDBCIO, OutRec] = params => {
-    val bindFunc = bindParameters(bindValues(cr, params).columns.map(_._1._1))
-      .map(l => Seq(ValueLog(l): BindLog))
-    prepareAndQuery(c, JDBCRawSQL(sql), bindFunc).evalMap { rs =>
-      liftJDBC.liftIO(getColRecord(outRec, 1, rs))
+  )(implicit c: JDBCConfig, E: JDBCEffect[F]): Params => Stream[F, OutRec] =
+    params => {
+      val bindFunc = bindParameters(bindValues(cr, params).columns.map(_._1._1))
+        .map(l => Seq(ValueLog(l): BindLog))
+      E.executeResultSet(JDBCRawSQL(sql), c, bindFunc).evalMap { rs =>
+        E.resultSetRecord(outRec, 1, rs)
+      }
     }
-  }
 
 }

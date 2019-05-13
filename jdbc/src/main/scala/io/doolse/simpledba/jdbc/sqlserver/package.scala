@@ -14,8 +14,7 @@ package object sqlserver {
   case class SQLServerColumn[A](wrapped: StdJDBCColumn[A], columnType: ColumnType)
       extends WrappedColumn[A]
 
-  trait StdSQLServerColumns extends StdColumns {
-    type C[A] = SQLServerColumn[A]
+  trait StdSQLServerColumns extends StdColumns[SQLServerColumn] {
 
     implicit def longCol = SQLServerColumn[Long](StdJDBCColumn.longCol, ColumnType("BIGINT"))
 
@@ -52,11 +51,13 @@ package object sqlserver {
       s"$baseType IDENTITY"
     } else baseType
   }
+  val sqlServerReserved       = DefaultReserved ++ Set("key")
+  val sqlServerEscapeReserved = escapeReserved(sqlServerReserved) _
 
   def sqlServerConfig =
     JDBCSQLConfig[SQLServerColumn](
-      defaultEscapeReserved,
-      defaultEscapeReserved,
+      sqlServerEscapeReserved,
+      sqlServerEscapeReserved,
       stdSQLQueries,
       stdExpressionSQL,
       sqlServerTypeNames(256),
@@ -82,49 +83,49 @@ package object sqlserver {
     c.copy(columnType = c.columnType.withFlag(IdentityColumn))
   }
 
-  def insertIdentity[C[_] <: JDBCColumn,
-                     T,
-                     R <: HList,
-                     KeyNames <: HList,
-                     AllCols <: HList,
-                     WithoutKeys <: HList,
-                     JustKeys <: HList,
-                     A,
-                     Res](
-      table: JDBCTable.Aux[C, T, R, A :: HNil, KeyNames]
-  )(
-      implicit keys: Keys.Aux[R, AllCols],
-      removeAll: RemoveAll.Aux[AllCols, KeyNames, (WithoutKeys, JustKeys)],
-      withoutKeys: ColumnSubsetBuilder[R, JustKeys],
-      sampleValue: SampleValue[A],
-      conv: AutoConvert[Res, Stream[JDBCIO, A => T]]
-  ): Res => Stream[JDBCIO, T] = { res =>
-    conv(res).flatMap { f =>
-      val fullRec   = table.allColumns.iso.to(f(sampleValue.v))
-      val sscols    = table.allColumns.subset(withoutKeys)
-      val keyCols   = table.keyColumns.columns
-      val colValues = JDBCQueries.bindValues(sscols._1, sscols._2(fullRec)).columns
-      val colBindings = colValues.map {
-        case ((_, name), col) => name -> Parameter(col.columnType)
-      }
-      val mc = table.config
-      val insertSQL =
-        s"INSERT INTO ${mc.escapeTableName(table.name)} " +
-          s"${brackets(colBindings.map(v => mc.escapeColumnName(v._1)))} " +
-          s"OUTPUT ${keyCols.map(k => s"INSERTED.${mc.escapeColumnName(k._1)}").mkString(",")} " +
-          s"VALUES ${brackets(colBindings.map(v => mc.exprToSQL(v._2)))}"
-
-      val insert = JDBCRawSQL(insertSQL)
-      JDBCQueries
-        .streamForQuery(
-          table.config,
-          insert,
-          JDBCQueries.bindParameters(colValues.map(_._1._1)).map(c => Seq(ValueLog(c))),
-          Columns(keyCols, Iso.id[A :: HNil])
-        )
-        .map { a =>
-          f(a.head)
+  class SQLServerQueries[F[_]](implicit E: JDBCEffect[F]) {
+    def insertIdentity[T,
+                       R <: HList,
+                       KeyNames <: HList,
+                       AllCols <: HList,
+                       WithoutKeys <: HList,
+                       JustKeys <: HList,
+                       A,
+                       Res](
+        table: JDBCTable.Aux[SQLServerColumn, T, R, A :: HNil, KeyNames]
+    )(
+        implicit keys: Keys.Aux[R, AllCols],
+        removeAll: RemoveAll.Aux[AllCols, KeyNames, (WithoutKeys, JustKeys)],
+        withoutKeys: ColumnSubsetBuilder[R, JustKeys],
+        sampleValue: SampleValue[A],
+        conv: AutoConvert[Res, Stream[F, A => T]]
+    ): Res => Stream[F, T] = { res =>
+      conv(res).flatMap { f =>
+        val fullRec   = table.allColumns.iso.to(f(sampleValue.v))
+        val sscols    = table.allColumns.subset(withoutKeys)
+        val keyCols   = table.keyColumns.columns
+        val colValues = JDBCQueries.bindValues(sscols._1, sscols._2(fullRec)).columns
+        val colBindings = colValues.map {
+          case ((_, name), col) => name -> Parameter(col.columnType)
         }
+        val mc = table.config
+        val insertSQL =
+          s"INSERT INTO ${mc.escapeTableName(table.name)} " +
+            s"${brackets(colBindings.map(v => mc.escapeColumnName(v._1)))} " +
+            s"OUTPUT ${keyCols.map(k => s"INSERTED.${mc.escapeColumnName(k._1)}").mkString(",")} " +
+            s"VALUES ${brackets(colBindings.map(v => mc.exprToSQL(v._2)))}"
+
+        val insert = JDBCRawSQL(insertSQL)
+        E.streamForQuery(
+            table.config,
+            insert,
+            JDBCQueries.bindParameters(colValues.map(_._1._1)).map(c => Seq(ValueLog(c))),
+            Columns(keyCols, Iso.id[A :: HNil])
+          )
+          .map { a =>
+            f(a.head)
+          }
+      }
     }
   }
 }

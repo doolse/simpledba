@@ -18,9 +18,7 @@ package object postgres {
   case class PostgresColumn[A](wrapped: StdJDBCColumn[A], columnType: ColumnType)
       extends WrappedColumn[A]
 
-  trait StdPostgresColumns extends StdColumns {
-    type C[A] = PostgresColumn[A]
-
+  trait StdPostgresColumns extends StdColumns[PostgresColumn] {
     implicit def uuidCol =
       PostgresColumn[UUID](StdJDBCColumn.uuidCol(JDBCType.NULL), ColumnType("UUID"))
 
@@ -79,53 +77,53 @@ package object postgres {
       s"DROP TABLE IF EXISTS ${config.escapeTableName(t.name)} CASCADE"
   }
 
-  def insertWith[A,
-                 C[_] <: JDBCColumn,
-                 T,
-                 R <: HList,
-                 KeyNames <: HList,
-                 AllCols <: HList,
-                 WithoutKeys <: HList,
-                 JustKeys <: HList,
-                 Res](
-      table: JDBCTable.Aux[C, T, R, A :: HNil, KeyNames],
-      sequence: Sequence[A]
-  )(
-      implicit keys: Keys.Aux[R, AllCols],
-      removeAll: RemoveAll.Aux[AllCols, KeyNames, (WithoutKeys, JustKeys)],
-      withoutKeys: ColumnSubsetBuilder[R, JustKeys],
-      sampleValue: SampleValue[A],
-      conv: AutoConvert[Res, Stream[JDBCIO, A => T]]
-  ): Res => Stream[JDBCIO, T] = { res =>
-    conv(res).flatMap { f =>
-      val fullRec   = table.allColumns.iso.to(f(sampleValue.v))
-      val sscols    = table.allColumns.subset(withoutKeys)
-      val keyCols   = table.keyColumns.columns
-      val seqExpr   = FunctionCall("nextval", Seq(SQLString(sequence.name)))
-      val colValues = JDBCQueries.bindValues(sscols._1, sscols._2(fullRec)).columns
-      val colBindings = Seq(keyCols.head._1 -> seqExpr) ++ colValues.map {
-        case ((_, name), col) => name -> Parameter(col.columnType)
-      }
-      val mc = table.config
-
-      val insertSQL =
-        s"INSERT INTO ${mc.escapeTableName(table.name)} " +
-          s"${brackets(colBindings.map(v => mc.escapeColumnName(v._1)))} " +
-          s"VALUES ${brackets(colBindings.map(v => mc.exprToSQL(v._2)))} RETURNING ${keyCols
-            .map(k => mc.escapeColumnName(k._1))
-            .mkString(",")}"
-
-      val insert = JDBCRawSQL(insertSQL)
-      JDBCQueries
-        .streamForQuery(
-          table.config,
-          insert,
-          JDBCQueries.bindParameters(colValues.map(_._1._1)).map(c => Seq(ValueLog(c))),
-          Columns(keyCols, Iso.id[A :: HNil])
-        )
-        .map { a =>
-          f(a.head)
+  class PostgresQueries[F[_]](implicit E: JDBCEffect[F]) {
+    def insertWith[A,
+                   T,
+                   R <: HList,
+                   KeyNames <: HList,
+                   AllCols <: HList,
+                   WithoutKeys <: HList,
+                   JustKeys <: HList,
+                   Res](
+        table: JDBCTable.Aux[PostgresColumn, T, R, A :: HNil, KeyNames],
+        sequence: Sequence[A]
+    )(
+        implicit keys: Keys.Aux[R, AllCols],
+        removeAll: RemoveAll.Aux[AllCols, KeyNames, (WithoutKeys, JustKeys)],
+        withoutKeys: ColumnSubsetBuilder[R, JustKeys],
+        sampleValue: SampleValue[A],
+        conv: AutoConvert[Res, Stream[F, A => T]]
+    ): Res => Stream[F, T] = { res =>
+      conv(res).flatMap { f =>
+        val fullRec   = table.allColumns.iso.to(f(sampleValue.v))
+        val sscols    = table.allColumns.subset(withoutKeys)
+        val keyCols   = table.keyColumns.columns
+        val seqExpr   = FunctionCall("nextval", Seq(SQLString(sequence.name)))
+        val colValues = JDBCQueries.bindValues(sscols._1, sscols._2(fullRec)).columns
+        val colBindings = Seq(keyCols.head._1 -> seqExpr) ++ colValues.map {
+          case ((_, name), col) => name -> Parameter(col.columnType)
         }
+        val mc = table.config
+
+        val insertSQL =
+          s"INSERT INTO ${mc.escapeTableName(table.name)} " +
+            s"${brackets(colBindings.map(v => mc.escapeColumnName(v._1)))} " +
+            s"VALUES ${brackets(colBindings.map(v => mc.exprToSQL(v._2)))} RETURNING ${keyCols
+              .map(k => mc.escapeColumnName(k._1))
+              .mkString(",")}"
+
+        val insert = JDBCRawSQL(insertSQL)
+        E.streamForQuery(
+            table.config,
+            insert,
+            JDBCQueries.bindParameters(colValues.map(_._1._1)).map(c => Seq(ValueLog(c))),
+            Columns(keyCols, Iso.id[A :: HNil])
+          )
+          .map { a =>
+            f(a.head)
+          }
+      }
     }
   }
 }

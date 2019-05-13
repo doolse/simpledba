@@ -1,6 +1,6 @@
 libraryDependencies ++= Seq(
   "com.chuusai" %% "shapeless" % "2.3.3",
-  "co.fs2" %% "fs2-core" % "1.0.3",
+  "co.fs2" %% "fs2-core" % "1.0.4",
   "com.typesafe" % "config" % "1.3.0")
 
 libraryDependencies ++= Seq(

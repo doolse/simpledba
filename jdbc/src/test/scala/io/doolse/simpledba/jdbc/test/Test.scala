@@ -5,14 +5,9 @@ import cats.effect.Sync
 import cats.instances.option._
 import cats.syntax.all._
 import fs2.Stream
-import io.doolse.simpledba.jdbc.JDBCIO
 import io.doolse.simpledba.syntax._
 import io.doolse.simpledba.{Flushable, WriteQueries}
-import shapeless.{DepFn0, DepFn1, HList, HNil, SingletonProductArgs, Witness}
-import shapeless.syntax.singleton._
-import shapeless._
-import shapeless.tag.@@
-import scala.language.experimental.macros
+
 
 object Test {
 
@@ -35,8 +30,6 @@ object Test {
                            usersWithLastName: String => Stream[F, Int]
                           )
 
-  val updated = Inst(2L, EmbeddedFields("pass", enabled = false))
-  val updatedAgain = Inst(2L, EmbeddedFields("changed", enabled = true))
 
   def insertData[F[_]](writeInst: WriteQueries[F, Inst],
                        writeUsers: WriteQueries[F, User]) = {
@@ -49,11 +42,13 @@ object Test {
     )
   }
 
-  def doTest[F[_] : Monad : Sync : Flushable](q: Queries[F]) = {
+  def doTest[F[_] : Monad : Sync : Flushable](q: Queries[F], updateId: (Inst,Inst) => Inst = (o,n) => n) = {
     import q._
     for {
       _ <- insertData(q.writeInst, q.writeUsers).flush
       orig <- q.insertNewInst(id => Inst(id, EmbeddedFields("pass", enabled = true)))
+      updated = updateId(orig, Inst(2L, EmbeddedFields("pass", enabled = false)))
+      updatedAgain = updateId(orig, Inst(2L, EmbeddedFields("changed", enabled = true)))
       res2 <- instByPK(orig.uniqueid).last
       res <- instByPK(517573426L).last
       _ <- writeInst.update(orig, updated).flush
