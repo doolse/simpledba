@@ -41,6 +41,8 @@ val commonSettings = Seq(
   }
 )
 
+parallelExecution in ThisBuild := false
+
 val subSettings = Seq(
   name := "simpledba-" + baseDirectory.value.getName,
   testOptions in Test += Tests.Argument(TestFrameworks.ScalaCheck, "-s", "10"),

@@ -12,16 +12,18 @@ object JDBCProperties {
 trait JDBCProperties {
   import JDBCProperties._
 
-  lazy val mapper        = hsqldbMapper
-  def effect             = StateIOEffect(ConsoleLogger())
-  def dialect            = mapper.dialect
-  lazy val sqlQueries    = mapper.queries(effect)
-  implicit def flushable = flushJDBC(effect)
+  implicit def shortCol = HSQLColumn[Short](StdJDBCColumn.shortCol, ColumnType("INTEGER"))
 
+  lazy val mapper        = hsqldbMapper
+  def effect             = StateIOEffect()
+  lazy val sqlQueries    = mapper.queries(effect)
+  implicit def flushable = effect.flushable
+
+  import sqlQueries._
   def setup(bq: JDBCTable*): Unit =
     run((for {
       t <- Stream.emits(bq).map(_.definition)
-      _ <- sqlQueries.rawSQLStream(Stream(dialect.dropTable(t), dialect.createTable(t))).flush
+      _ <- rawSQLStream(Stream(dialect.dropTable(t), dialect.createTable(t))).flush
     } yield ()).compile.drain)
 
   def run[A](fa: JDBCIO[A]): A = scala.concurrent.blocking { fa.runA(connection).unsafeRunSync() }

@@ -80,6 +80,8 @@ object StdJDBCColumn {
 
   val intCol = colFromGetter[Int](JDBCType.INTEGER, _.getInt, v => (i, _, ps) => ps.setInt(i, v))
 
+  val shortCol = colFromGetter[Short](JDBCType.SMALLINT, _.getShort, v => (i, _, ps) => ps.setShort(i, v))
+
   val longCol = colFromGetter[Long](JDBCType.BIGINT, _.getLong, v => (i, _, ps) => ps.setLong(i, v))
 
   val boolCol =
