@@ -108,8 +108,8 @@ package object sqlserver {
         val colBindings = colValues.map {
           case ((_, name), col) => name -> Parameter(col.columnType)
         }
-        import dialect._
         import StdSQLDialect._
+        import dialect._
         val insertSQL =
           s"INSERT INTO ${escapeTableName(table.name)} " +
             s"${brackets(colBindings.map(v => escapeColumnName(v._1)))} " +

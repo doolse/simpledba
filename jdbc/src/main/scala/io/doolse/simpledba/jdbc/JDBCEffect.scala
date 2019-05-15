@@ -3,7 +3,6 @@ package io.doolse.simpledba.jdbc
 import java.sql.{Connection, PreparedStatement, ResultSet}
 
 import cats.Monad
-import cats.data.{Kleisli, State}
 import fs2.Stream
 import io.doolse.simpledba.{ColumnRecord, Flushable}
 import shapeless.{HList, HNil}

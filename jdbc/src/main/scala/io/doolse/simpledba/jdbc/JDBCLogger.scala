@@ -3,6 +3,10 @@ package io.doolse.simpledba.jdbc
 import cats.Applicative
 import cats.effect.Sync
 
+sealed trait BindLog
+case class WhereLog(vals: Seq[Any]) extends BindLog
+case class ValueLog(vals: Seq[Any]) extends BindLog
+
 trait JDBCLogger[F[_]] {
   def logPrepare(sql: String): F[Unit]
   def logBind(sql: String, values: Seq[BindLog]): F[Unit]

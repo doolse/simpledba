@@ -97,8 +97,8 @@ package object postgres {
         val colBindings = Seq(keyCols.head._1 -> seqExpr) ++ colValues.map {
           case ((_, name), col) => name -> Parameter(col.columnType)
         }
-        import dialect._
         import StdSQLDialect._
+        import dialect._
 
         val insertSQL =
           s"INSERT INTO ${escapeTableName(table.name)} " +

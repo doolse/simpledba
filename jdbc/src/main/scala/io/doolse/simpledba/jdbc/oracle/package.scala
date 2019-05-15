@@ -4,7 +4,6 @@ import java.sql.{PreparedStatement, ResultSet}
 import java.time.Instant
 
 import fs2.Stream
-import io.doolse.simpledba.jdbc.hsql.{HSQLColumn, HSQLDialect}
 import io.doolse.simpledba.{AutoConvert, ColumnSubsetBuilder, Columns, Iso}
 import shapeless.ops.hlist.RemoveAll
 import shapeless.ops.record.Keys

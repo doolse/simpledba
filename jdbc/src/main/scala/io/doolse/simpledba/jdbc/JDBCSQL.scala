@@ -4,10 +4,6 @@ import io.doolse.simpledba.WriteOp
 import io.doolse.simpledba.jdbc.AggregateOp.AggregateOp
 import io.doolse.simpledba.jdbc.BinOp.BinOp
 
-sealed trait BindLog
-case class WhereLog(vals: Seq[Any]) extends BindLog
-case class ValueLog(vals: Seq[Any]) extends BindLog
-
 case class TableDefinition(name: String, columns: Seq[NamedColumn], primaryKey: Seq[String])
 
 case class TableColumns(name: String, columns: Seq[NamedColumn])
