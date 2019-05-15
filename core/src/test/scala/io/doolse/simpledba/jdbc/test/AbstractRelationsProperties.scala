@@ -10,7 +10,10 @@ import Arbitrary._
 /**
   * Created by jolz on 16/06/16.
   */
-abstract class AbstractRelationsProperties[F[_] : Flushable : Sync](name: String)(implicit M: Monad[F]) extends SimpleDBAProperties(name) {
+abstract class AbstractRelationsProperties[F[_] : Sync](name: String)(implicit M: Monad[F]) extends SimpleDBAProperties(name) {
+
+  implicit def flushable: Flushable[F]
+
   implicit def runProp(fa: F[Prop]): Prop = run(fa)
 
   def crudProps[A : Arbitrary, K](wq: WriteQueries[F, A], truncate: Stream[F, WriteOp], f: A => Stream[F, A], expected: Int, genUpdate: Gen[(A, A)]) =

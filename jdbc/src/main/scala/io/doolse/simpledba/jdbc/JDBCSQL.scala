@@ -1,64 +1,8 @@
 package io.doolse.simpledba.jdbc
 
-import java.sql.SQLType
-
-import io.doolse.simpledba.{ColumnRecord, WriteOp}
+import io.doolse.simpledba.WriteOp
 import io.doolse.simpledba.jdbc.AggregateOp.AggregateOp
 import io.doolse.simpledba.jdbc.BinOp.BinOp
-import shapeless.HList
-
-trait JDBCSchemaSQL {
-  def dropTable(t: TableDefinition): String
-  def createTable(t: TableDefinition): String
-  def addColumns(t: TableColumns): Seq[String]
-  def truncateTable(t: TableDefinition): String
-  def createIndex(t: TableColumns, named: String): String
-}
-
-trait JDBCConfig {
-
-  type C[A] <: JDBCColumn
-
-  def escapeTableName: String => String
-  def escapeColumnName: String => String
-  def queryToSQL: JDBCPreparedQuery => String
-  def exprToSQL: SQLExpression => String
-  def typeName: (ColumnType, Boolean) => String
-  def logPrepare: String => Unit
-  def schemaSQL: JDBCSchemaSQL
-  def logBind: (String, Seq[BindLog]) => Unit
-
-  def record[R <: HList](implicit cr: ColumnRecord[C, Unit, R]): ColumnRecord[C, Unit, R] = cr
-
-}
-
-class ColumnRecordCreate
-
-object JDBCConfig {
-  type Aux[C0[_] <: JDBCColumn] = JDBCConfig {
-    type C[A] = C0[A]
-  }
-}
-
-case class JDBCSQLConfig[C0[_] <: JDBCColumn](
-    escapeTableName: String => String,
-    escapeColumnName: String => String,
-    _queryString: JDBCConfig => JDBCPreparedQuery => String,
-    _exprToSQL: JDBCConfig => SQLExpression => String,
-    typeName: (ColumnType, Boolean) => String,
-    _schemaSQL: JDBCConfig => JDBCSchemaSQL,
-    logPrepare: String => Unit = _ => (),
-    logBind: (String, Seq[BindLog]) => Unit = (_,_) => ()
-) extends JDBCConfig {
-  type C[A] = C0[A]
-  def withPrepareLogger(l: String => Unit): JDBCSQLConfig[C0] = copy(logPrepare = l)
-  def withBindingLogger(l: (String, Seq[BindLog]) => Unit): JDBCSQLConfig[C0] =
-    copy(logBind = l)
-  def withTypeName(n: (ColumnType, Boolean) => String): JDBCSQLConfig[C0] = copy(typeName = n)
-  def schemaSQL                                                           = _schemaSQL(this)
-  val queryToSQL                                                          = _queryString(this)
-  val exprToSQL                                                           = _exprToSQL(this)
-}
 
 sealed trait BindLog
 case class WhereLog(vals: Seq[Any]) extends BindLog
@@ -121,5 +65,5 @@ sealed trait JDBCWhereClause
 
 case class BinClause(left: SQLExpression, op: BinOp, right: SQLExpression) extends JDBCWhereClause
 
-case class JDBCWriteOp(q: JDBCPreparedQuery, config: JDBCConfig, binder: BindFunc[Seq[BindLog]])
+case class JDBCWriteOp(q: JDBCPreparedQuery, config: SQLDialect, binder: BindFunc[Seq[BindLog]])
     extends WriteOp

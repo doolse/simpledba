@@ -1,27 +1,13 @@
 package io.doolse.simpledba.jdbc
 
-import java.sql.JDBCType._
-import java.sql.{JDBCType, SQLType}
+import java.sql.JDBCType
 import java.time.Instant
 import java.util.UUID
-
-import fs2.Stream
-import io.doolse.simpledba.{WriteOp, jdbc}
-import io.doolse.simpledba.jdbc.StandardJDBC._
 
 package object hsql {
   case class HSQLColumn[A](wrapped: StdJDBCColumn[A], columnType: ColumnType)
       extends WrappedColumn[A]
 
-//  case INTEGER => "INTEGER"
-//  case BIGINT => "BIGINT"
-//  case BOOLEAN => "BOOLEAN"
-//  case SMALLINT => "SMALLINT"
-//  case FLOAT => "FLOAT"
-//  case DOUBLE => "DOUBLE"
-//  case TIMESTAMP => "TIMESTAMP"
-//  case NVARCHAR => "NVARCHAR"
-//
   trait StdHSQLColumns extends StdColumns[HSQLColumn] {
     implicit def uuidCol =
       HSQLColumn[UUID](StdJDBCColumn.uuidCol(JDBCType.NVARCHAR), ColumnType("UUID"))
@@ -39,11 +25,13 @@ package object hsql {
                             editType: ColumnType => ColumnType): HSQLColumn[B] =
       col.copy(wrapped = edit(col.wrapped), columnType = editType(col.columnType))
 
-    override def sizedStringType(size: Int): String = ???
+    override def sizedStringType(size: Int): String = s"VARCHAR($size)"
 
-    override implicit def floatCol: HSQLColumn[Float] = ???
+    override implicit def floatCol: HSQLColumn[Float] =
+      HSQLColumn[Float](StdJDBCColumn.floatCol, ColumnType("FLOAT"))
 
-    override implicit def doubleCol: HSQLColumn[Double] = ???
+    override implicit def doubleCol: HSQLColumn[Double] =
+      HSQLColumn[Double](StdJDBCColumn.doubleCol, ColumnType("DOUBLE"))
 
     override implicit def instantCol: HSQLColumn[Instant] =
       HSQLColumn[Instant](StdJDBCColumn.instantCol, ColumnType("TIMESTAMP"))
@@ -51,15 +39,10 @@ package object hsql {
 
   object HSQLColumn extends StdHSQLColumns
 
-  val hsqldbConfig = JDBCSQLConfig[HSQLColumn](
-    defaultEscapeReserved,
-    defaultEscapeReserved,
-    stdSQLQueries,
-    stdExpressionSQL,
-    stdTypeNames,
-    HSQLSchemaSQL.apply
-  )
+  trait HSQLDialect extends StdSQLDialect
 
-  case class HSQLSchemaSQL(config: JDBCConfig) extends StandardSchemaSQL(config)
+  object HSQLDialect extends HSQLDialect
+
+  val hsqldbMapper = JDBCMapper[HSQLColumn](HSQLDialect)
 
 }

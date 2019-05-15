@@ -4,7 +4,7 @@ import java.sql.{PreparedStatement, ResultSet}
 import java.time.Instant
 
 import fs2.Stream
-import io.doolse.simpledba.jdbc.StandardJDBC._
+import io.doolse.simpledba.jdbc.hsql.{HSQLColumn, HSQLDialect}
 import io.doolse.simpledba.{AutoConvert, ColumnSubsetBuilder, Columns, Iso}
 import shapeless.ops.hlist.RemoveAll
 import shapeless.ops.record.Keys
@@ -43,44 +43,43 @@ package object oracle {
 
   object OracleColumn extends StdOracleColumns
 
-  def oracleTypes(stringKeySize: Int)(b: ColumnType, key: Boolean): String = {
-    if (key && b.typeName == "NCLOB") s"NVARCHAR2($stringKeySize)" else b.typeName
-  }
+  trait OracleDialect extends StdSQLDialect {
+    val OracleReserved                            = DefaultReserved ++ Set("session", "timestamp", "key")
+    override def reservedIdentifiers: Set[String] = OracleReserved
 
-  val oracleReserved = DefaultReserved ++ Set("session", "timestamp", "key")
-
-  val oracleEscapeReserved = escapeReserved(oracleReserved) _
-
-  def oracleSQLExpr(config: JDBCConfig)(sql: SQLExpression): String = {
-    sql match {
-      case FunctionCall("nextval", Seq(SQLString(named))) => s"$named.nextval"
-      case o                                              => stdExpressionSQL(config)(o)
+    override def expressionSQL(expr: SQLExpression): String = {
+      expr match {
+        case FunctionCall("nextval", Seq(SQLString(named))) => s"$named.nextval"
+        case o                                              => stdExpressionSQL(o)
+      }
     }
-  }
 
-  val oracleConfig = JDBCSQLConfig[OracleColumn](
-    oracleEscapeReserved,
-    oracleEscapeReserved,
-    stdSQLQueries,
-    oracleSQLExpr,
-    oracleTypes(256),
-    OracleSchemaSQL.apply
-  )
+    def stringKeySize: Int
 
-  case class OracleSchemaSQL(config: JDBCConfig) extends StandardSchemaSQL(config) {
+    override def typeName(c: ColumnType, keyColumn: Boolean): String = {
+      if (keyColumn && c.typeName == "NCLOB") s"NVARCHAR2($stringKeySize)" else c.typeName
+    }
+
     override def dropTable(t: TableDefinition): String =
-      s"BEGIN EXECUTE IMMEDIATE 'DROP TABLE ${config.escapeTableName(t.name)}'; EXCEPTION WHEN OTHERS THEN NULL; END;"
+      s"BEGIN EXECUTE IMMEDIATE 'DROP TABLE ${escapeTableName(t.name)}'; EXCEPTION WHEN OTHERS THEN NULL; END;"
 
     override def addColumns(t: TableColumns): Seq[String] = {
-      def mkAddCol(cb: NamedColumn) = s"${col(cb)} ${config.typeName(cb.columnType, false)}"
+      def mkAddCol(cb: NamedColumn) = s"${col(cb)} ${typeName(cb.columnType, false)}"
 
       Seq(
-        s"ALTER TABLE ${config.escapeTableName(t.name)} ADD ${t.columns.map(mkAddCol).mkString("(", ",", ")")}"
+        s"ALTER TABLE ${escapeTableName(t.name)} ADD ${t.columns.map(mkAddCol).mkString("(", ",", ")")}"
       )
     }
+
   }
 
-  class OracleQueries[F[_]](implicit E: JDBCEffect[F]) {
+  object OracleDialect extends OracleDialect {
+    def stringKeySize = 256
+  }
+
+  val oracleMapper = JDBCMapper[OracleColumn](OracleDialect)
+
+  case class OracleQueries[F[_]](dialect: SQLDialect, E: JDBCEffect[F]) {
 
     def insertWith[A,
                    T,
@@ -109,22 +108,17 @@ package object oracle {
         val colBindings = Seq(keyCols.head._1 -> seqExpr) ++ colValues.map {
           case ((_, name), col) => name -> Parameter(col.columnType)
         }
-        val mc = table.config
-
         val insertSQL =
-          s"INSERT INTO ${mc.escapeTableName(table.name)} " +
-            s"${brackets(colBindings.map(v => mc.escapeColumnName(v._1)))} " +
-            s"VALUES ${brackets(colBindings.map(v => mc.exprToSQL(v._2)))}"
+          s"INSERT INTO ${dialect.escapeTableName(table.name)} " +
+            s"${StdSQLDialect.brackets(colBindings.map(v => dialect.escapeColumnName(v._1)))} " +
+            s"VALUES ${StdSQLDialect.brackets(colBindings.map(v => dialect.expressionSQL(v._2)))}"
 
-        val binder = JDBCQueries.bindParameters(colValues.map(_._1._1)).map(c => Seq(ValueLog(c)))
+        val binder =
+          JDBCQueries.bindParameters(colValues.map(_._1._1)).map(c => Seq(ValueLog(c): BindLog))
         E.executeStream[PreparedStatement, ResultSet](
-            _.prepareStatement(insertSQL, keyCols.map(_._1).toArray[String]),
-            (con, ps) => {
-              (con, ps)
-              val log = binder(con, ps).runA(1).value
-              mc.logBind(insertSQL, log)
-              ps.executeUpdate(); ps.getGeneratedKeys
-            }
+            E.logAndPrepare(insertSQL,
+                            _.prepareStatement(insertSQL, keyCols.map(_._1).toArray[String])),
+            E.logAndBind(insertSQL, binder, ps => { ps.executeUpdate; ps.getGeneratedKeys })
           )
           .evalMap(rs => E.resultSetRecord(Columns(keyCols, Iso.id[A :: HNil]), 1, rs))
           .map(a => f(a.head))

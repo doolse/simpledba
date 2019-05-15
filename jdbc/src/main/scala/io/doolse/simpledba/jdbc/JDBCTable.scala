@@ -5,7 +5,6 @@ import shapeless.{::, HList, HNil, Witness}
 
 case class JDBCRelation[C[_] <: JDBCColumn, T, R <: HList](
     name: String,
-    sqlMapping: JDBCConfig,
     all: Columns[C, T, R]
 ) {
   def edit[A](k: Witness, col: C[A])(
@@ -13,7 +12,7 @@ case class JDBCRelation[C[_] <: JDBCColumn, T, R <: HList](
   ): JDBCRelation[C, T, R] = {
     val (names, _) = css.apply()
 
-    JDBCRelation(name, sqlMapping, all.copy(all.columns.map {
+    JDBCRelation(name, all.copy(all.columns.map {
       case (cn, c) if names.contains(cn) => (cn, col)
       case o                             => o
     }))
@@ -23,14 +22,14 @@ case class JDBCRelation[C[_] <: JDBCColumn, T, R <: HList](
       implicit css: ColumnSubsetBuilder[R, k.T :: HNil]
   ): JDBCTable.Aux[C, T, R, css.Out, k.T :: HNil] = {
     val (keys, toKey) = all.subset[k.T :: HNil]
-    JDBCTable(name, sqlMapping, all, css, toKey)
+    JDBCTable(name, all, css, toKey)
   }
 
   def keys[K <: HList](
       k: Cols[K]
   )(implicit css: ColumnSubsetBuilder[R, K]): JDBCTable.Aux[C, T, R, css.Out, K] = {
     val (keys, toKey) = all.subset[K]
-    JDBCTable(name, sqlMapping, all, css, toKey)
+    JDBCTable(name, all, css, toKey)
   }
 }
 
@@ -42,7 +41,6 @@ trait JDBCTable {
   type KeyNames <: HList
 
   def name: String
-  def config: JDBCConfig
   def toKey: DataRec => KeyList
   implicit def keySubset: ColumnSubsetBuilder.Aux[DataRec, KeyNames, KeyList]
   def keyNames                                                    = new Cols[KeyNames]
@@ -83,7 +81,6 @@ object JDBCTable {
 
   def apply[C2[_] <: JDBCColumn, T, R <: HList, K <: HList, KeyN <: HList](
       tableName: String,
-      jdbcConfig: JDBCConfig,
       all: Columns[C2, T, R],
       keys: ColumnSubsetBuilder.Aux[R, KeyN, K],
       tkey: R => K
@@ -95,8 +92,6 @@ object JDBCTable {
     override type KeyNames = KeyN
 
     override def name: String = tableName
-
-    override def config: JDBCConfig = jdbcConfig
 
     override def toKey = tkey
 

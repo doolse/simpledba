@@ -8,7 +8,6 @@ import fs2.Stream
 import io.doolse.simpledba.syntax._
 import io.doolse.simpledba.{Flushable, WriteQueries}
 
-
 object Test {
 
   case class EmbeddedFields(adminpassword: String, enabled: Boolean)
@@ -27,12 +26,9 @@ object Test {
                            queryByLastNameDesc: String => Stream[F, User],
                            queryByFullName: Username => Stream[F, User],
                            justYear: Username => Stream[F, Int],
-                           usersWithLastName: String => Stream[F, Int]
-                          )
+                           usersWithLastName: String => Stream[F, Int])
 
-
-  def insertData[F[_]](writeInst: WriteQueries[F, Inst],
-                       writeUsers: WriteQueries[F, User]) = {
+  def insertData[F[_]](writeInst: WriteQueries[F, Inst], writeUsers: WriteQueries[F, User]) = {
     writeUsers.insertAll(
       Stream(
         User("Jolse", "Maginnis", 1980),
@@ -42,24 +38,25 @@ object Test {
     )
   }
 
-  def doTest[F[_] : Monad : Sync : Flushable](q: Queries[F], updateId: (Inst,Inst) => Inst = (o,n) => n) = {
+  def doTest[F[_]: Monad: Sync: Flushable](q: Queries[F],
+                                           updateId: (Inst, Inst) => Inst = (o, n) => n) = {
     import q._
     for {
-      _ <- insertData(q.writeInst, q.writeUsers).flush
+      _    <- insertData(q.writeInst, q.writeUsers).flush
       orig <- q.insertNewInst(id => Inst(id, EmbeddedFields("pass", enabled = true)))
-      updated = updateId(orig, Inst(2L, EmbeddedFields("pass", enabled = false)))
+      updated      = updateId(orig, Inst(2L, EmbeddedFields("pass", enabled = false)))
       updatedAgain = updateId(orig, Inst(2L, EmbeddedFields("changed", enabled = true)))
-      res2 <- instByPK(orig.uniqueid).last
-      res <- instByPK(517573426L).last
-      _ <- writeInst.update(orig, updated).flush
-      res3 <- instByPK(2L).last
-      _ <- writeInst.update(updated, updatedAgain).flush
-      res4 <- instByPK(2L).last
-      all <- Stream.eval(queryByLastNameDesc("Maginnis").compile.toVector)
-      allFirst <- Stream.eval(querybyFirstNameAsc("Jolse").compile.toVector)
-      fullPK <- Stream.eval(queryByFullName(Username("Jolse", "Maginnis")).compile.toVector)
-      _ <- res4.map(writeInst.delete).sequence
-      yearOnly <- q.justYear(Username("Jolse", "Maginnis")).last
+      res2            <- instByPK(orig.uniqueid).last
+      res             <- instByPK(517573426L).last
+      _               <- writeInst.update(orig, updated).flush
+      res3            <- instByPK(2L).last
+      _               <- writeInst.update(updated, updatedAgain).flush
+      res4            <- instByPK(2L).last
+      all             <- Stream.eval(queryByLastNameDesc("Maginnis").compile.toVector)
+      allFirst        <- Stream.eval(querybyFirstNameAsc("Jolse").compile.toVector)
+      fullPK          <- Stream.eval(queryByFullName(Username("Jolse", "Maginnis")).compile.toVector)
+      _               <- res4.map(writeInst.delete).sequence
+      yearOnly        <- q.justYear(Username("Jolse", "Maginnis")).last
       countOfMaginnis <- q.usersWithLastName("Maginnis").last
     } yield {
       s"""

@@ -9,10 +9,42 @@ import io.doolse.simpledba.jdbc.JDBCTable.TableRecord
 import shapeless.labelled._
 import shapeless.ops.hlist.{Length, Prepend, Split}
 import shapeless.ops.record.{Keys, ToMap}
-import shapeless.{::, DepFn2, HList, HNil, Nat, Witness}
+import shapeless.{::, DepFn2, HList, HNil, LabelledGeneric, Nat, Witness}
 
 import scala.annotation.tailrec
 import scala.collection.mutable
+
+case class JDBCMapper[C[_] <: JDBCColumn](dialect: SQLDialect) {
+
+  def record[R <: HList](implicit cr: ColumnRecord[C, Unit, R]): ColumnRecord[C, Unit, R] = cr
+
+  def queries[F[_]](effect: JDBCEffect[F]): JDBCQueries[F, C] = JDBCQueries(effect, dialect)
+
+  def mapped[T] = new RelationBuilder[T, C]
+
+  class RelationBuilder[T, C[_] <: JDBCColumn] {
+    def embedded[GR <: HList, R <: HList](
+        implicit
+        gen: LabelledGeneric.Aux[T, GR],
+        columns: ColumnBuilder.Aux[C, GR, R]
+    ): ColumnBuilder.Aux[C, T, R] = new ColumnBuilder[C, T] {
+      type Repr = R
+      def apply() = columns().compose(Iso(gen.to, gen.from))
+    }
+
+    def table[GR <: HList, R <: HList](tableName: String)(
+        implicit
+        gen: LabelledGeneric.Aux[T, GR],
+        allRelation: ColumnBuilder.Aux[C, GR, R]
+    ): JDBCRelation[C, T, R] =
+      JDBCRelation[C, T, R](
+        tableName,
+        allRelation()
+          .compose(Iso(gen.to, gen.from))
+      )
+  }
+
+}
 
 trait BindValues {
   type Value
@@ -83,7 +115,7 @@ object BindableCombiner {
 
 }
 
-class JDBCQueries[F[_]](implicit val E: JDBCEffect[F]) {
+case class JDBCQueries[F[_], C[_] <: JDBCColumn](E: JDBCEffect[F], dialect: SQLDialect) {
   def writes(table: JDBCTable): WriteQueries[F, table.Data] =
     new WriteQueries[F, table.Data] {
 
@@ -93,7 +125,7 @@ class JDBCQueries[F[_]](implicit val E: JDBCEffect[F]) {
         val insertQuery   = JDBCInsert(table.name, columnExpressions(columnBinders))
         JDBCWriteOp(
           insertQuery,
-          table.config,
+          dialect,
           bindParameters(columnBinders.columns.map(_._1._1)).map(v => Seq(ValueLog(v)))
         )
       }
@@ -119,7 +151,7 @@ class JDBCQueries[F[_]](implicit val E: JDBCEffect[F]) {
               Stream(
                 JDBCWriteOp(
                   JDBCUpdate(table.name, columnExpressions(updateColumns), whereClauses),
-                  table.config,
+                  dialect,
                   binder
                 )
               )
@@ -132,7 +164,7 @@ class JDBCQueries[F[_]](implicit val E: JDBCEffect[F]) {
 
       private def deleteWriteOp(k: table.KeyList): JDBCWriteOp = {
         val (whereClauses, bindVals) = colsOp(BinOp.EQ, table.keyColumns).bind(k)
-        JDBCWriteOp(JDBCDelete(table.name, whereClauses), table.config, bindVals.map(_.toList))
+        JDBCWriteOp(JDBCDelete(table.name, whereClauses), dialect, bindVals.map(_.toList))
       }
 
     }
@@ -140,6 +172,8 @@ class JDBCQueries[F[_]](implicit val E: JDBCEffect[F]) {
   def selectFrom(table: JDBCTable) =
     new QueryBuilder[F, table.C, table.DataRec, BindNone.type, HNil, HNil](
       table,
+      dialect,
+      E,
       ColumnRecord.empty,
       identity,
       BindNone,
@@ -147,11 +181,13 @@ class JDBCQueries[F[_]](implicit val E: JDBCEffect[F]) {
     )
 
   def deleteFrom(table: JDBCTable) =
-    new DeleteBuilder[F, table.C, table.DataRec, BindNone.type](table, BindNone)
+    new DeleteBuilder[F, table.C, table.DataRec, BindNone.type](table, dialect, BindNone)
 
   def query(table: JDBCTable) =
     new QueryBuilder[F, table.C, table.DataRec, BindNone.type, table.DataRec, table.Data](
       table,
+      dialect,
+      E,
       toProjection(table.allColumns),
       table.allColumns.iso.from,
       BindNone,
@@ -166,6 +202,29 @@ class JDBCQueries[F[_]](implicit val E: JDBCEffect[F]) {
 
   def allRows(table: JDBCTable): Stream[F, table.Data] =
     query(table).build[Unit].apply()
+
+  def queryRawSQL[Params <: HList, OutRec <: HList](
+      sql: String,
+      cr: ColumnRecord[C, _, Params],
+      outRec: ColumnRecord[C, _, OutRec]
+  ): Params => Stream[F, OutRec] =
+    params => {
+      val bindFunc = bindParameters(bindValues(cr, params).columns.map(_._1._1))
+        .map(l => Seq(ValueLog(l): BindLog))
+      E.executeResultSet(JDBCRawSQL(sql), dialect, bindFunc).evalMap { rs =>
+        E.resultSetRecord(outRec, 1, rs)
+      }
+    }
+
+  def rawSQL(sql: String): WriteOp = {
+    JDBCWriteOp(JDBCRawSQL(sql), dialect, Kleisli.pure(Seq.empty))
+  }
+
+  def rawSQLStream(
+      sql: Stream[F, String]
+  ): Stream[F, WriteOp] = {
+    sql.map(rawSQL)
+  }
 
 }
 
@@ -187,6 +246,7 @@ object JDBCQueries {
 
   case class DeleteBuilder[F[_], C[_] <: JDBCColumn, DataRec <: HList, B <: BindValues](
       table: TableRecord[C, DataRec],
+      dialect: SQLDialect,
       whereClause: B
   ) {
     def where[W2 <: HList, ColNames <: HList](cols: Cols[ColNames], op: BinOp)(
@@ -212,7 +272,7 @@ object JDBCQueries {
         c: AutoConvert[W2, whereClause.Value]
     ): W2 => Stream[F, WriteOp] = w => {
       b.apply(whereClause)(w)
-        .map(a => JDBCWriteOp(JDBCDelete(table.name, a._1), table.config, a._2))
+        .map(a => JDBCWriteOp(JDBCDelete(table.name, a._1), dialect, a._2))
     }
   }
 
@@ -223,11 +283,13 @@ object JDBCQueries {
                           OutRec <: HList,
                           Out](
       table: TableRecord[C, DataRec],
+      dialect: SQLDialect,
+      E: JDBCEffect[F],
       projections: ColumnRecord[C, SQLProjection, OutRec],
       mapOut: OutRec => Out,
       where: B,
       orderCols: Seq[(NamedColumn, Boolean)]
-  )(implicit val E: JDBCEffect[F]) {
+  ) {
 
     def count(
         implicit intCol: C[Int]
@@ -307,7 +369,7 @@ object JDBCQueries {
         {
           binder(where)(c.apply(w2)).covary[F].flatMap {
             case (wc, bind) =>
-              E.streamForQuery(table.config, baseSel.copy(where = wc), bind, projections)
+              E.streamForQuery(dialect, baseSel.copy(where = wc), bind, projections)
                 .map(mapOut)
           }
         }
@@ -397,18 +459,4 @@ object JDBCQueries {
       }
     }
   }
-
-  def queryRawSQL[F[_], C[_] <: JDBCColumn, Params <: HList, OutRec <: HList](
-      sql: String,
-      cr: ColumnRecord[C, _, Params],
-      outRec: ColumnRecord[C, _, OutRec]
-  )(implicit c: JDBCConfig, E: JDBCEffect[F]): Params => Stream[F, OutRec] =
-    params => {
-      val bindFunc = bindParameters(bindValues(cr, params).columns.map(_._1._1))
-        .map(l => Seq(ValueLog(l): BindLog))
-      E.executeResultSet(JDBCRawSQL(sql), c, bindFunc).evalMap { rs =>
-        E.resultSetRecord(outRec, 1, rs)
-      }
-    }
-
 }

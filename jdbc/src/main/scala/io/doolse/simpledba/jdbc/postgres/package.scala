@@ -6,7 +6,6 @@ import java.util.UUID
 
 import fs2.Stream
 import io.doolse.simpledba._
-import io.doolse.simpledba.jdbc.StandardJDBC._
 import shapeless._
 import shapeless.ops.hlist.RemoveAll
 import shapeless.ops.record.Keys
@@ -58,26 +57,20 @@ package object postgres {
 
   object PostgresColumn extends StdPostgresColumns
 
-  def postgresExpressions(config: JDBCConfig)(c: SQLExpression): String = c match {
-    case Parameter(ColumnType("JSONB", _, _)) => "?::JSONB"
-    case o                                    => stdExpressionSQL(config)(o)
-  }
-
-  val postgresConfig = JDBCSQLConfig[PostgresColumn](
-    defaultEscapeReserved,
-    defaultEscapeReserved,
-    stdSQLQueries,
-    postgresExpressions,
-    stdTypeNames,
-    PgSchemaSQL.apply
-  )
-
-  case class PgSchemaSQL(config: JDBCConfig) extends StandardSchemaSQL(config) {
+  trait PostgresDialect extends StdSQLDialect {
+    override def expressionSQL(expression: SQLExpression): String = expression match {
+      case Parameter(ColumnType("JSONB", _, _)) => "?::JSONB"
+      case o                                    => stdExpressionSQL(o)
+    }
     override def dropTable(t: TableDefinition): String =
-      s"DROP TABLE IF EXISTS ${config.escapeTableName(t.name)} CASCADE"
+      s"DROP TABLE IF EXISTS ${escapeTableName(t.name)} CASCADE"
   }
 
-  class PostgresQueries[F[_]](implicit E: JDBCEffect[F]) {
+  object PostgresDialect extends PostgresDialect
+
+  val postgresMapper = JDBCMapper[PostgresColumn](PostgresDialect)
+
+  class PostgresQueries[F[_]](dialect: SQLDialect, E: JDBCEffect[F]) {
     def insertWith[A,
                    T,
                    R <: HList,
@@ -104,18 +97,19 @@ package object postgres {
         val colBindings = Seq(keyCols.head._1 -> seqExpr) ++ colValues.map {
           case ((_, name), col) => name -> Parameter(col.columnType)
         }
-        val mc = table.config
+        import dialect._
+        import StdSQLDialect._
 
         val insertSQL =
-          s"INSERT INTO ${mc.escapeTableName(table.name)} " +
-            s"${brackets(colBindings.map(v => mc.escapeColumnName(v._1)))} " +
-            s"VALUES ${brackets(colBindings.map(v => mc.exprToSQL(v._2)))} RETURNING ${keyCols
-              .map(k => mc.escapeColumnName(k._1))
+          s"INSERT INTO ${escapeTableName(table.name)} " +
+            s"${brackets(colBindings.map(v => escapeColumnName(v._1)))} " +
+            s"VALUES ${brackets(colBindings.map(v => expressionSQL(v._2)))} RETURNING ${keyCols
+              .map(k => escapeColumnName(k._1))
               .mkString(",")}"
 
         val insert = JDBCRawSQL(insertSQL)
         E.streamForQuery(
-            table.config,
+            dialect,
             insert,
             JDBCQueries.bindParameters(colValues.map(_._1._1)).map(c => Seq(ValueLog(c))),
             Columns(keyCols, Iso.id[A :: HNil])

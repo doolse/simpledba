@@ -4,7 +4,6 @@ import java.time.Instant
 
 import fs2.Stream
 import io.doolse.simpledba._
-import io.doolse.simpledba.jdbc.StandardJDBC._
 import shapeless.ops.hlist.RemoveAll
 import shapeless.ops.record.Keys
 import shapeless.{::, HList, HNil}
@@ -44,38 +43,39 @@ package object sqlserver {
 
   object SQLServerColumn extends StdSQLServerColumns
 
-  def sqlServerTypeNames(stringKeySize: Int)(b: ColumnType, key: Boolean): String = {
-    val baseType =
-      if (key && b.typeName == "NVARCHAR(MAX)") s"NVARCHAR($stringKeySize)" else b.typeName
-    if (b.hasFlag(IdentityColumn)) {
-      s"$baseType IDENTITY"
-    } else baseType
-  }
-  val sqlServerReserved       = DefaultReserved ++ Set("key")
-  val sqlServerEscapeReserved = escapeReserved(sqlServerReserved) _
+  trait SQLServerDialect extends StdSQLDialect {
+    val SqlServerReserved = DefaultReserved ++ Set("key")
 
-  def sqlServerConfig =
-    JDBCSQLConfig[SQLServerColumn](
-      sqlServerEscapeReserved,
-      sqlServerEscapeReserved,
-      stdSQLQueries,
-      stdExpressionSQL,
-      sqlServerTypeNames(256),
-      SQLServerSQL.apply
-    )
+    override def reservedIdentifiers: Set[String] = SqlServerReserved
 
-  case class SQLServerSQL(config: JDBCConfig) extends StandardSchemaSQL(config) {
+    def stringKeySize: Int
+
+    override def typeName(b: ColumnType, key: Boolean): String = {
+      val baseType =
+        if (key && b.typeName == "NVARCHAR(MAX)") s"NVARCHAR($stringKeySize)" else b.typeName
+      if (b.hasFlag(IdentityColumn)) {
+        s"$baseType IDENTITY"
+      } else baseType
+    }
+
     override def dropTable(t: TableDefinition): String =
-      s"DROP TABLE IF EXISTS ${config.escapeTableName(t.name)}"
+      s"DROP TABLE IF EXISTS ${escapeTableName(t.name)}"
 
     override def addColumns(t: TableColumns): Seq[String] = {
-      def mkAddCol(cb: NamedColumn) = s"${col(cb)} ${config.typeName(cb.columnType, false)}"
+      def mkAddCol(cb: NamedColumn) = s"${col(cb)} ${typeName(cb.columnType, false)}"
 
       Seq(
-        s"ALTER TABLE ${config.escapeTableName(t.name)} ADD ${t.columns.map(mkAddCol).mkString(",")}"
+        s"ALTER TABLE ${escapeTableName(t.name)} ADD ${t.columns.map(mkAddCol).mkString(",")}"
       )
     }
+
   }
+
+  object SQLServerDialect extends SQLServerDialect {
+    override def stringKeySize: Int = 256
+  }
+
+  val sqlServerMapper = JDBCMapper[SQLServerColumn](SQLServerDialect)
 
   case object IdentityColumn
 
@@ -83,7 +83,7 @@ package object sqlserver {
     c.copy(columnType = c.columnType.withFlag(IdentityColumn))
   }
 
-  class SQLServerQueries[F[_]](implicit E: JDBCEffect[F]) {
+  class SQLServerQueries[F[_]](dialect: SQLDialect, E: JDBCEffect[F]) {
     def insertIdentity[T,
                        R <: HList,
                        KeyNames <: HList,
@@ -108,16 +108,17 @@ package object sqlserver {
         val colBindings = colValues.map {
           case ((_, name), col) => name -> Parameter(col.columnType)
         }
-        val mc = table.config
+        import dialect._
+        import StdSQLDialect._
         val insertSQL =
-          s"INSERT INTO ${mc.escapeTableName(table.name)} " +
-            s"${brackets(colBindings.map(v => mc.escapeColumnName(v._1)))} " +
-            s"OUTPUT ${keyCols.map(k => s"INSERTED.${mc.escapeColumnName(k._1)}").mkString(",")} " +
-            s"VALUES ${brackets(colBindings.map(v => mc.exprToSQL(v._2)))}"
+          s"INSERT INTO ${escapeTableName(table.name)} " +
+            s"${brackets(colBindings.map(v => escapeColumnName(v._1)))} " +
+            s"OUTPUT ${keyCols.map(k => s"INSERTED.${escapeColumnName(k._1)}").mkString(",")} " +
+            s"VALUES ${brackets(colBindings.map(v => expressionSQL(v._2)))}"
 
         val insert = JDBCRawSQL(insertSQL)
         E.streamForQuery(
-            table.config,
+            dialect,
             insert,
             JDBCQueries.bindParameters(colValues.map(_._1._1)).map(c => Seq(ValueLog(c))),
             Columns(keyCols, Iso.id[A :: HNil])

@@ -2,6 +2,7 @@ package io.doolse.simpledba.jdbc.test
 
 import java.sql.DriverManager
 
+import cats.effect.IO
 import fs2.Stream
 import io.doolse.simpledba.Cols
 import io.doolse.simpledba.jdbc._
@@ -18,17 +19,20 @@ object SQLServerTester extends App {
     "sa",
     "yourStrong(!)Password")
 
-  implicit val config = sqlServerConfig.withBindingLogger((sql,vals) => println(s"$sql $vals"))
-  val schemaSQL       = config.schemaSQL
+  val mapper           = sqlServerMapper
+  val effect           = StateIOEffect(ConsoleLogger())
+  val schemaSQL        = mapper.dialect
+  implicit val flusher = effect.flushable
+  import mapper.mapped
 
-  implicit val cols = TableMapper[EmbeddedFields].embedded
-  val instTable     = TableMapper[Inst].table("inst").edit('uniqueid, identityCol[Long]).key('uniqueid)
-  val userTable     = TableMapper[User].table("user").keys(Cols('firstName, 'lastName))
+  implicit val cols = mapped[EmbeddedFields].embedded
+  val instTable     = mapped[Inst].table("inst").edit('uniqueid, identityCol[Long]).key('uniqueid)
+  val userTable     = mapped[User].table("user").keys(Cols('firstName, 'lastName))
 
-  val builder          = new JDBCQueries[JDBCIO2]
-  val sqlServerQueries = new SQLServerQueries[JDBCIO2]
+  val builder          = mapper.queries(effect)
+  val sqlServerQueries = new SQLServerQueries(schemaSQL, effect)
   import builder._
-  val q = Queries[JDBCIO2](
+  val q = Queries[JDBCIO](
     writes(instTable),
     writes(userTable),
     sqlServerQueries.insertIdentity(instTable),
@@ -49,7 +53,7 @@ object SQLServerTester extends App {
   val prog = for {
     t <- Stream(instTable, userTable).flatMap { t =>
       val d = t.definition
-      rawSQLStream[JDBCIO2](Stream(schemaSQL.dropTable(d), schemaSQL.createTable(d)))
+      rawSQLStream(Stream(schemaSQL.dropTable(d), schemaSQL.createTable(d)))
     }.flush
     r <- Test.doTest(q, (o, n) => n.copy(o.uniqueid))
   } yield r
