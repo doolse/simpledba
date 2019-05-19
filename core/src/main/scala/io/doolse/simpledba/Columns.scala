@@ -8,6 +8,9 @@ import shapeless.ops.hlist.{Length, LiftAll, Prepend, Split, ToList, ZipWithKeys
 import shapeless.ops.record.{Keys, SelectAll}
 import shapeless.{::, HList, HNil, Nat, Witness}
 
+import scala.annotation.tailrec
+import scala.collection.mutable
+
 case class Iso[A, B](to: A => B, from: B => A)
 
 object Iso {
@@ -44,8 +47,31 @@ object Cols {
   ): Cols[w1.T :: w2.T :: w3.T :: w4.T :: w5.T :: HNil] = new Cols
 }
 
+trait ColumnMapper[C[_], A, B]
+{
+  def apply[V](column: C[V], value: V, a: A): B
+}
+
 sealed trait ColumnRecord[C[_], A, R <: HList] {
   def columns: Seq[(A, C[_])]
+  def mapRecord[B](r: R, f: ColumnMapper[C, A, B]):
+    Seq[B] = {
+    val binds = mutable.Buffer[B]()
+
+    @tailrec
+    def loop(i: Int, rec: HList): Unit = {
+      rec match {
+        case h :: tail =>
+          val (a, col : C[Any]) = columns(i)
+          binds += f(col, h, a)
+          loop(i + 1, tail)
+        case HNil => ()
+      }
+    }
+
+    loop(0, r)
+    binds
+  }
 }
 
 object ColumnRecord {

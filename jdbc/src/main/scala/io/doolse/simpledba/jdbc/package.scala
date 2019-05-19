@@ -32,14 +32,10 @@ package object jdbc {
   def flushJDBC[F[_]](C: JDBCEffect[F])(implicit F: Sync[F]): Flushable[F] =
     new Flushable[F] {
       def flush: Pipe[F, WriteOp, Unit] =
-        s =>
-          Stream.eval(
-            s.flatMap {
-                case JDBCWriteOp(q, config, binder) =>
-                  C.executePreparedQuery(q, config, binder)
-              }
-              .compile
-              .drain)
+        _.flatMap {
+          case JDBCWriteOp(sql, binder) =>
+            C.executePreparedQuery(sql, binder)
+        }.drain
     }
 
   def connectionFromConfig(config: Config = ConfigFactory.load()): Connection = {

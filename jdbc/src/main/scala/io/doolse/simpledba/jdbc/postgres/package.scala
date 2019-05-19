@@ -107,10 +107,8 @@ package object postgres {
               .map(k => escapeColumnName(k._1))
               .mkString(",")}"
 
-        val insert = JDBCRawSQL(insertSQL)
         E.streamForQuery(
-            dialect,
-            insert,
+            insertSQL,
             JDBCQueries.bindParameters(colValues.map(_._1._1)).map(c => Seq(ValueLog(c))),
             Columns(keyCols, Iso.id[A :: HNil])
           )

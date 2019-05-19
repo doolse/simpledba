@@ -122,10 +122,9 @@ case class JDBCQueries[F[_], C[_] <: JDBCColumn](E: JDBCEffect[F], dialect: SQLD
       override def insertAll: Pipe[F, table.Data, WriteOp] = _.map { t =>
         val allColumns    = table.allColumns
         val columnBinders = bindValues(allColumns, allColumns.iso.to(t))
-        val insertQuery   = JDBCInsert(table.name, columnExpressions(columnBinders))
+        val insertQuery   = dialect.querySQL(JDBCInsert(table.name, columnExpressions(columnBinders)))
         JDBCWriteOp(
           insertQuery,
-          dialect,
           bindParameters(columnBinders.columns.map(_._1._1)).map(v => Seq(ValueLog(v)))
         )
       }
@@ -148,10 +147,11 @@ case class JDBCQueries[F[_], C[_] <: JDBCColumn](E: JDBCEffect[F], dialect: SQLD
                 updateVals <- bindParameters(updateColumns.columns.map(_._1._1))
                 wc         <- bind
               } yield Seq(ValueLog(updateVals)) ++ wc
+              val updateSQL = dialect.querySQL(
+                JDBCUpdate(table.name, columnExpressions(updateColumns), whereClauses))
               Stream(
                 JDBCWriteOp(
-                  JDBCUpdate(table.name, columnExpressions(updateColumns), whereClauses),
-                  dialect,
+                  updateSQL,
                   binder
                 )
               )
@@ -164,7 +164,8 @@ case class JDBCQueries[F[_], C[_] <: JDBCColumn](E: JDBCEffect[F], dialect: SQLD
 
       private def deleteWriteOp(k: table.KeyList): JDBCWriteOp = {
         val (whereClauses, bindVals) = colsOp(BinOp.EQ, table.keyColumns).bind(k)
-        JDBCWriteOp(JDBCDelete(table.name, whereClauses), dialect, bindVals.map(_.toList))
+        val deleteSQL                = dialect.querySQL(JDBCDelete(table.name, whereClauses))
+        JDBCWriteOp(deleteSQL, bindVals.map(_.toList))
       }
 
     }
@@ -211,13 +212,13 @@ case class JDBCQueries[F[_], C[_] <: JDBCColumn](E: JDBCEffect[F], dialect: SQLD
     params => {
       val bindFunc = bindParameters(bindValues(cr, params).columns.map(_._1._1))
         .map(l => Seq(ValueLog(l): BindLog))
-      E.executeResultSet(JDBCRawSQL(sql), dialect, bindFunc).evalMap { rs =>
+      E.executeResultSet(sql, bindFunc).evalMap { rs =>
         E.resultSetRecord(outRec, 1, rs)
       }
     }
 
   def rawSQL(sql: String): WriteOp = {
-    JDBCWriteOp(JDBCRawSQL(sql), dialect, Kleisli.pure(Seq.empty))
+    JDBCWriteOp(sql, Kleisli.pure(Seq.empty))
   }
 
   def rawSQLStream(
@@ -272,7 +273,10 @@ object JDBCQueries {
         c: AutoConvert[W2, whereClause.Value]
     ): W2 => Stream[F, WriteOp] = w => {
       b.apply(whereClause)(w)
-        .map(a => JDBCWriteOp(JDBCDelete(table.name, a._1), dialect, a._2))
+        .map(a => {
+          val deleteSQL = dialect.querySQL(JDBCDelete(table.name, a._1))
+          JDBCWriteOp(deleteSQL, a._2)
+        })
     }
   }
 
@@ -369,35 +373,24 @@ object JDBCQueries {
         {
           binder(where)(c.apply(w2)).covary[F].flatMap {
             case (wc, bind) =>
-              E.streamForQuery(dialect, baseSel.copy(where = wc), bind, projections)
+              val selSQL = dialect.querySQL(baseSel.copy(where = wc))
+              E.streamForQuery(selSQL, bind, projections)
                 .map(mapOut)
           }
         }
     }
   }
 
+  class BindMapper[C[_] <: JDBCColumn, A] extends ColumnMapper[C, A, ((ParameterBinder, A), C[_])] {
+    override def apply[V](column: C[V], value: V, a: A): ((ParameterBinder, A), C[_]) =
+      (ParameterBinder(column.bindValue(value.asInstanceOf[column.A]), value) -> a, column)
+  }
+
   def bindValues[C[_] <: JDBCColumn, R <: HList, A](
       cols: ColumnRecord[C, A, R],
       record: R
-  ): ColumnRecord[C, (ParameterBinder, A), R] = {
-    val binds = mutable.Buffer[((ParameterBinder, A), C[_])]()
-
-    @tailrec
-    def loop(i: Int, rec: HList): Unit = {
-      rec match {
-        case h :: tail =>
-          val (a, col) = cols.columns(i)
-          val v        = h.asInstanceOf[col.A]
-          val binder   = ParameterBinder(col.bindValue(v), v)
-          binds += Tuple2((binder, a), col)
-          loop(i + 1, tail)
-        case HNil => ()
-      }
-    }
-
-    loop(0, record)
-    ColumnRecord(binds)
-  }
+  ): ColumnRecord[C, (ParameterBinder, A), R] =
+    ColumnRecord(cols.mapRecord(record, new BindMapper))
 
   def bindUpdate[C[_] <: JDBCColumn, R <: HList, A](
       cols: ColumnRecord[C, A, R],

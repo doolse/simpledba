@@ -116,10 +116,8 @@ package object sqlserver {
             s"OUTPUT ${keyCols.map(k => s"INSERTED.${escapeColumnName(k._1)}").mkString(",")} " +
             s"VALUES ${brackets(colBindings.map(v => expressionSQL(v._2)))}"
 
-        val insert = JDBCRawSQL(insertSQL)
         E.streamForQuery(
-            dialect,
-            insert,
+            insertSQL,
             JDBCQueries.bindParameters(colValues.map(_._1._1)).map(c => Seq(ValueLog(c))),
             Columns(keyCols, Iso.id[A :: HNil])
           )

@@ -45,11 +45,8 @@ trait JDBCEffect[F[_]] {
     }
 
   def executePreparedQuery(
-      psql: JDBCPreparedQuery,
-      config: SQLDialect,
+      sql: String,
       bindFunc: BindFunc[Seq[BindLog]]): Stream[F, (PreparedStatement, Boolean)] = {
-
-    val sql = config.querySQL(psql)
 
     executeStream[PreparedStatement, (PreparedStatement, Boolean)](
       logAndPrepare(sql, _.prepareStatement(sql)),
@@ -57,10 +54,9 @@ trait JDBCEffect[F[_]] {
     )
   }
 
-  def executeResultSet(psql: JDBCPreparedQuery,
-                       config: SQLDialect,
+  def executeResultSet(sql: String,
                        bindFunc: BindFunc[Seq[BindLog]]): Stream[F, ResultSet] = {
-    executePreparedQuery(psql, config, bindFunc)
+    executePreparedQuery(sql, bindFunc)
       .flatMap {
         case (ps, _) => Stream.bracket(blockingIO(ps.getResultSet))(rs => blockingIO(rs.close()))
       }
@@ -88,12 +84,11 @@ trait JDBCEffect[F[_]] {
   }
 
   def streamForQuery[C[_] <: JDBCColumn, Out <: HList](
-      config: SQLDialect,
-      query: JDBCPreparedQuery,
+      sql: String,
       bind: BindFunc[Seq[BindLog]],
       resultCols: ColumnRecord[C, _, Out]
   ): Stream[F, Out] = {
-    executeResultSet(query, config, bind).evalMap { rs =>
+    executeResultSet(sql, bind).evalMap { rs =>
       resultSetRecord(resultCols, 1, rs)
     }
   }

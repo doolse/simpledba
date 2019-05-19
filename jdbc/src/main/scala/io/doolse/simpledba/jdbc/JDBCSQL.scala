@@ -61,5 +61,5 @@ sealed trait JDBCWhereClause
 
 case class BinClause(left: SQLExpression, op: BinOp, right: SQLExpression) extends JDBCWhereClause
 
-case class JDBCWriteOp(q: JDBCPreparedQuery, config: SQLDialect, binder: BindFunc[Seq[BindLog]])
+case class JDBCWriteOp(sql: String, binder: BindFunc[Seq[BindLog]])
     extends WriteOp
