@@ -1,4 +1,4 @@
-package io.doolse.simpledba.jdbc.test
+package io.doolse.simpledba.test
 
 import io.doolse.simpledba.Iso
 import org.scalacheck.Arbitrary

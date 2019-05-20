@@ -1,4 +1,4 @@
-package io.doolse.simpledba.jdbc.test
+package io.doolse.simpledba.test
 
 import cats._
 import cats.effect.Sync

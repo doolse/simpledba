@@ -1,5 +1,7 @@
 package io.doolse.simpledba
 
+import java.sql.ResultSet
+
 import cats.arrow.Compose
 import cats.instances.function._
 import cats.syntax.compose._
@@ -47,30 +49,46 @@ object Cols {
   ): Cols[w1.T :: w2.T :: w3.T :: w4.T :: w5.T :: HNil] = new Cols
 }
 
-trait ColumnMapper[C[_], A, B]
-{
+trait ColumnMapper[C[_], A, B] {
   def apply[V](column: C[V], value: V, a: A): B
+}
+
+trait ColumnRetrieve[C[_], A] {
+  def apply[V](column: C[V], offset: Int, a: A): V
 }
 
 sealed trait ColumnRecord[C[_], A, R <: HList] {
   def columns: Seq[(A, C[_])]
-  def mapRecord[B](r: R, f: ColumnMapper[C, A, B]):
-    Seq[B] = {
-    val binds = mutable.Buffer[B]()
+  def mapRecord[B](r: R, f: ColumnMapper[C, A, B]): Seq[B] = {
+    val out = mutable.Buffer[B]()
 
     @tailrec
     def loop(i: Int, rec: HList): Unit = {
       rec match {
         case h :: tail =>
-          val (a, col : C[Any]) = columns(i)
-          binds += f(col, h, a)
+          val (a, col: C[Any]) = columns(i)
+          out += f(col, h, a)
           loop(i + 1, tail)
         case HNil => ()
       }
     }
 
     loop(0, r)
-    binds
+    out
+  }
+
+  def mkRecord(f: ColumnRetrieve[C, A]): R = {
+    @tailrec
+    def loop(offs: Int, l: HList): HList = {
+      if (offs < 0) l
+      else {
+        val (a, col) = columns(offs)
+        val v        = f(col, offs, a)
+        loop(offs - 1, v :: l)
+      }
+    }
+
+    loop(columns.length - 1, HNil).asInstanceOf[R]
   }
 }
 

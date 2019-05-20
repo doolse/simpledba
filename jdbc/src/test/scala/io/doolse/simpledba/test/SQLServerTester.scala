@@ -1,4 +1,4 @@
-package io.doolse.simpledba.jdbc.test
+package io.doolse.simpledba.test
 
 import java.sql.DriverManager
 
@@ -7,7 +7,7 @@ import fs2.Stream
 import io.doolse.simpledba.Cols
 import io.doolse.simpledba.jdbc._
 import io.doolse.simpledba.jdbc.sqlserver._
-import io.doolse.simpledba.jdbc.test.Test._
+import Test._
 import io.doolse.simpledba.syntax._
 import shapeless._
 import shapeless.syntax.singleton._

@@ -7,7 +7,7 @@ trait Flushable[F[_]] {
   def flush: Pipe[F, WriteOp, Unit]
 }
 
-trait WriteQueries[F[_], T] {
+trait WriteQueries[F[_], T] { self =>
 
   def insertAll: Pipe[F, T, WriteOp]
 
@@ -43,5 +43,4 @@ trait WriteQueries[F[_], T] {
   def deleteAll: Pipe[F, T, WriteOp]
 
   def delete(t: T) = deleteAll(Stream(t))
-
 }

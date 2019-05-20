@@ -1,4 +1,4 @@
-package io.doolse.simpledba.jdbc.test
+package io.doolse.simpledba.test
 
 import java.util.UUID
 
@@ -12,7 +12,7 @@ import org.scalacheck.Prop._
 import org.scalacheck.Test.Parameters
 import org.scalacheck.{Arbitrary, Prop, Shrink}
 import fs2.Stream
-import io.doolse.simpledba.jdbc.test.SortedQueryProperties._
+import SortedQueryProperties._
 
 /**
   * Created by jolz on 21/06/16.

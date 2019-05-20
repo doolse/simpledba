@@ -1,9 +1,9 @@
-package io.doolse.simpledba.jdbc.test
+package io.doolse.simpledba.test
 
 import fs2.Stream
 import io.doolse.simpledba.Cols
 import io.doolse.simpledba.jdbc._
-import io.doolse.simpledba.jdbc.test.CompositeRelations.{Composite2, Composite3, Queries2, Queries3}
+import CompositeRelations.{Composite2, Composite3, Queries2, Queries3}
 
 object JDBCCompositeRelations extends CompositeRelations[JDBCIO]("JDBC Composite") with JDBCProperties {
 

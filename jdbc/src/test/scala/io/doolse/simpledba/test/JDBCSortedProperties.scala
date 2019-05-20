@@ -1,9 +1,9 @@
-package io.doolse.simpledba.jdbc.test
+package io.doolse.simpledba.test
 
 import fs2.Stream
 import org.scalacheck.Shapeless._
 import io.doolse.simpledba.jdbc.{BinOp, JDBCIO}
-import io.doolse.simpledba.jdbc.test.SortedQueryProperties.Queries
+import SortedQueryProperties.Queries
 import shapeless._
 import syntax.singleton._
 import record._

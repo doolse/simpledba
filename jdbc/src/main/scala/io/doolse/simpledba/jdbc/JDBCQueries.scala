@@ -207,7 +207,7 @@ case class JDBCQueries[F[_], C[_] <: JDBCColumn](E: JDBCEffect[F], dialect: SQLD
   def queryRawSQL[Params <: HList, OutRec <: HList](
       sql: String,
       cr: ColumnRecord[C, _, Params],
-      outRec: ColumnRecord[C, _, OutRec]
+      outRec: ColumnRecord[C, Any, OutRec]
   ): Params => Stream[F, OutRec] =
     params => {
       val bindFunc = bindParameters(bindValues(cr, params).columns.map(_._1._1))

@@ -4,7 +4,7 @@ import java.sql.{Connection, PreparedStatement, ResultSet}
 
 import cats.Monad
 import fs2.Stream
-import io.doolse.simpledba.{ColumnRecord, Flushable}
+import io.doolse.simpledba.{ColumnRecord, ColumnRetrieve, Flushable}
 import shapeless.{HList, HNil}
 
 import scala.annotation.tailrec
@@ -63,24 +63,18 @@ trait JDBCEffect[F[_]] {
       .flatMap(nextLoop)
   }
 
-  def resultSetRecord[C[_] <: JDBCColumn, R <: HList](
-      cols: ColumnRecord[C, _, R],
+  def resultSetRecord[C[_] <: JDBCColumn, R <: HList, A](
+      cols: ColumnRecord[C, A, R],
       i: Int,
       rs: ResultSet
   ): F[R] = blockingIO {
-    @tailrec
-    def loop(offs: Int, l: HList): HList = {
-      if (offs < 0) l
-      else {
-        val (name, col) = cols.columns(offs)
-        col.read(offs + i, rs) match {
+    cols.mkRecord(new ColumnRetrieve[C, A] {
+      override def apply[V](column: C[V], offset: Int, name: A): V =
+        column.read(offset + i, rs) match {
           case None    => throw new Error(s"Column $name is null")
-          case Some(v) => loop(offs - 1, v :: l)
+          case Some(v) => v.asInstanceOf[V]
         }
-      }
-    }
-
-    loop(cols.columns.length - 1, HNil).asInstanceOf[R]
+    })
   }
 
   def streamForQuery[C[_] <: JDBCColumn, Out <: HList](

@@ -1,12 +1,12 @@
-package io.doolse.simpledba.jdbc.test
+package io.doolse.simpledba.test
 
 import cats.Monad
 import cats.effect.Sync
-import cats.instances.option._
-import cats.syntax.all._
 import fs2.Stream
-import io.doolse.simpledba.syntax._
 import io.doolse.simpledba.{Flushable, WriteQueries}
+import io.doolse.simpledba.syntax._
+import cats.instances.option._
+import cats.syntax.traverse._
 
 object Test {
 
@@ -55,7 +55,7 @@ object Test {
       all             <- Stream.eval(queryByLastNameDesc("Maginnis").compile.toVector)
       allFirst        <- Stream.eval(querybyFirstNameAsc("Jolse").compile.toVector)
       fullPK          <- Stream.eval(queryByFullName(Username("Jolse", "Maginnis")).compile.toVector)
-      _               <- res4.map(writeInst.delete).sequence
+      _               <- res4.map(writeInst.delete).sequence.flatMap(wo => Stream.emits(wo.toSeq)).flush
       yearOnly        <- q.justYear(Username("Jolse", "Maginnis")).last
       countOfMaginnis <- q.usersWithLastName("Maginnis").last
     } yield {
@@ -64,7 +64,7 @@ object Test {
         |Query for missing key - $res
         |Query for update1 $res3
         |Query for update2 $res4
-        |Query by last name ordered arbitrarily -
+        |Query by last name ordered by first name ascending -
         |${all.mkString(" ", "\n ", "")}
         |Query by first name ordered by year descending -
         |${allFirst.mkString(" ", "\n ", "")}

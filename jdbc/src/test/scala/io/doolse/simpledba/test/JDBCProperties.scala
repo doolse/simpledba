@@ -1,4 +1,4 @@
-package io.doolse.simpledba.jdbc.test
+package io.doolse.simpledba.test
 
 import fs2._
 import io.doolse.simpledba.jdbc._

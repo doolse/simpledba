@@ -35,7 +35,7 @@ package object jdbc {
         _.flatMap {
           case JDBCWriteOp(sql, binder) =>
             C.executePreparedQuery(sql, binder)
-        }.drain
+        }.drain ++ Stream.emit()
     }
 
   def connectionFromConfig(config: Config = ConfigFactory.load()): Connection = {

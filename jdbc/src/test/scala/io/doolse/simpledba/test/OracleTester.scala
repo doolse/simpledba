@@ -1,14 +1,13 @@
-package io.doolse.simpledba.jdbc.test
+package io.doolse.simpledba.test
 
 import java.sql.DriverManager
 
-import cats.effect.IO
 import fs2.Stream
-import io.doolse.simpledba.{Cols, Flushable}
+import io.doolse.simpledba.Cols
 import io.doolse.simpledba.jdbc._
 import io.doolse.simpledba.jdbc.oracle._
-import io.doolse.simpledba.jdbc.test.Test._
 import io.doolse.simpledba.syntax._
+import io.doolse.simpledba.test.Test._
 import shapeless._
 import shapeless.syntax.singleton._
 
