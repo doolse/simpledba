@@ -25,11 +25,11 @@ class DynamoDBMapper[F[_]](effect: DynamoDBEffect[F]) {
         columns: ColumnBuilder.Aux[DynamoDBColumn, CR, Vals],
         pkCol: Selector.Aux[CR, pk.T, PK],
         ev: pk.T <:< Symbol,
-        isPK: DynamoDBPKColumn[PK]): DynamoDBTable.Aux[T, CR, Vals, PK, Nothing, HNil] = {
+        isPK: DynamoDBPKColumn[PK]): DynamoDBTable.Aux[T, CR, Vals, PK, Unit, HNil] = {
       val cols   = columns.apply()
       val pkName = pk.value.name
       val pkCol  = NamedAttribute.unsafe[PK](cols.columns.find(_._1 == pkName).get)
-      DynamoDBTableRepr[T, CR, Vals, PK, Nothing, HNil](name,
+      DynamoDBTableRepr[T, CR, Vals, PK, Unit, HNil](name,
                                                         pkCol,
                                                         None,
                                                         columns.apply(),

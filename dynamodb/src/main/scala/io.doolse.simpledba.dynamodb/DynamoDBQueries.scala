@@ -2,23 +2,10 @@ package io.doolse.simpledba.dynamodb
 
 import fs2.{Pipe, Stream}
 import io.doolse.simpledba.dynamodb.DynamoDBExpression.ExprState
-import io.doolse.simpledba.{
-  AutoConvert,
-  ColumnMapper,
-  ColumnRetrieve,
-  Columns,
-  WriteOp,
-  WriteQueries
-}
-import shapeless.labelled.FieldType
+import io.doolse.simpledba.{AutoConvert, ColumnMapper, WriteOp, WriteQueries}
 import shapeless.ops.record.Selector
-import shapeless.{HList, Witness}
-import software.amazon.awssdk.services.dynamodb.model.{
-  AttributeValue,
-  GetItemRequest,
-  PutItemRequest,
-  QueryRequest
-}
+import shapeless.{::, HList, HNil, Witness}
+import software.amazon.awssdk.services.dynamodb.model.{AttributeValue, GetItemRequest, PutItemRequest, QueryRequest}
 
 import scala.collection.JavaConverters._
 
@@ -47,11 +34,18 @@ class DynamoDBQueries[F[_]](effect: DynamoDBEffect[F]) {
     override def deleteAll: Pipe[F, T, WriteOp] = _ => Stream.empty
   }
 
-  def get(table: DynamoDBTable.NoSortKey): GetBuilder[table.T, table.CR, table.Vals, table.PK] =
-    GetBuilder(table, pk => {
-      val NamedAttribute(name, col) = table.pkColumn
-      Map(name -> col.toAttribute(pk))
-    })
+  def get(table: DynamoDBTable)
+    : GetBuilder[table.T, table.CR, table.Vals, table.PK :: table.SK :: HNil] =
+    GetBuilder(
+      table,
+      pk => {
+        val NamedAttribute(name, col) = table.pkColumn
+        (Seq(name -> col.toAttribute(pk.head)) ++
+          table.skColumn.map { sk =>
+            sk.name -> sk.column.toAttribute(pk.tail.head)
+          }).toMap
+      }
+    )
 
   def query(
       table: DynamoDBTable): QueryBuilder[table.T, table.CR, table.Vals, table.PK, table.SK] = {
@@ -60,8 +54,7 @@ class DynamoDBQueries[F[_]](effect: DynamoDBEffect[F]) {
 
   def queryIndex(table: DynamoDBTable, indexName: Witness)(
       implicit selIndex: Selector[table.Indexes, indexName.T],
-      ev: indexName.T <:< Symbol)
-    : QueryBuilder[table.T, table.CR, table.Vals, table.PK, Unit] = {
+      ev: indexName.T <:< Symbol): QueryBuilder[table.T, table.CR, table.Vals, table.PK, Unit] = {
     val indexString = indexName.value.name
     QueryBuilder(table,
                  table.localIndexes
@@ -120,7 +113,8 @@ class DynamoDBQueries[F[_]](effect: DynamoDBEffect[F]) {
           effect.asyncClient
         }
         .evalMap { client =>
-          val b = GetItemRequest.builder().key(toKeyValue(inp).asJava).tableName(table.name)
+          val b =
+            GetItemRequest.builder().key(toKeyValue(convert(inp)).asJava).tableName(table.name)
           effect.fromFuture(client.getItem(b.build()))
         }
         .flatMap { response =>

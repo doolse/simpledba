@@ -65,6 +65,7 @@ object DynamoDBTest extends IOApp {
     implicit val flusher = mapper.flusher
     val writeInst        = writes(instTable)
     val queries = Queries[IO](
+      Stream(userTable, userLNTable, instTable).flatMap(delAndCreate).compile.drain,
       writeInst,
       writes(userTable, userLNTable),
       f => {
@@ -74,13 +75,13 @@ object DynamoDBTest extends IOApp {
       get(instTable).build,
       queryIndex(userTable, 'yearIndex).build(true),
       query(userLNTable).build(false),
-      o => Stream.empty,
+      get(userTable).build,
       o => Stream.empty,
       o => Stream.empty
     )
 
     val prog = for {
-      _   <- Stream(userTable, userLNTable, instTable).flatMap(delAndCreate).last
+      _   <- Stream.eval(queries.initDB)
       res <- Test.doTest(queries)
     } yield res
 

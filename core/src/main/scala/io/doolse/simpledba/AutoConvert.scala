@@ -1,11 +1,17 @@
 package io.doolse.simpledba
 
 import fs2.Stream
-import shapeless.{::, Generic, HNil}
+import shapeless.{::, Generic, HList, HNil}
 
 trait AutoConvert[A, B] extends (A => B)
 
-object AutoConvert {
+trait AutoConvertLP {
+  implicit def idConv[A]: AutoConvert[A, A] = new AutoConvert[A, A] {
+    def apply(a: A): A = a
+  }
+}
+
+object AutoConvert extends AutoConvertLP {
 
   implicit def acSF[A, B, C, D, F[_]](
       implicit ctoa: AutoConvert[C, A],
@@ -13,18 +19,14 @@ object AutoConvert {
   ): AutoConvert[A => Stream[F, B], C => Stream[F, D]] =
     (v1: A => Stream[F, B]) => c => v1(ctoa(c)).map(btod)
 
-  implicit def idConv[A]: AutoConvert[A, A] = new AutoConvert[A, A] {
-    def apply(a: A): A = a
-  }
-
   implicit def oneElementOther[A, B](implicit conv: AutoConvert[A, B]) =
     new AutoConvert[A :: HNil, B] {
       override def apply(v1: A :: HNil): B = conv(v1.head)
     }
 
-  implicit def oneElement[A, B](implicit convLast: AutoConvert[A, B]) =
-    new AutoConvert[A, B :: HNil] {
-      override def apply(a: A): B :: HNil = convLast(a) :: HNil
+  implicit def oneElement[A, B, T <: HList](implicit convLast: AutoConvert[A, B], unitTail: AutoConvert[Unit, T]) =
+    new AutoConvert[A, B :: T] {
+      override def apply(a: A): B :: T = convLast(a) :: unitTail(())
     }
 
   implicit def oneStreamElement[A, B, F[_]](implicit conv: AutoConvert[A, B]) =

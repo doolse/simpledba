@@ -118,8 +118,4 @@ object DynamoDBTable {
     type SK      = SK0
     type Indexes = Indexes0
   }
-
-  type NoSortKey = DynamoDBTable {
-    type SK = Nothing
-  }
 }

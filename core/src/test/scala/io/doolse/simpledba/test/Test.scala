@@ -18,7 +18,8 @@ object Test {
 
   case class User(firstName: String, lastName: String, year: Int)
 
-  case class Queries[F[_]](writeInst: WriteQueries[F, Inst],
+  case class Queries[F[_]](initDB: F[Unit],
+                           writeInst: WriteQueries[F, Inst],
                            writeUsers: WriteQueries[F, User],
                            insertNewInst: (Long => Inst) => Stream[F, Inst],
                            instByPK: Long => Stream[F, Inst],
