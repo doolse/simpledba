@@ -28,7 +28,6 @@ case class LocalIndex[IK, CR](name: String, attribute: NamedAttribute[IK], proje
 trait DynamoDBTable {
   type T
   type CR <: HList
-  type Vals <: HList
   type PK
   type SK
   type Indexes <: HList
@@ -36,17 +35,16 @@ trait DynamoDBTable {
   def name: String
   def pkColumn: NamedAttribute[PK]
   def skColumn: Option[NamedAttribute[SK]]
-  def columns: Columns[DynamoDBColumn, CR, Vals]
-  def iso: Iso[T, CR]
+  def columns: Columns[DynamoDBColumn, T, CR]
   def localIndexes: Seq[LocalIndex[_, _]]
 
   protected def addIndex[NewIndexes <: HList](
-      index: LocalIndex[_, _]): DynamoDBTable.Aux[T, CR, Vals, PK, SK, NewIndexes]
+      index: LocalIndex[_, _]): DynamoDBTable.Aux[T, CR, PK, SK, NewIndexes]
 
   def withLocalIndex[S <: Symbol, CS <: Symbol, IK](name: Witness.Aux[S], column: Witness.Aux[CS])(
       implicit kc: Selector.Aux[CR, column.T, IK],
       dynamoDBColumn: DynamoDBColumn[IK])
-    : DynamoDBTable.Aux[T, CR, Vals, PK, SK, FieldType[S, LocalIndex[IK, CR]] :: Indexes] =
+    : DynamoDBTable.Aux[T, CR, PK, SK, FieldType[S, LocalIndex[IK, CR]] :: Indexes] =
     addIndex(
       LocalIndex(name.value.name,
                  NamedAttribute(column.value.name, dynamoDBColumn),
@@ -85,17 +83,15 @@ trait DynamoDBTable {
   }
 }
 
-case class DynamoDBTableRepr[T0, CR0 <: HList, Vals0 <: HList, PK0, SK0, Indexes0 <: HList](
+case class DynamoDBTableRepr[T0, CR0 <: HList, PK0, SK0, Indexes0 <: HList](
     name: String,
     pkColumn: NamedAttribute[PK0],
     skColumn: Option[NamedAttribute[SK0]],
-    columns: Columns[DynamoDBColumn, CR0, Vals0],
-    iso: Iso[T0, CR0],
+    columns: Columns[DynamoDBColumn, T0, CR0],
     localIndexes: Seq[LocalIndex[_, _]])
     extends DynamoDBTable {
   type T       = T0
   type CR      = CR0
-  type Vals    = Vals0
   type PK      = PK0
   type SK      = SK0
   type Indexes = Indexes0
@@ -110,10 +106,9 @@ object DynamoDBTable {
     type T = T0
   }
 
-  type Aux[T0, CR0, Vals0, PK0, SK0, Indexes0] = DynamoDBTable {
+  type Aux[T0, CR0, PK0, SK0, Indexes0] = DynamoDBTable {
     type T       = T0
     type CR      = CR0
-    type Vals    = Vals0
     type PK      = PK0
     type SK      = SK0
     type Indexes = Indexes0

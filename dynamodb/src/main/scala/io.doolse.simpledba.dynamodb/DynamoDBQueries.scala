@@ -2,10 +2,26 @@ package io.doolse.simpledba.dynamodb
 
 import fs2.{Pipe, Stream}
 import io.doolse.simpledba.dynamodb.DynamoDBExpression.ExprState
-import io.doolse.simpledba.{AutoConvert, ColumnMapper, WriteOp, WriteQueries}
+import io.doolse.simpledba.{
+  AutoConvert,
+  Cols,
+  ColumnMapper,
+  ColumnRecord,
+  ColumnRecordIso,
+  ColumnSubsetBuilder,
+  Columns,
+  WriteOp,
+  WriteQueries
+}
+import shapeless.ops.hlist.Prepend
 import shapeless.ops.record.Selector
 import shapeless.{::, HList, HNil, Witness}
-import software.amazon.awssdk.services.dynamodb.model.{AttributeValue, GetItemRequest, PutItemRequest, QueryRequest}
+import software.amazon.awssdk.services.dynamodb.model.{
+  AttributeValue,
+  GetItemRequest,
+  PutItemRequest,
+  QueryRequest
+}
 
 import scala.collection.JavaConverters._
 
@@ -20,10 +36,9 @@ class DynamoDBQueries[F[_]](effect: DynamoDBEffect[F]) {
     override def insertAll: Pipe[F, T, WriteOp] = _.flatMap { t: T =>
       Stream.emits {
         tables.map { table =>
-          val cr = table.iso.to(t)
-          val b  = PutItemRequest.builder()
+          val b = PutItemRequest.builder()
           b.tableName(table.name)
-          b.item(table.columns.mapRecord(table.columns.iso.to(cr), AttributeMapper).toMap.asJava)
+          b.item(table.columns.mapRecord(table.columns.iso.to(t), AttributeMapper).toMap.asJava)
           PutItem(b.build())
         }
       }
@@ -34,8 +49,7 @@ class DynamoDBQueries[F[_]](effect: DynamoDBEffect[F]) {
     override def deleteAll: Pipe[F, T, WriteOp] = _ => Stream.empty
   }
 
-  def get(table: DynamoDBTable)
-    : GetBuilder[table.T, table.CR, table.Vals, table.PK :: table.SK :: HNil] =
+  def get(table: DynamoDBTable): GetBuilder[table.CR, table.PK :: table.SK :: HNil, table.T] =
     GetBuilder(
       table,
       pk => {
@@ -44,17 +58,34 @@ class DynamoDBQueries[F[_]](effect: DynamoDBEffect[F]) {
           table.skColumn.map { sk =>
             sk.name -> sk.column.toAttribute(pk.tail.head)
           }).toMap
-      }
+      },
+      table.columns,
+      true
     )
 
-  def query(
-      table: DynamoDBTable): QueryBuilder[table.T, table.CR, table.Vals, table.PK, table.SK] = {
+  def getAttr[Attrs <: HList, AttrVals <: HList](table: DynamoDBTable, attrs: Cols[Attrs])(
+      implicit c: ColumnSubsetBuilder.Aux[table.CR, Attrs, AttrVals])
+    : GetBuilder[AttrVals, table.PK :: table.SK :: HNil, AttrVals] =
+    GetBuilder(
+      table,
+      pk => {
+        val NamedAttribute(name, col) = table.pkColumn
+        (Seq(name -> col.toAttribute(pk.head)) ++
+          table.skColumn.map { sk =>
+            sk.name -> sk.column.toAttribute(pk.tail.head)
+          }).toMap
+      },
+      table.columns.subset(c)._1,
+      false
+    )
+
+  def query(table: DynamoDBTable): QueryBuilder[table.T, table.CR, table.PK, table.SK] = {
     QueryBuilder(table, None)
   }
 
   def queryIndex(table: DynamoDBTable, indexName: Witness)(
       implicit selIndex: Selector[table.Indexes, indexName.T],
-      ev: indexName.T <:< Symbol): QueryBuilder[table.T, table.CR, table.Vals, table.PK, Unit] = {
+      ev: indexName.T <:< Symbol): QueryBuilder[table.T, table.CR, table.PK, Unit] = {
     val indexString = indexName.value.name
     QueryBuilder(table,
                  table.localIndexes
@@ -62,9 +93,8 @@ class DynamoDBQueries[F[_]](effect: DynamoDBEffect[F]) {
                    .asInstanceOf[Option[LocalIndex[Unit, table.CR]]])
   }
 
-  case class QueryBuilder[T, CR <: HList, Vals <: HList, PK, SK](
-      table: DynamoDBTable.Aux[T, CR, Vals, PK, _, _],
-      index: Option[LocalIndex[SK, CR]]) {
+  case class QueryBuilder[T, CR <: HList, PK, SK](table: DynamoDBTable.Aux[T, CR, PK, _, _],
+                                                  index: Option[LocalIndex[SK, CR]]) {
 
     def build[Inp](asc: Boolean)(implicit convert: AutoConvert[Inp, PK]): Inp => Stream[F, T] =
       inp => {
@@ -94,8 +124,7 @@ class DynamoDBQueries[F[_]](effect: DynamoDBEffect[F]) {
               if (attrs.isEmpty) {
                 Stream.empty
               } else {
-                Stream.emit(table.iso.from(
-                  table.columns.iso.from(table.columns.mkRecord(DynamoDBRetrieve(attrs)))))
+                Stream.emit(table.columns.retrieve(DynamoDBRetrieve(attrs)))
               }
             }
           }
@@ -104,17 +133,30 @@ class DynamoDBQueries[F[_]](effect: DynamoDBEffect[F]) {
 
   }
 
-  case class GetBuilder[T, CR <: HList, Vals <: HList, Input](
-      table: DynamoDBTable.Aux[T, CR, Vals, _, _, _],
-      toKeyValue: Input => Map[String, AttributeValue]) {
-    def build[Inp](implicit convert: AutoConvert[Inp, Input]): Inp => Stream[F, T] = inp => {
+  case class GetBuilder[OutR <: HList, Input, Output](
+      table: DynamoDBTable,
+      toKeyValue: Input => Map[String, AttributeValue],
+      selectCol: ColumnRecordIso[DynamoDBColumn, String, OutR, Output],
+      selectAll: Boolean) {
+
+    def build[Inp](implicit convert: AutoConvert[Inp, Input]): Inp => Stream[F, Output] = inp => {
       Stream
         .eval {
           effect.asyncClient
         }
         .evalMap { client =>
-          val b =
-            GetItemRequest.builder().key(toKeyValue(convert(inp)).asJava).tableName(table.name)
+          val b = GetItemRequest
+            .builder()
+            .key(toKeyValue(convert(inp)).asJava)
+            .tableName(table.name)
+
+          if (!selectAll) {
+            val prjExpr = selectCol.columns.map(c => s"#${c._1}").mkString(", ")
+            b.projectionExpression(prjExpr)
+            b.expressionAttributeNames(
+              selectCol.columns.map(c => (s"#${c._1}", c._1)).toMap.asJava
+            )
+          }
           effect.fromFuture(client.getItem(b.build()))
         }
         .flatMap { response =>
@@ -122,12 +164,12 @@ class DynamoDBQueries[F[_]](effect: DynamoDBEffect[F]) {
           if (attrs.isEmpty) {
             Stream.empty
           } else {
-            Stream.emit(
-              table.iso.from(
-                table.columns.iso.from(table.columns.mkRecord(DynamoDBRetrieve(attrs)))))
+            Stream.emit(selectCol.retrieve(DynamoDBRetrieve(attrs)))
           }
-
         }
     }
+
+    def buildAs[Inp, Out](implicit convert: AutoConvert[Inp, Input],
+                          convertO: AutoConvert[Output, Out]) = build[Inp].andThen(_.map(convertO))
   }
 }

@@ -6,6 +6,7 @@ import java.util.concurrent.CompletableFuture
 import cats.Monad
 import cats.effect.{ExitCode, IO, IOApp}
 import fs2._
+import io.doolse.simpledba.Cols
 import io.doolse.simpledba.dynamodb.{DynamoDBEffect, DynamoDBMapper, DynamoDBTable}
 import io.doolse.simpledba.test.Test
 import io.doolse.simpledba.test.Test._
@@ -44,7 +45,10 @@ object DynamoDBTest extends IOApp {
   implicit val embedded = mapper.mapped[EmbeddedFields].embedded
   val userLNTable       = mapper.mapped[User].table("userLN", 'lastName, 'firstName)
   val userTable =
-    mapper.mapped[User].table("user", 'firstName, 'lastName).withLocalIndex('yearIndex, 'year)
+    mapper
+      .mapped[User]
+      .table("user", 'firstName, 'lastName)
+      .withLocalIndex('yearIndex, 'year)
   val instTable = mapper.mapped[Inst].table("inst", 'uniqueid)
 
   def delAndCreate(table: DynamoDBTable): Stream[IO, Unit] = Stream.eval {
@@ -76,7 +80,7 @@ object DynamoDBTest extends IOApp {
       queryIndex(userTable, 'yearIndex).build(true),
       query(userLNTable).build(false),
       get(userTable).build,
-      o => Stream.empty,
+      getAttr(userTable, Cols('year)).buildAs[Username, Int],
       o => Stream.empty
     )
 

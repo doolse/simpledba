@@ -92,6 +92,11 @@ sealed trait ColumnRecord[C[_], A, R <: HList] {
   }
 }
 
+sealed trait ColumnRecordIso[C[_], A, R <: HList, T] extends ColumnRecord[C, A, R] {
+  def iso: Iso[T, R]
+  def retrieve(f: ColumnRetrieve[C, A]): T = iso.from(mkRecord(f))
+}
+
 object ColumnRecord {
   def prepend[C[_], A, R1 <: HList, R2 <: HList](
       c1: ColumnRecord[C, A, R1],
@@ -117,14 +122,14 @@ object ColumnRecord {
 }
 
 case class ColumnSubset[C[_], R, T, Repr <: HList](columns: Seq[(String, C[_])], iso: Iso[T, Repr])
-    extends ColumnRecord[C, String, Repr]
+    extends ColumnRecordIso[C, String, Repr, T]
 
 object ColumnSubset {
   def empty[C[_], R] = ColumnSubset[C, R, HNil, HNil](Seq.empty, Iso.id)
 }
 
 case class Columns[C[_], T, R <: HList](columns: Seq[(String, C[_])], iso: Iso[T, R])
-    extends ColumnRecord[C, String, R] {
+    extends ColumnRecordIso[C, String, R, T] {
   def compose[T2](ciso: Iso[T2, T]): Columns[C, T2, R] = copy(iso = ciso >>> iso)
 
   def subset[Keys](
