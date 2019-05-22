@@ -8,7 +8,7 @@ import io.doolse.simpledba.jdbc.postgres._
 
 object PostgresTester extends App with JDBCTester[PostgresColumn] with StdPostgresColumns {
 
-  val connection = DriverManager.getConnection("jdbc:postgresql:simpledba2", "equellauser", "tle010")
+  lazy val connection = DriverManager.getConnection("jdbc:postgresql:simpledba2", "equellauser", "tle010")
 
   def mapper = postgresMapper
   val seq = Sequence[Long]("uniquevals")
@@ -20,7 +20,7 @@ object PostgresTester extends App with JDBCTester[PostgresColumn] with StdPostgr
     r <- doTest(q)
   } yield r
 
-  println(prog.compile.last.runA(connection).unsafeRunSync())
+  println(prog.compile.last.unsafeRunSync())
 
   override def insertInst =
     postgresQueries.insertWith(instTable, seq)

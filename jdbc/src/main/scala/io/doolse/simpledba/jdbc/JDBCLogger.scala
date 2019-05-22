@@ -1,6 +1,5 @@
 package io.doolse.simpledba.jdbc
 
-import cats.Applicative
 import cats.effect.Sync
 
 sealed trait BindLog
@@ -12,7 +11,7 @@ trait JDBCLogger[F[_]] {
   def logBind(sql: String, values: Seq[BindLog]): F[Unit]
 }
 
-class NothingLogger[F[_]](implicit A: Applicative[F]) extends JDBCLogger[F] {
+class NothingLogger[F[_]](implicit A: Sync[F]) extends JDBCLogger[F] {
   override def logPrepare(sql: String): F[Unit] = A.pure()
 
   override def logBind(sql: String, values: Seq[BindLog]): F[Unit] = A.pure()

@@ -1,5 +1,6 @@
 package io.doolse.simpledba.test
 
+import cats.effect.IO
 import fs2.Stream
 import org.scalacheck.Shapeless._
 import io.doolse.simpledba.jdbc.{BinOp, JDBCIO}
@@ -8,7 +9,7 @@ import syntax.singleton._
 import record._
 
 object JDBCSortedProperties extends SimpleDBAProperties("JDBC") {
-  include(new SortedQueryProperties[fs2.Stream, JDBCIO] with JDBCProperties {
+  include(new SortedQueryProperties[fs2.Stream, IO] with JDBCProperties {
 
     override val queries = {
 

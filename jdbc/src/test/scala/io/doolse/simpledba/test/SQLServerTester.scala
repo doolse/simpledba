@@ -7,7 +7,7 @@ import io.doolse.simpledba.jdbc.sqlserver._
 
 object SQLServerTester extends App with JDBCTester[SQLServerColumn] with StdSQLServerColumns {
 
-  val connection = DriverManager.getConnection(
+  lazy val connection = DriverManager.getConnection(
     "jdbc:sqlserver://localhost:1433;database=simpledba;",
     "sa",
     "yourStrong(!)Password")
@@ -21,7 +21,7 @@ object SQLServerTester extends App with JDBCTester[SQLServerColumn] with StdSQLS
     r <- doTest(q, (o, n) => n.copy(o.uniqueid))
   } yield r
 
-  println(prog.compile.last.runA(connection).unsafeRunSync())
+  println(prog.compile.last.unsafeRunSync())
 
   override def insertInst = sqlServerQueries.insertIdentity(instTable)
 }

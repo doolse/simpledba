@@ -20,6 +20,7 @@ trait Streamable[S[_[_], _], F[_]] {
   def append[A](a: S[F, A], b: S[F, A]): S[F, A]
   def bracket[A](acquire: F[A])(release: A => F[Unit]): S[F, A]
   def toVector[A](s: S[F, A]): F[Vector[A]]
+  def last[A](s: S[F, A]): S[F, Option[A]]
   def drain(s: S[F, _]): F[Unit]
 }
 

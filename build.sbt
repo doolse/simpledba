@@ -52,14 +52,16 @@ val subSettings = Seq(
   addCompilerPlugin("io.tryp" % "splain" % "0.4.1" cross CrossVersion.patch)
 ) ++ commonSettings
 
+lazy val core = project.settings(subSettings: _*)
 lazy val coreDep = core % "test->test;compile->compile"
 lazy val fs2 = project.settings(subSettings: _*).dependsOn(coreDep)
 lazy val fs2Test = fs2 % "test->test"
-lazy val dynamodb = project.settings(subSettings: _*).dependsOn(coreDep,fs2Test)
+lazy val zio = project.settings(subSettings: _*).dependsOn(coreDep)
+lazy val zioTest = zio % "test->test"
+lazy val dynamodb = project.settings(subSettings: _*).dependsOn(coreDep,fs2Test, zioTest)
 //lazy val cassandra = project.settings(subSettings: _*).dependsOn(coreDep)
 lazy val jdbc = project.settings(subSettings: _*).dependsOn(coreDep, fs2Test)
 lazy val circe = project.settings(subSettings: _*).dependsOn(coreDep)
-lazy val core = project.settings(subSettings: _*)
 
 lazy val parent = (project in file(".")).aggregate(core, fs2, jdbc, circe)
 

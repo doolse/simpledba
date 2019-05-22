@@ -2,7 +2,7 @@ package io.doolse.simpledba
 
 import java.sql.{Connection, DriverManager, PreparedStatement}
 
-import cats.Monad
+import cats.{Applicative, Monad}
 import cats.data.{Kleisli, State, StateT}
 import cats.effect.{IO, Sync}
 import cats.syntax.applicative._
@@ -16,16 +16,17 @@ package object jdbc {
 
   type JDBCIO[A] = StateT[IO, Connection, A]
 
-  case class StateIOEffect[S[_[_], _]](
-      logger: JDBCLogger[JDBCIO] = new NothingLogger)(implicit val M: Monad[JDBCIO], val S: Streamable[S, JDBCIO])
-      extends JDBCEffect[S, JDBCIO] {
-    override def acquire: JDBCIO[Connection] = StateT.get
+  case class ConnectedEffect[S[_[_], _], F[_]](connection: Connection,
+      logger: JDBCLogger[F])(implicit val S: Streamable[S, F], Sync : Sync[F])
+      extends JDBCEffect[S, F] {
+    def M = Sync
+    override def acquire: F[Connection] = Sync.pure(connection)
 
-    override def release: Connection => JDBCIO[Unit] = _ => ().pure[JDBCIO]
+    override def release: Connection => F[Unit] = _ => Sync.pure()
 
-    override def blockingIO[A](thunk: => A): JDBCIO[A] = StateT.liftF(IO.delay(thunk))
+    override def blockingIO[A](thunk: => A): F[A] = Sync.delay(thunk)
 
-    override def flushable: Flushable[S, JDBCIO] = flushJDBC(this)
+    override def flushable: Flushable[S, F] = flushJDBC(this)
   }
 
   def flushJDBC[S[_[_], _], F[_]](C: JDBCEffect[S, F]): Flushable[S, F] =

@@ -1,5 +1,8 @@
 package io.doolse.simpledba.test
 
+import java.sql.Connection
+
+import cats.effect.IO
 import fs2.Stream
 import io.doolse.simpledba.jdbc._
 import io.doolse.simpledba.{Cols, Flushable, Streamable}
@@ -7,11 +10,12 @@ import shapeless.{::, HList, HNil}
 import shapeless.syntax.singleton._
 import io.doolse.simpledba.fs2._
 
-trait JDBCTester[C[_] <: JDBCColumn] extends StdColumns[C] with Test[fs2.Stream, JDBCIO] {
+trait JDBCTester[C[_] <: JDBCColumn] extends StdColumns[C] with Test[fs2.Stream, IO] {
 
-  type F[A] = JDBCIO[A]
+  type F[A] = IO[A]
 
-  def effect: JDBCEffect[fs2.Stream, F] = StateIOEffect(ConsoleLogger())
+  def connection: Connection
+  def effect: JDBCEffect[fs2.Stream, F] = ConnectedEffect(connection, ConsoleLogger())
   def last[A](s: fs2.Stream[F, A]) = s.last
   def S = effect.S
   def M = effect.M

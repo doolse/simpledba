@@ -1,5 +1,6 @@
 package io.doolse.simpledba.test
 
+import cats.effect.IO
 import io.doolse.simpledba.jdbc._
 import io.doolse.simpledba.jdbc.hsql._
 import io.doolse.simpledba.syntax._
@@ -16,19 +17,20 @@ trait JDBCProperties {
   implicit def shortCol = HSQLColumn[Short](StdJDBCColumn.shortCol, ColumnType("INTEGER"))
 
   lazy val mapper        = hsqldbMapper
-  def effect             = StateIOEffect()
+  def effect             = ConnectedEffect[fs2.Stream, IO](connection, new NothingLogger)
   def M = effect.M
   def S = effect.S
   lazy val sqlQueries    = mapper.queries(effect)
   implicit def flushable = effect.flushable
 
   import sqlQueries._
+
   def setup(bq: JDBCTable*): Unit =
     run((for {
       t <- Stream.emits(bq).map(_.definition)
       _ <- rawSQLStream(Stream(dialect.dropTable(t), dialect.createTable(t))).flush
     } yield ()).compile.drain)
 
-  def run[A](fa: JDBCIO[A]): A = scala.concurrent.blocking { fa.runA(connection).unsafeRunSync() }
+  def run[A](fa: IO[A]): A = scala.concurrent.blocking { fa.unsafeRunSync() }
 
 }

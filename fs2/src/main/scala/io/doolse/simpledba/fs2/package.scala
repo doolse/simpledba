@@ -29,5 +29,7 @@ package object fs2 {
     override def bracket[A](acquire: F[A])(release: A => F[Unit]): Stream[F, A] = Stream.bracket(acquire)(release)
 
     override def evalMap[A, B](sa: Stream[F, A])(f: A => F[B]): Stream[F, B] = sa.evalMap(f)
+
+    override def last[A](s: Stream[F, A]): Stream[F, Option[A]] = s.last
   }
 }

@@ -17,3 +17,4 @@ trait DynamoDBEffect[S[_[_], _], F[_]] {
   def fromFuture[A](future: => CompletableFuture[A]): F[A]
 
 }
+

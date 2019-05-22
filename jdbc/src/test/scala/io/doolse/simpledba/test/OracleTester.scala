@@ -8,7 +8,7 @@ import io.doolse.simpledba.jdbc.oracle._
 
 object OracleTester extends App with JDBCTester[OracleColumn] with StdOracleColumns {
 
-  val connection = DriverManager.getConnection("jdbc:oracle:thin:@localhost:1521:OraDoc",
+  lazy val connection = DriverManager.getConnection("jdbc:oracle:thin:@localhost:1521:OraDoc",
                                                "simpledba",
                                                "simpledba123")
 
@@ -23,7 +23,7 @@ object OracleTester extends App with JDBCTester[OracleColumn] with StdOracleColu
     r <- doTest(q)
   } yield r
 
-  println(prog.compile.last.runA(connection).unsafeRunSync())
+  println(prog.compile.last.unsafeRunSync())
 
   override def insertInst = oracleQueries.insertWith(instTable, seq)
 }

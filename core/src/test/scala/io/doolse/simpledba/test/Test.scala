@@ -1,20 +1,18 @@
 package io.doolse.simpledba.test
 
-import cats.Monad
-import io.doolse.simpledba.{Flushable, Streamable, WriteOp, WriteQueries}
-import io.doolse.simpledba.syntax._
 import cats.instances.option._
-import cats.syntax.traverse._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
+import cats.syntax.traverse._
+import io.doolse.simpledba.{Flushable, Streamable, WriteOp, WriteQueries}
 
 trait Test[S[_[_], _], F[_]] {
 
-  def S : Streamable[S, F]
+  def S: Streamable[S, F]
   def flusher: Flushable[S, F]
 
   def flush(s: S[F, WriteOp]) = flusher.flush(s)
-  implicit def SM = S.M
+  implicit def SM             = S.M
 
   case class EmbeddedFields(adminpassword: String, enabled: Boolean)
 
@@ -25,31 +23,31 @@ trait Test[S[_[_], _], F[_]] {
   case class User(firstName: String, lastName: String, year: Int)
 
   case class Queries(initDB: F[Unit],
-                           writeInst: WriteQueries[S, F, Inst],
-                           writeUsers: WriteQueries[S, F, User],
-                           insertNewInst: (Long => Inst) => S[F, Inst],
-                           instByPK: Long => S[F, Inst],
-                           querybyFirstNameAsc: String => S[F, User],
-                           queryByLastNameDesc: String => S[F, User],
-                           queryByFullName: Username => S[F, User],
-                           justYear: Username => S[F, Int],
-                           usersWithLastName: String => S[F, Int])
+                     writeInst: WriteQueries[S, F, Inst],
+                     writeUsers: WriteQueries[S, F, User],
+                     insertNewInst: (Long => Inst) => S[F, Inst],
+                     instByPK: Long => S[F, Inst],
+                     querybyFirstNameAsc: String => S[F, User],
+                     queryByLastNameDesc: String => S[F, User],
+                     queryByFullName: Username => S[F, User],
+                     justYear: Username => S[F, Int],
+                     usersWithLastName: String => S[F, Int])
 
   def insertData(writeInst: WriteQueries[S, F, Inst], writeUsers: WriteQueries[S, F, User]) = {
     writeUsers.insertAll(
-      S.emits(Seq(
-        User("Jolse", "Maginnis", 1980),
-        User("Emma", "Maginnis", 1982),
-        User("Jolse", "Mahinnis", 1985)
-      ))
+      S.emits(
+        Seq(
+          User("Jolse", "Maginnis", 1980),
+          User("Emma", "Maginnis", 1982),
+          User("Jolse", "Mahinnis", 1985)
+        ))
     )
   }
 
-  def last[A](s: S[F, A]): S[F, Option[A]]
+  def last[A](s: S[F, A]): S[F, Option[A]] = S.last(s)
   def toVector[A](s: S[F, A]): S[F, Vector[A]] = S.eval(S.toVector(s))
 
-  def doTest(q: Queries,
-                                           updateId: (Inst, Inst) => Inst = (o, n) => n) = {
+  def doTest(q: Queries, updateId: (Inst, Inst) => Inst = (o, n) => n) = {
     import q._
     for {
       _    <- flush(insertData(q.writeInst, q.writeUsers))
