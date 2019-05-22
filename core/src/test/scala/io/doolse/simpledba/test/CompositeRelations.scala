@@ -3,12 +3,10 @@ package io.doolse.simpledba.test
 import java.util.UUID
 
 import cats.Monad
-import cats.effect.Sync
 import cats.syntax.all._
 import io.doolse.simpledba._
 import CompositeRelations._
-import fs2.Stream
-import io.doolse.simpledba.{Flushable, WriteQueries}
+import io.doolse.simpledba.WriteQueries
 import org.scalacheck.Shapeless._
 
 /**
@@ -28,22 +26,22 @@ object CompositeRelations {
                         fieldLong: Long,
                         fieldUUID: UUID)
 
-  case class Queries2[F[_]](updates: WriteQueries[F, Composite2],
-                            byPK: ((Long, UUID)) => Stream[F, Composite2],
-                            truncate: Stream[F, WriteOp])
+  case class Queries2[S[_[_], _], F[_]](updates: WriteQueries[S, F, Composite2],
+                            byPK: ((Long, UUID)) => S[F, Composite2],
+                            truncate: S[F, WriteOp])
 
-  case class Queries3[F[_]](updates: WriteQueries[F, Composite3],
-                            byPK: ((Int, String, Boolean)) => Stream[F, Composite3],
-                            truncate: Stream[F, WriteOp])
+  case class Queries3[S[_[_], _], F[_]](updates: WriteQueries[S, F, Composite3],
+                            byPK: ((Int, String, Boolean)) => S[F, Composite3],
+                            truncate: S[F, WriteOp])
 
 }
 
-abstract class CompositeRelations[F[_]: Sync](name: String)(implicit M: Monad[F])
-    extends AbstractRelationsProperties[F](s"$name - Composite") {
+abstract class CompositeRelations[S[_[_], _], F[_]](name: String)(implicit M: Monad[F])
+    extends AbstractRelationsProperties[S, F](s"$name - Composite") {
 
-  val queries2: Queries2[F]
+  val queries2: Queries2[S, F]
 
-  val queries3: Queries3[F]
+  val queries3: Queries3[S, F]
 
   include(
     crudProps[Composite2, UUID](

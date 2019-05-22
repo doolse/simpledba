@@ -7,7 +7,6 @@ import cats.data.{Kleisli, State, StateT}
 import cats.effect.{IO, Sync}
 import cats.syntax.applicative._
 import com.typesafe.config.{Config, ConfigFactory}
-import fs2.{Pipe, Stream}
 
 package object jdbc {
 
@@ -17,25 +16,28 @@ package object jdbc {
 
   type JDBCIO[A] = StateT[IO, Connection, A]
 
-  case class StateIOEffect(logger: JDBCLogger[JDBCIO] = new NothingLogger)(
-      implicit val M: Monad[JDBCIO])
-      extends JDBCEffect[JDBCIO] {
+  case class StateIOEffect[S[_[_], _]](
+      logger: JDBCLogger[JDBCIO] = new NothingLogger)(implicit val M: Monad[JDBCIO], val S: Streamable[S, JDBCIO])
+      extends JDBCEffect[S, JDBCIO] {
     override def acquire: JDBCIO[Connection] = StateT.get
 
     override def release: Connection => JDBCIO[Unit] = _ => ().pure[JDBCIO]
 
     override def blockingIO[A](thunk: => A): JDBCIO[A] = StateT.liftF(IO.delay(thunk))
 
-    override def flushable: Flushable[JDBCIO] = flushJDBC(this)
+    override def flushable: Flushable[S, JDBCIO] = flushJDBC(this)
   }
 
-  def flushJDBC[F[_]](C: JDBCEffect[F])(implicit F: Sync[F]): Flushable[F] =
-    new Flushable[F] {
-      def flush: Pipe[F, WriteOp, Unit] =
-        _.flatMap {
-          case JDBCWriteOp(sql, binder) =>
-            C.executePreparedQuery(sql, binder)
-        }.drain ++ Stream.emit()
+  def flushJDBC[S[_[_], _], F[_]](C: JDBCEffect[S, F]): Flushable[S, F] =
+    new Flushable[S, F] {
+      val S  = C.S
+      val SM = S.M
+      def flush =
+        writes =>
+          S.eval(S.drain(SM.flatMap(writes) {
+            case JDBCWriteOp(sql, binder) =>
+              C.executePreparedQuery(sql, binder)
+          }))
     }
 
   def connectionFromConfig(config: Config = ConfigFactory.load()): Connection = {

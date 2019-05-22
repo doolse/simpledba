@@ -1,10 +1,8 @@
 package io.doolse.simpledba.test
 
-import cats.effect.Sync
 import cats.syntax.all._
 import cats.{Id, Monad, ~>}
-import fs2._
-import io.doolse.simpledba.{Flushable, WriteOp, WriteQueries}
+import io.doolse.simpledba.{Flushable, Streamable, WriteOp, WriteQueries}
 import org.scalacheck.Prop._
 import org.scalacheck.{Arbitrary, Gen, Prop, Properties}
 import io.doolse.simpledba.syntax._
@@ -12,23 +10,27 @@ import io.doolse.simpledba.syntax._
 /**
   * Created by jolz on 16/06/16.
   */
-object CrudProperties {
-  def apply[F[_]: Monad: Sync: Flushable, A: Arbitrary, K](run: F ~> Id,
-                                                           writes: WriteQueries[F, A],
-                                                           truncate: Stream[F, WriteOp],
-                                                           findAll: A => Stream[F, A],
-                                                           expected: Int,
-                                                           genUpdate: Gen[(A, A)]) = {
+trait CrudProperties[S[_[_], _], F[_]] {
+
+  def S: Streamable[S, F]
+  implicit def M: Monad[F]
+  def flushable: Flushable[S, F]
+  def run[A](f: F[A]): A
+  def flushed(s: S[F, WriteOp]): F[Unit] = S.drain(flushable.flush(s))
+
+  def crudProps[A: Arbitrary, K](writes: WriteQueries[S, F, A],
+                                 truncate: S[F, WriteOp],
+                                 findAll: A => S[F, A],
+                                 expected: Int,
+                                 genUpdate: Gen[(A, A)]) = {
     implicit def runProp(fa: F[Prop]): Prop = run(fa)
 
-    def flushed(s: Stream[F, WriteOp]): F[Unit] = s.flush.compile.drain
-
     new Properties("CRUD ops") {
-      val countAll = (a: A) => findAll(a).compile.toVector.map(_.count(a.==))
+      val countAll = (a: A) => S.toVector(findAll(a)).map(_.count(a.==))
 
       property("createReadDelete") = forAll { (a: A) =>
         for {
-          _        <- flushed(truncate ++ writes.insert(a))
+          _        <- flushed(S.append(truncate, writes.insert(a)))
           count    <- countAll(a)
           _        <- flushed(writes.delete(a))
           afterDel <- countAll(a)
@@ -41,7 +43,7 @@ object CrudProperties {
       property("update") = forAll(genUpdate) {
         case (a1, a2) =>
           for {
-            _         <- flushed(truncate ++ writes.insert(a1))
+            _         <- flushed(S.append(truncate, writes.insert(a1)))
             _         <- flushed(writes.update(a1, a2))
             countOrig <- countAll(a1)
             countNew  <- countAll(a2)

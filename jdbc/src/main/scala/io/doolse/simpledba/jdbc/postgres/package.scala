@@ -4,7 +4,6 @@ import java.sql.JDBCType
 import java.time.Instant
 import java.util.UUID
 
-import fs2.Stream
 import io.doolse.simpledba._
 import shapeless._
 import shapeless.ops.hlist.RemoveAll
@@ -70,7 +69,7 @@ package object postgres {
 
   val postgresMapper = JDBCMapper[PostgresColumn](PostgresDialect)
 
-  class PostgresQueries[F[_]](dialect: SQLDialect, E: JDBCEffect[F]) {
+  class PostgresQueries[S[_[_], _], F[_]](dialect: SQLDialect, E: JDBCEffect[S, F]) {
     def insertWith[A,
                    T,
                    R <: HList,
@@ -86,9 +85,11 @@ package object postgres {
         removeAll: RemoveAll.Aux[AllCols, KeyNames, (WithoutKeys, JustKeys)],
         withoutKeys: ColumnSubsetBuilder[R, JustKeys],
         sampleValue: SampleValue[A],
-        conv: AutoConvert[Res, Stream[F, A => T]]
-    ): Res => Stream[F, T] = { res =>
-      conv(res).flatMap { f =>
+        conv: AutoConvert[Res, S[F, A => T]]
+    ): Res => S[F, T] = { res =>
+      val S  = E.S
+      val SM = S.M
+      SM.flatMap(conv(res)) { f =>
         val fullRec   = table.allColumns.iso.to(f(sampleValue.v))
         val sscols    = table.allColumns.subset(withoutKeys)
         val keyCols   = table.keyColumns.columns
@@ -107,14 +108,14 @@ package object postgres {
               .map(k => escapeColumnName(k._1))
               .mkString(",")}"
 
-        E.streamForQuery(
+        SM.map(
+          E.streamForQuery(
             insertSQL,
             JDBCQueries.bindParameters(colValues.map(_._1._1)).map(c => Seq(ValueLog(c))),
             Columns(keyCols, Iso.id[A :: HNil])
-          )
-          .map { a =>
-            f(a.head)
-          }
+          )) { a =>
+          f(a.head)
+        }
       }
     }
   }

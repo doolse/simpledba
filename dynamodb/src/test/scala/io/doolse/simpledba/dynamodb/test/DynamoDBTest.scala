@@ -5,25 +5,29 @@ import java.util.concurrent.CompletableFuture
 
 import cats.Monad
 import cats.effect.{ExitCode, IO, IOApp}
-import fs2._
-import io.doolse.simpledba.Cols
+import io.doolse.simpledba.{Cols, Streamable}
 import io.doolse.simpledba.dynamodb.{DynamoDBEffect, DynamoDBMapper, DynamoDBTable}
 import io.doolse.simpledba.test.Test
-import io.doolse.simpledba.test.Test._
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient
 import software.amazon.awssdk.services.dynamodb.model.DeleteTableRequest
 import shapeless.syntax.singleton._
+import io.doolse.simpledba.fs2._
+import fs2._
 
 case class MyTest(name: String, frogs: Int)
 
-object DynamoDBTest extends IOApp {
+object DynamoDBTest extends IOApp with Test[fs2.Stream, IO] {
   val builder = DynamoDbAsyncClient.builder()
+  def last[A](s: fs2.Stream[IO, A]) = s.last
 
   val localClient =
     builder.region(Region.US_EAST_1).endpointOverride(URI.create("http://localhost:8000")).build()
 
-  private val effect: DynamoDBEffect[IO] = new DynamoDBEffect[IO] {
+  def S = implicitly[Streamable[fs2.Stream, IO]]
+
+  private val effect: DynamoDBEffect[fs2.Stream, IO] = new DynamoDBEffect[fs2.Stream, IO] {
+    def S = implicitly[Streamable[fs2.Stream, IO]]
     def M                                             = Monad[IO]
     override def asyncClient: IO[DynamoDbAsyncClient] = IO.pure(localClient)
 
@@ -40,7 +44,9 @@ object DynamoDBTest extends IOApp {
         }
     }
   }
-  val mapper = new DynamoDBMapper[IO](effect)
+
+  val mapper = new DynamoDBMapper[fs2.Stream, IO](effect)
+  def flusher = mapper.flusher
 
   implicit val embedded = mapper.mapped[EmbeddedFields].embedded
   val userLNTable       = mapper.mapped[User].table("userLN", 'lastName, 'firstName)
@@ -68,7 +74,7 @@ object DynamoDBTest extends IOApp {
     import q._
     implicit val flusher = mapper.flusher
     val writeInst        = writes(instTable)
-    val queries = Queries[IO](
+    val queries = Queries(
       Stream(userTable, userLNTable, instTable).flatMap(delAndCreate).compile.drain,
       writeInst,
       writes(userTable, userLNTable),
@@ -86,7 +92,7 @@ object DynamoDBTest extends IOApp {
 
     val prog = for {
       _   <- Stream.eval(queries.initDB)
-      res <- Test.doTest(queries)
+      res <- doTest(queries)
     } yield res
 
     prog.compile.last

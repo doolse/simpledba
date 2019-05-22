@@ -3,16 +3,14 @@ package io.doolse.simpledba.test
 import fs2.Stream
 import org.scalacheck.Shapeless._
 import io.doolse.simpledba.jdbc.{BinOp, JDBCIO}
-import SortedQueryProperties.Queries
 import shapeless._
 import syntax.singleton._
 import record._
 
 object JDBCSortedProperties extends SimpleDBAProperties("JDBC") {
-  include(new SortedQueryProperties[JDBCIO] with JDBCProperties {
+  include(new SortedQueryProperties[fs2.Stream, JDBCIO] with JDBCProperties {
 
-    override val queries
-      : (SortedQueryProperties.Queries[JDBCIO], SortedQueryProperties.Queries[JDBCIO]) = {
+    override val queries = {
 
       val sortedTable = mapper.mapped[Sortable].table("sorted").key('pk1)
 

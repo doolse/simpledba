@@ -18,7 +18,7 @@ object SQLServerTester extends App with JDBCTester[SQLServerColumn] with StdSQLS
   val q = makeQueries
   val prog = for {
     t <- Stream.eval(q.initDB)
-    r <- Test.doTest(q, (o, n) => n.copy(o.uniqueid))
+    r <- doTest(q, (o, n) => n.copy(o.uniqueid))
   } yield r
 
   println(prog.compile.last.runA(connection).unsafeRunSync())

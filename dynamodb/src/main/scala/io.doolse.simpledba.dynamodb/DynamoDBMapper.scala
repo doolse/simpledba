@@ -1,11 +1,10 @@
 package io.doolse.simpledba.dynamodb
 
-import fs2._
 import io.doolse.simpledba.{ColumnBuilder, Flushable, Iso, WriteOp}
 import shapeless.ops.record.Selector
 import shapeless.{HList, HNil, LabelledGeneric, Witness}
 
-class DynamoDBMapper[F[_]](effect: DynamoDBEffect[F]) {
+class DynamoDBMapper[S[_[_], _], F[_]](effect: DynamoDBEffect[S, F]) {
 
   def mapped[T] = new RelationBuilder[T]
 
@@ -58,20 +57,23 @@ class DynamoDBMapper[F[_]](effect: DynamoDBEffect[F]) {
     }
   }
 
-  def flusher: Flushable[F] = new Flushable[F] {
-    override def flush: Pipe[F, WriteOp, Unit] =
+  def flusher: Flushable[S, F] = new Flushable[S, F] {
+    override def flush =
       writes => {
-        Stream
-          .eval(effect.asyncClient)
-          .flatMap { client =>
-            writes.evalMap {
-              case PutItem(request) =>
-                effect.fromFuture(client.putItem(request))
+        val S = effect.S
+        val M = S.M
+        S.eval {
+          S.drain {
+            M.flatMap(S.eval(effect.asyncClient)) { client =>
+              S.evalMap(writes) {
+                case PutItem(request) =>
+                  effect.fromFuture(client.putItem(request))
+              }
             }
           }
-          .drain ++ Stream.emit()
+        }
       }
   }
 
-  def queries: DynamoDBQueries[F] = new DynamoDBQueries[F](effect)
+  def queries: DynamoDBQueries[S, F] = new DynamoDBQueries[S, F](effect)
 }

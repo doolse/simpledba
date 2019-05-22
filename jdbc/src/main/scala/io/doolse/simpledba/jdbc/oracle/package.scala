@@ -3,7 +3,6 @@ package io.doolse.simpledba.jdbc
 import java.sql.{PreparedStatement, ResultSet}
 import java.time.Instant
 
-import fs2.Stream
 import io.doolse.simpledba.{AutoConvert, ColumnSubsetBuilder, Columns, Iso}
 import shapeless.ops.hlist.RemoveAll
 import shapeless.ops.record.Keys
@@ -78,7 +77,7 @@ package object oracle {
 
   val oracleMapper = JDBCMapper[OracleColumn](OracleDialect)
 
-  case class OracleQueries[F[_]](dialect: SQLDialect, E: JDBCEffect[F]) {
+  case class OracleQueries[S[_[_], _], F[_]](dialect: SQLDialect, E: JDBCEffect[S, F]) {
 
     def insertWith[A,
                    T,
@@ -96,9 +95,11 @@ package object oracle {
         removeAll: RemoveAll.Aux[AllCols, KeyNames, (WithoutKeys, JustKeys)],
         withoutKeys: ColumnSubsetBuilder[R, JustKeys],
         sampleValue: SampleValue[A],
-        conv: AutoConvert[Res, Stream[F, A => T]]
-    ): Res => Stream[F, T] = { res =>
-      conv(res).flatMap { f =>
+        conv: AutoConvert[Res, S[F, A => T]]
+    ): Res => S[F, T] = { res =>
+      val S  = E.S
+      val SM = S.M
+      SM.flatMap(conv(res)) { f =>
         val fullRec   = table.allColumns.iso.to(f(sampleValue.v))
         val sscols    = table.allColumns.subset(withoutKeys)
         val keyCols   = table.keyColumns.columns
@@ -114,13 +115,13 @@ package object oracle {
 
         val binder =
           JDBCQueries.bindParameters(colValues.map(_._1._1)).map(c => Seq(ValueLog(c): BindLog))
-        E.executeStream[PreparedStatement, ResultSet](
+
+        SM.map(
+          S.evalMap(E.executeStream[PreparedStatement, ResultSet](
             E.logAndPrepare(insertSQL,
                             _.prepareStatement(insertSQL, keyCols.map(_._1).toArray[String])),
             E.logAndBind(insertSQL, binder, ps => { ps.executeUpdate; ps.getGeneratedKeys })
-          )
-          .evalMap(rs => E.resultSetRecord(Columns(keyCols, Iso.id[A :: HNil]), 1, rs))
-          .map(a => f(a.head))
+          ))(rs => E.resultSetRecord(Columns(keyCols, Iso.id[A :: HNil]), 1, rs)))(a => f(a.head))
       }
     }
   }

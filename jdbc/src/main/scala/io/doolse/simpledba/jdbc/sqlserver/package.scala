@@ -2,7 +2,6 @@ package io.doolse.simpledba.jdbc
 
 import java.time.Instant
 
-import fs2.Stream
 import io.doolse.simpledba._
 import shapeless.ops.hlist.RemoveAll
 import shapeless.ops.record.Keys
@@ -83,7 +82,7 @@ package object sqlserver {
     c.copy(columnType = c.columnType.withFlag(IdentityColumn))
   }
 
-  class SQLServerQueries[F[_]](dialect: SQLDialect, E: JDBCEffect[F]) {
+  class SQLServerQueries[S[_[_], _], F[_]](dialect: SQLDialect, E: JDBCEffect[S, F]) {
     def insertIdentity[T,
                        R <: HList,
                        KeyNames <: HList,
@@ -98,9 +97,11 @@ package object sqlserver {
         removeAll: RemoveAll.Aux[AllCols, KeyNames, (WithoutKeys, JustKeys)],
         withoutKeys: ColumnSubsetBuilder[R, JustKeys],
         sampleValue: SampleValue[A],
-        conv: AutoConvert[Res, Stream[F, A => T]]
-    ): Res => Stream[F, T] = { res =>
-      conv(res).flatMap { f =>
+        conv: AutoConvert[Res, S[F, A => T]]
+    ): Res => S[F, T] = { res =>
+      val S  = E.S
+      val SM = S.M
+      SM.flatMap(conv(res)) { f =>
         val fullRec   = table.allColumns.iso.to(f(sampleValue.v))
         val sscols    = table.allColumns.subset(withoutKeys)
         val keyCols   = table.keyColumns.columns
@@ -116,14 +117,14 @@ package object sqlserver {
             s"OUTPUT ${keyCols.map(k => s"INSERTED.${escapeColumnName(k._1)}").mkString(",")} " +
             s"VALUES ${brackets(colBindings.map(v => expressionSQL(v._2)))}"
 
-        E.streamForQuery(
+        SM.map(
+          E.streamForQuery(
             insertSQL,
             JDBCQueries.bindParameters(colValues.map(_._1._1)).map(c => Seq(ValueLog(c))),
             Columns(keyCols, Iso.id[A :: HNil])
-          )
-          .map { a =>
-            f(a.head)
-          }
+          )) { a =>
+          f(a.head)
+        }
       }
     }
   }

@@ -1,6 +1,6 @@
 package io.doolse.simpledba
 
-import fs2.Stream
+import cats.{Applicative, Functor, Monad}
 import shapeless.{::, Generic, HList, HNil}
 
 trait AutoConvert[A, B] extends (A => B)
@@ -19,10 +19,10 @@ object AutoConvert extends AutoConvertLP {
   }
 
   implicit def acSF[A, B, C, D, F[_]](
-      implicit ctoa: AutoConvert[C, A],
+      implicit F: Functor[F], ctoa: AutoConvert[C, A],
       btod: AutoConvert[B, D]
-  ): AutoConvert[A => Stream[F, B], C => Stream[F, D]] =
-    (v1: A => Stream[F, B]) => c => v1(ctoa(c)).map(btod)
+  ): AutoConvert[A => F[B], C => F[D]] =
+    (v1: A => F[B]) => c => F.map(v1(ctoa(c)))(btod)
 
 
   implicit def oneElement[A, B, T <: HList](implicit convLast: AutoConvert[A, B], unitTail: AutoConvert[Unit, T]) =
@@ -30,9 +30,9 @@ object AutoConvert extends AutoConvertLP {
       override def apply(a: A): B :: T = convLast(a) :: unitTail(())
     }
 
-  implicit def oneStreamElement[A, B, F[_]](implicit conv: AutoConvert[A, B]) =
-    new AutoConvert[A, Stream[F, B]] {
-      override def apply(a: A): Stream[F, B] = Stream.emit(conv(a))
+  implicit def oneStreamElement[A, B, F[_]](implicit F: Applicative[F], conv: AutoConvert[A, B]) =
+    new AutoConvert[A, F[B]] {
+      override def apply(a: A): F[B] = F.pure(conv(a))
     }
 
   implicit def unitConvert = new AutoConvert[HNil, Unit] {

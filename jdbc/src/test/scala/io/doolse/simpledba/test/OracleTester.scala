@@ -20,7 +20,7 @@ object OracleTester extends App with JDBCTester[OracleColumn] with StdOracleColu
 
   val prog = for {
     t <- Stream.eval(q.initDB)
-    r <- Test.doTest(q)
+    r <- doTest(q)
   } yield r
 
   println(prog.compile.last.runA(connection).unsafeRunSync())

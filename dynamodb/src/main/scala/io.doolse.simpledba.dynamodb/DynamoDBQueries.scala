@@ -1,27 +1,10 @@
 package io.doolse.simpledba.dynamodb
 
-import fs2.{Pipe, Stream}
 import io.doolse.simpledba.dynamodb.DynamoDBExpression.ExprState
-import io.doolse.simpledba.{
-  AutoConvert,
-  Cols,
-  ColumnMapper,
-  ColumnRecord,
-  ColumnRecordIso,
-  ColumnSubsetBuilder,
-  Columns,
-  WriteOp,
-  WriteQueries
-}
-import shapeless.ops.hlist.Prepend
+import io.doolse.simpledba._
 import shapeless.ops.record.Selector
 import shapeless.{::, HList, HNil, Witness}
-import software.amazon.awssdk.services.dynamodb.model.{
-  AttributeValue,
-  GetItemRequest,
-  PutItemRequest,
-  QueryRequest
-}
+import software.amazon.awssdk.services.dynamodb.model.{AttributeValue, GetItemRequest, PutItemRequest, QueryRequest}
 
 import scala.collection.JavaConverters._
 
@@ -30,24 +13,32 @@ object AttributeMapper extends ColumnMapper[DynamoDBColumn, String, (String, Att
     a -> column.toAttribute(value)
 }
 
-class DynamoDBQueries[F[_]](effect: DynamoDBEffect[F]) {
+class DynamoDBQueries[S[_[_], _], F[_]](effect: DynamoDBEffect[S, F]) {
 
-  def writes[T](tables: DynamoDBTable.SameT[T]*): WriteQueries[F, T] = new WriteQueries[F, T] {
-    override def insertAll: Pipe[F, T, WriteOp] = _.flatMap { t: T =>
-      Stream.emits {
-        tables.map { table =>
-          val b = PutItemRequest.builder()
-          b.tableName(table.name)
-          b.item(table.columns.mapRecord(table.columns.iso.to(t), AttributeMapper).toMap.asJava)
-          PutItem(b.build())
+  val S  = effect.S
+  val SM = S.M
+
+  def writes[T](tables: DynamoDBTable.SameT[T]*): WriteQueries[S, F, T] =
+    new WriteQueries[S, F, T] {
+      def S = effect.S
+      override def insertAll =
+        ts =>
+          SM.flatMap(ts) { t: T =>
+            S.emits {
+              tables.map { table =>
+                val b = PutItemRequest.builder()
+                b.tableName(table.name)
+                b.item(
+                  table.columns.mapRecord(table.columns.iso.to(t), AttributeMapper).toMap.asJava)
+                PutItem(b.build())
+              }
+            }
         }
-      }
+
+      override def updateAll = in => insertAll(SM.map(in)(_._2))
+
+      override def deleteAll = _ => S.empty
     }
-
-    override def updateAll: Pipe[F, (T, T), WriteOp] = in => insertAll(in.map(_._2))
-
-    override def deleteAll: Pipe[F, T, WriteOp] = _ => Stream.empty
-  }
 
   def get(table: DynamoDBTable): GetBuilder[table.CR, table.PK :: table.SK :: HNil, table.T] =
     GetBuilder(
@@ -96,7 +87,7 @@ class DynamoDBQueries[F[_]](effect: DynamoDBEffect[F]) {
   case class QueryBuilder[T, CR <: HList, PK, SK](table: DynamoDBTable.Aux[T, CR, PK, _, _],
                                                   index: Option[LocalIndex[SK, CR]]) {
 
-    def build[Inp](asc: Boolean)(implicit convert: AutoConvert[Inp, PK]): Inp => Stream[F, T] =
+    def build[Inp](asc: Boolean)(implicit convert: AutoConvert[Inp, PK]): Inp => S[F, T] =
       inp => {
         val qb = QueryRequest.builder().tableName(table.name)
         index.foreach(li => qb.indexName(li.name))
@@ -111,23 +102,22 @@ class DynamoDBQueries[F[_]](effect: DynamoDBEffect[F]) {
           qb.expressionAttributeNames(names.asJava)
         if (vals.nonEmpty) qb.expressionAttributeValues(vals.asJava)
 
-        Stream
-          .eval {
+        SM.flatMap {
+          S.evalMap(S.eval {
             effect.asyncClient
-          }
-          .evalMap { client =>
+          }) { client =>
             effect.fromFuture(client.query(qb.build()))
           }
-          .flatMap { response =>
-            Stream.emits(response.items().asScala).flatMap { attrsJ =>
-              val attrs = attrsJ.asScala.toMap
-              if (attrs.isEmpty) {
-                Stream.empty
-              } else {
-                Stream.emit(table.columns.retrieve(DynamoDBRetrieve(attrs)))
-              }
+        } { response =>
+          SM.flatMap(S.emits(response.items().asScala)) { attrsJ =>
+            val attrs = attrsJ.asScala.toMap
+            if (attrs.isEmpty) {
+              S.empty
+            } else {
+              S.emit(table.columns.retrieve(DynamoDBRetrieve(attrs)))
             }
           }
+        }
 
       }
 
@@ -139,12 +129,12 @@ class DynamoDBQueries[F[_]](effect: DynamoDBEffect[F]) {
       selectCol: ColumnRecordIso[DynamoDBColumn, String, OutR, Output],
       selectAll: Boolean) {
 
-    def build[Inp](implicit convert: AutoConvert[Inp, Input]): Inp => Stream[F, Output] = inp => {
-      Stream
-        .eval {
-          effect.asyncClient
-        }
-        .evalMap { client =>
+    def build[Inp](implicit convert: AutoConvert[Inp, Input]): Inp => S[F, Output] = inp => {
+      SM.flatMap {
+        S.evalMap(
+          S.eval {
+              effect.asyncClient
+            }) { client =>
           val b = GetItemRequest
             .builder()
             .key(toKeyValue(convert(inp)).asJava)
@@ -159,17 +149,18 @@ class DynamoDBQueries[F[_]](effect: DynamoDBEffect[F]) {
           }
           effect.fromFuture(client.getItem(b.build()))
         }
-        .flatMap { response =>
-          val attrs = response.item().asScala.toMap
-          if (attrs.isEmpty) {
-            Stream.empty
-          } else {
-            Stream.emit(selectCol.retrieve(DynamoDBRetrieve(attrs)))
-          }
+      } { response =>
+        val attrs = response.item().asScala.toMap
+        if (attrs.isEmpty) {
+          S.empty
+        } else {
+          S.emit(selectCol.retrieve(DynamoDBRetrieve(attrs)))
         }
+      }
     }
 
     def buildAs[Inp, Out](implicit convert: AutoConvert[Inp, Input],
-                          convertO: AutoConvert[Output, Out]) = build[Inp].andThen(_.map(convertO))
+                          convertO: AutoConvert[Output, Out]) =
+      build[Inp].andThen(o => SM.map(o)(convertO))
   }
 }

@@ -1,9 +1,10 @@
 package io.doolse.simpledba.test
 
-import fs2._
 import io.doolse.simpledba.jdbc._
 import io.doolse.simpledba.jdbc.hsql._
 import io.doolse.simpledba.syntax._
+import io.doolse.simpledba.fs2._
+import fs2._
 
 object JDBCProperties {
   lazy val connection = connectionFromConfig()
@@ -16,6 +17,8 @@ trait JDBCProperties {
 
   lazy val mapper        = hsqldbMapper
   def effect             = StateIOEffect()
+  def M = effect.M
+  def S = effect.S
   lazy val sqlQueries    = mapper.queries(effect)
   implicit def flushable = effect.flushable
 

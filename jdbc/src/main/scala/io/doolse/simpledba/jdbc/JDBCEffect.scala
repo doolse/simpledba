@@ -3,20 +3,19 @@ package io.doolse.simpledba.jdbc
 import java.sql.{Connection, PreparedStatement, ResultSet}
 
 import cats.Monad
-import fs2.Stream
-import io.doolse.simpledba.{ColumnRecord, ColumnRetrieve, Flushable}
-import shapeless.{HList, HNil}
+import io.doolse.simpledba.{ColumnRecord, ColumnRetrieve, Flushable, Streamable}
+import shapeless.HList
 
-import scala.annotation.tailrec
-
-trait JDBCEffect[F[_]] {
+trait JDBCEffect[S[_[_], _], F[_]] {
+  def S: Streamable[S, F]
+  def M: Monad[F]
 
   def acquire: F[Connection]
   def release: Connection => F[Unit]
   def blockingIO[A](thunk: => A): F[A]
-  def M: Monad[F]
   def logger: JDBCLogger[F]
-  def flushable: Flushable[F]
+  def flushable: Flushable[S, F]
+  private def SM = S.M
 
   def logAndPrepare[PS](sql: String, f: Connection => PS): Connection => F[PS] =
     con => M.productR(logger.logPrepare(sql))(blockingIO(f(con)))
@@ -29,24 +28,22 @@ trait JDBCEffect[F[_]] {
         M.productR(logger.logBind(sql, log))(blockingIO(f(ps)))
     }
 
-  def executeStream[PS <: AutoCloseable, A](
-      prepare: Connection => F[PS],
-      bindAndExecute: (Connection, PS) => F[A]): Stream[F, A] = {
-    for {
-      con <- Stream.bracket(acquire)(release)
-      ps  <- Stream.bracket(prepare(con))(ps => blockingIO(ps.close()))
-      rs  <- Stream.eval(bindAndExecute(con, ps))
-    } yield rs
+  def executeStream[PS <: AutoCloseable, A](prepare: Connection => F[PS],
+                                            bindAndExecute: (Connection, PS) => F[A]): S[F, A] = {
+    SM.flatMap(S.bracket(acquire)(release)) { con =>
+      SM.flatMap(S.bracket(prepare(con))(ps => blockingIO(ps.close()))) { ps =>
+        S.eval(bindAndExecute(con, ps))
+      }
+    }
   }
 
-  def nextLoop(rs: ResultSet): Stream[F, ResultSet] =
-    Stream.eval(blockingIO(rs.next())).flatMap { n =>
-      if (n) Stream(rs) ++ nextLoop(rs) else Stream.empty
+  def nextLoop(rs: ResultSet): S[F, ResultSet] =
+    S.M.flatMap(S.eval(blockingIO(rs.next()))) { n =>
+      if (n) S.append(S.emit(rs), nextLoop(rs)) else S.empty
     }
 
-  def executePreparedQuery(
-      sql: String,
-      bindFunc: BindFunc[Seq[BindLog]]): Stream[F, (PreparedStatement, Boolean)] = {
+  def executePreparedQuery(sql: String,
+                           bindFunc: BindFunc[Seq[BindLog]]): S[F, (PreparedStatement, Boolean)] = {
 
     executeStream[PreparedStatement, (PreparedStatement, Boolean)](
       logAndPrepare(sql, _.prepareStatement(sql)),
@@ -54,13 +51,12 @@ trait JDBCEffect[F[_]] {
     )
   }
 
-  def executeResultSet(sql: String,
-                       bindFunc: BindFunc[Seq[BindLog]]): Stream[F, ResultSet] = {
-    executePreparedQuery(sql, bindFunc)
-      .flatMap {
-        case (ps, _) => Stream.bracket(blockingIO(ps.getResultSet))(rs => blockingIO(rs.close()))
-      }
-      .flatMap(nextLoop)
+  def executeResultSet(sql: String, bindFunc: BindFunc[Seq[BindLog]]): S[F, ResultSet] = {
+    SM.flatMap(executePreparedQuery(sql, bindFunc)) {
+      case (ps, _) =>
+        SM.flatMap { S.bracket(blockingIO(ps.getResultSet))(rs => blockingIO(rs.close())) }(
+          nextLoop)
+    }
   }
 
   def resultSetRecord[C[_] <: JDBCColumn, R <: HList, A](
@@ -81,8 +77,8 @@ trait JDBCEffect[F[_]] {
       sql: String,
       bind: BindFunc[Seq[BindLog]],
       resultCols: ColumnRecord[C, _, Out]
-  ): Stream[F, Out] = {
-    executeResultSet(sql, bind).evalMap { rs =>
+  ): S[F, Out] = {
+    S.evalMap(executeResultSet(sql, bind)) { rs =>
       resultSetRecord(resultCols, 1, rs)
     }
   }
