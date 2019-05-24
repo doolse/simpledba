@@ -6,13 +6,13 @@ import cats.syntax.functor._
 import cats.syntax.traverse._
 import io.doolse.simpledba.{Flushable, Streamable, WriteOp, WriteQueries}
 
-trait Test[S[_[_], _], F[_]] {
+trait Test[S[_], F[_]] {
 
   def S: Streamable[S, F]
-  def flusher: Flushable[S, F]
+  def flusher: Flushable[S]
 
-  def flush(s: S[F, WriteOp]) = flusher.flush(s)
-  implicit def SM             = S.M
+  def flush(s: S[WriteOp]) = flusher.flush(s)
+  implicit def SM             = S.SM
 
   case class EmbeddedFields(adminpassword: String, enabled: Boolean)
 
@@ -25,13 +25,13 @@ trait Test[S[_[_], _], F[_]] {
   case class Queries(initDB: F[Unit],
                      writeInst: WriteQueries[S, F, Inst],
                      writeUsers: WriteQueries[S, F, User],
-                     insertNewInst: (Long => Inst) => S[F, Inst],
-                     instByPK: Long => S[F, Inst],
-                     querybyFirstNameAsc: String => S[F, User],
-                     queryByLastNameDesc: String => S[F, User],
-                     queryByFullName: Username => S[F, User],
-                     justYear: Username => S[F, Int],
-                     usersWithLastName: String => S[F, Int])
+                     insertNewInst: (Long => Inst) => S[Inst],
+                     instByPK: Long => S[Inst],
+                     querybyFirstNameAsc: String => S[User],
+                     queryByLastNameDesc: String => S[User],
+                     queryByFullName: Username => S[User],
+                     justYear: Username => S[Int],
+                     usersWithLastName: String => S[Int])
 
   def insertData(writeInst: WriteQueries[S, F, Inst], writeUsers: WriteQueries[S, F, User]) = {
     writeUsers.insertAll(
@@ -44,8 +44,8 @@ trait Test[S[_[_], _], F[_]] {
     )
   }
 
-  def last[A](s: S[F, A]): S[F, Option[A]] = S.last(s)
-  def toVector[A](s: S[F, A]): S[F, Vector[A]] = S.eval(S.toVector(s))
+  def last[A](s: S[A]): S[Option[A]] = S.last(s)
+  def toVector[A](s: S[A]): S[Vector[A]] = S.eval(S.toVector(s))
 
   def doTest(q: Queries, updateId: (Inst, Inst) => Inst = (o, n) => n) = {
     import q._

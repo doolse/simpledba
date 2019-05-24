@@ -77,7 +77,7 @@ package object oracle {
 
   val oracleMapper = JDBCMapper[OracleColumn](OracleDialect)
 
-  case class OracleQueries[S[_[_], _], F[_]](dialect: SQLDialect, E: JDBCEffect[S, F]) {
+  case class OracleQueries[S[_], F[_]](dialect: SQLDialect, E: JDBCEffect[S, F]) {
 
     def insertWith[A,
                    T,
@@ -95,10 +95,10 @@ package object oracle {
         removeAll: RemoveAll.Aux[AllCols, KeyNames, (WithoutKeys, JustKeys)],
         withoutKeys: ColumnSubsetBuilder[R, JustKeys],
         sampleValue: SampleValue[A],
-        conv: AutoConvert[Res, S[F, A => T]]
-    ): Res => S[F, T] = { res =>
+        conv: AutoConvert[Res, S[A => T]]
+    ): Res => S[T] = { res =>
       val S  = E.S
-      val SM = S.M
+      val SM = S.SM
       SM.flatMap(conv(res)) { f =>
         val fullRec   = table.allColumns.iso.to(f(sampleValue.v))
         val sscols    = table.allColumns.subset(withoutKeys)

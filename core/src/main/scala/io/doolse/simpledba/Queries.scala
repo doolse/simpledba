@@ -1,45 +1,32 @@
 package io.doolse.simpledba
 
+import java.util.concurrent.CompletableFuture
+
 import cats.Monad
 
 trait WriteOp
 
-trait Flushable[S[_[_], _], F[_]]
+trait Flushable[S[_]]
 {
-  def flush: S[F, WriteOp] => S[F, Unit]
+  def flush: S[WriteOp] => S[Unit]
 }
 
-trait Streamable[S[_[_], _], F[_]] {
-  def M: Monad[S[F, ?]]
-  def eval[A](fa: F[A]): S[F, A]
-  def evalMap[A, B](sa: S[F, A])(f: A => F[B]): S[F, B]
-  def empty[A]: S[F, A]
-  def emit[A](a: A): S[F, A]
-  def emits[A](a: Seq[A]): S[F, A]
-  def scan[O, O2](s: S[F, O], z: O2)(f: (O2, O) => O2): S[F, O2]
-  def append[A](a: S[F, A], b: S[F, A]): S[F, A]
-  def bracket[A](acquire: F[A])(release: A => F[Unit]): S[F, A]
-  def toVector[A](s: S[F, A]): F[Vector[A]]
-  def last[A](s: S[F, A]): S[F, Option[A]]
-  def drain(s: S[F, _]): F[Unit]
-}
-
-trait WriteQueries[S[_[_], _], F[_], T] {
+trait WriteQueries[S[_], F[_], T] {
   self =>
 
   protected def S: Streamable[S, F]
 
-  def insertAll: S[F, T] => S[F, WriteOp]
+  def insertAll: S[T] => S[WriteOp]
 
-  def updateAll: S[F, (T, T)] => S[F, WriteOp]
+  def updateAll: S[(T, T)] => S[WriteOp]
 
-  def insert(t: T): S[F, WriteOp] = insertAll(S.emit(t))
+  def insert(t: T): S[WriteOp] = insertAll(S.emit(t))
 
-  def update(old: T, next: T): S[F, WriteOp] = updateAll(S.emit((old, next)))
+  def update(old: T, next: T): S[WriteOp] = updateAll(S.emit((old, next)))
 
-  def replaceAll[K](f: T => K): (S[F, T], S[F, T]) => S[F, WriteOp] =
+  def replaceAll[K](f: T => K): (S[T], S[T]) => S[WriteOp] =
     (exstream, newstream) => {
-      val M = S.M
+      val M = S.SM
 
       M.flatMap {
         S.scan(exstream, Map.empty[K, T])((m, t) => m.updated(f(t), t))
@@ -57,7 +44,7 @@ trait WriteQueries[S[_[_], _], F[_], T] {
       }
     }
 
-  def insertUpdateOrDelete(existing: Option[T], newvalue: Option[T]): S[F, WriteOp] =
+  def insertUpdateOrDelete(existing: Option[T], newvalue: Option[T]): S[WriteOp] =
     (existing, newvalue) match {
       case (None, Some(v))      => insert(v)
       case (Some(ex), Some(nv)) => update(ex, nv)
@@ -65,7 +52,7 @@ trait WriteQueries[S[_[_], _], F[_], T] {
       case _                    => S.empty
     }
 
-  def deleteAll: S[F, T] => S[F, WriteOp]
+  def deleteAll: S[T] => S[WriteOp]
 
   def delete(t: T) = deleteAll(S.emit(t))
 }

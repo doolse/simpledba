@@ -10,34 +10,33 @@ import shapeless.{::, HList, HNil}
 import shapeless.syntax.singleton._
 import io.doolse.simpledba.fs2._
 
-trait JDBCTester[C[_] <: JDBCColumn] extends StdColumns[C] with Test[fs2.Stream, IO] {
+trait JDBCTester[C[_] <: JDBCColumn] extends StdColumns[C] with Test[fs2.Stream[IO, ?], IO] {
 
   type F[A] = IO[A]
 
   def connection: Connection
-  def effect: JDBCEffect[fs2.Stream, F] = ConnectedEffect(connection, ConsoleLogger())
-  def last[A](s: fs2.Stream[F, A]) = s.last
+  def effect: JDBCEffect[fs2.Stream[IO, ?], F] = JDBCEffect(IO.pure(connection), _ => IO.pure(), ConsoleLogger())
   def S = effect.S
-  def M = effect.M
   def mapper: JDBCMapper[C]
+  def builder = mapper.queries(effect)
+  implicit def flusher : Flushable[fs2.Stream[IO, ?]] = builder.flushable
 
   implicit def cols = mapper.mapped[EmbeddedFields].embedded
 
   val instTable = mapper.mapped[Inst].table("inst").key('uniqueid)
   val userTable = mapper.mapped[User].table("user").keys(Cols('firstName, 'lastName))
 
-  implicit def flusher : Flushable[fs2.Stream, F] = effect.flushable
 
   def insertInst: (Long => Inst) => Stream[F, Inst]
 
   def makeQueries = {
-    val builder = mapper.queries(effect)
 
-    import builder._
+    val b = builder
+    import b._
 
     val schemaSQL = mapper.dialect
     Queries(
-      effect.flushable.flush {
+      flusher.flush {
         Stream(instTable, userTable).flatMap { t =>
           val d = t.definition
           rawSQLStream(Stream(schemaSQL.dropTable(d), schemaSQL.createTable(d)))

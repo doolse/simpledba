@@ -10,17 +10,18 @@ import io.doolse.simpledba.syntax._
 /**
   * Created by jolz on 16/06/16.
   */
-trait CrudProperties[S[_[_], _], F[_]] {
+trait CrudProperties[S[_], F[_]] {
 
   def S: Streamable[S, F]
-  implicit def M: Monad[F]
-  def flushable: Flushable[S, F]
+  implicit def SM = S.SM
+  implicit def M: Monad[F] = S.M
+  def flushable: Flushable[S]
   def run[A](f: F[A]): A
-  def flushed(s: S[F, WriteOp]): F[Unit] = S.drain(flushable.flush(s))
+  def flushed(s: S[WriteOp]): F[Unit] = S.drain(flushable.flush(s))
 
   def crudProps[A: Arbitrary, K](writes: WriteQueries[S, F, A],
-                                 truncate: S[F, WriteOp],
-                                 findAll: A => S[F, A],
+                                 truncate: S[WriteOp],
+                                 findAll: A => S[A],
                                  expected: Int,
                                  genUpdate: Gen[(A, A)]) = {
     implicit def runProp(fa: F[Prop]): Prop = run(fa)

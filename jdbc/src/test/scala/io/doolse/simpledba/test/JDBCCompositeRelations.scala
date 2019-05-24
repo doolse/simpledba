@@ -5,7 +5,7 @@ import fs2.Stream
 import io.doolse.simpledba.Cols
 import io.doolse.simpledba.test.CompositeRelations.{Composite2, Composite3, Queries2, Queries3}
 
-object JDBCCompositeRelations extends CompositeRelations[fs2.Stream, IO]("JDBC Composite") with JDBCProperties {
+object JDBCCompositeRelations extends CompositeRelations[fs2.Stream[IO, ?], IO]("JDBC Composite") with JDBCProperties {
 
   import mapper.mapped
 

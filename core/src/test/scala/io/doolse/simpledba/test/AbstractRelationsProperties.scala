@@ -7,7 +7,7 @@ import org.scalacheck.{Arbitrary, Gen, Prop}
 /**
   * Created by jolz on 16/06/16.
   */
-abstract class AbstractRelationsProperties[S[_[_], _], F[_]](name: String)(implicit M: Monad[F])
+abstract class AbstractRelationsProperties[S[_], F[_]](name: String)(implicit M: Monad[F])
     extends SimpleDBAProperties(name) with CrudProperties[S, F] {
 
   implicit def runProp(fa: F[Prop]): Prop = run(fa)

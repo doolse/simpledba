@@ -7,8 +7,11 @@ import cats.effect.Sync
 package object fs2 {
 
 
-  implicit def fs2Stream[F[_]:Sync] : Streamable[Stream, F] = new Streamable[Stream, F] {
-    override def M: Monad[Stream[F, ?]] = implicitly[Monad[Stream[F, ?]]]
+  implicit def fs2Stream[F[_] : Sync] : Streamable[Stream[F, ?], F] = new Streamable[Stream[F, ?], F] {
+
+    override def M: Monad[F] = implicitly[Sync[F]]
+
+    override def SM: Monad[Stream[F, ?]] = implicitly[Monad[Stream[F, ?]]]
 
     override def eval[A](fa: F[A]): Stream[F, A] = Stream.eval(fa)
 

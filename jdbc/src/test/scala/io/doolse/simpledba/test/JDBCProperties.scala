@@ -1,10 +1,11 @@
 package io.doolse.simpledba.test
 
+import cats.Monad
 import cats.effect.IO
+import io.doolse.simpledba.fs2._
 import io.doolse.simpledba.jdbc._
 import io.doolse.simpledba.jdbc.hsql._
 import io.doolse.simpledba.syntax._
-import io.doolse.simpledba.fs2._
 import fs2._
 
 object JDBCProperties {
@@ -17,11 +18,11 @@ trait JDBCProperties {
   implicit def shortCol = HSQLColumn[Short](StdJDBCColumn.shortCol, ColumnType("INTEGER"))
 
   lazy val mapper        = hsqldbMapper
-  def effect             = ConnectedEffect[fs2.Stream, IO](connection, new NothingLogger)
-  def M = effect.M
+  def effect             = JDBCEffect[fs2.Stream[IO, ?], IO](
+    IO.pure(connection), _ => IO.pure(), new NothingLogger)
   def S = effect.S
   lazy val sqlQueries    = mapper.queries(effect)
-  implicit def flushable = effect.flushable
+  implicit def flushable = sqlQueries.flushable
 
   import sqlQueries._
 

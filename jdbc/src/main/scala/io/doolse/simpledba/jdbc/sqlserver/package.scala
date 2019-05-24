@@ -82,7 +82,7 @@ package object sqlserver {
     c.copy(columnType = c.columnType.withFlag(IdentityColumn))
   }
 
-  class SQLServerQueries[S[_[_], _], F[_]](dialect: SQLDialect, E: JDBCEffect[S, F]) {
+  class SQLServerQueries[S[_], F[_]](dialect: SQLDialect, E: JDBCEffect[S, F]) {
     def insertIdentity[T,
                        R <: HList,
                        KeyNames <: HList,
@@ -97,10 +97,10 @@ package object sqlserver {
         removeAll: RemoveAll.Aux[AllCols, KeyNames, (WithoutKeys, JustKeys)],
         withoutKeys: ColumnSubsetBuilder[R, JustKeys],
         sampleValue: SampleValue[A],
-        conv: AutoConvert[Res, S[F, A => T]]
-    ): Res => S[F, T] = { res =>
+        conv: AutoConvert[Res, S[A => T]]
+    ): Res => S[T] = { res =>
       val S  = E.S
-      val SM = S.M
+      val SM = S.SM
       SM.flatMap(conv(res)) { f =>
         val fullRec   = table.allColumns.iso.to(f(sampleValue.v))
         val sscols    = table.allColumns.subset(withoutKeys)

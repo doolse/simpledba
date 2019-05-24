@@ -17,7 +17,7 @@ case class JDBCMapper[C[_] <: JDBCColumn](dialect: SQLDialect) {
 
   def record[R <: HList](implicit cr: ColumnRecord[C, Unit, R]): ColumnRecord[C, Unit, R] = cr
 
-  def queries[S[_[_], _], F[_]](effect: JDBCEffect[S, F]): JDBCQueries[S, F, C] =
+  def queries[S[_], F[_]](effect: JDBCEffect[S, F]): JDBCQueries[S, F, C] =
     JDBCQueries(effect, dialect)
 
   def mapped[T] = new RelationBuilder[T, C]
@@ -115,10 +115,21 @@ object BindableCombiner {
 
 }
 
-case class JDBCQueries[S[_[_], _], F[_], C[_] <: JDBCColumn](E: JDBCEffect[S, F],
+case class JDBCQueries[S[_], F[_], C[_] <: JDBCColumn](E: JDBCEffect[S, F],
                                                              dialect: SQLDialect) {
   val S  = E.S
-  val SM = S.M
+  val SM = S.SM
+
+  def flushable: Flushable[S] =
+    new Flushable[S] {
+      def flush =
+        writes =>
+          S.eval(S.drain(SM.flatMap(writes) {
+            case JDBCWriteOp(sql, binder) =>
+              E.executePreparedQuery(sql, binder)
+          }))
+    }
+
   def writes(table: JDBCTable): WriteQueries[S, F, table.Data] =
     new WriteQueries[S, F, table.Data] {
       def S = E.S
@@ -205,19 +216,19 @@ case class JDBCQueries[S[_[_], _], F[_], C[_] <: JDBCColumn](E: JDBCEffect[S, F]
     )
 
   def byPK[K2](table: JDBCTable)(
-      implicit c: AutoConvert[K2, table.KeyList]): K2 => S[F, table.Data] = {
+      implicit c: AutoConvert[K2, table.KeyList]): K2 => S[table.Data] = {
     implicit val kn = table.keySubset
     query(table).where(table.keyNames, BinOp.EQ).build[K2]
   }
 
-  def allRows(table: JDBCTable): S[F, table.Data] =
+  def allRows(table: JDBCTable): S[table.Data] =
     query(table).build[Unit].apply()
 
   def queryRawSQL[Params <: HList, OutRec <: HList](
       sql: String,
       cr: ColumnRecord[C, _, Params],
       outRec: ColumnRecord[C, Any, OutRec]
-  ): Params => S[F, OutRec] =
+  ): Params => S[OutRec] =
     params => {
       val bindFunc = bindParameters(bindValues(cr, params).columns.map(_._1._1))
         .map(l => Seq(ValueLog(l): BindLog))
@@ -231,8 +242,8 @@ case class JDBCQueries[S[_[_], _], F[_], C[_] <: JDBCColumn](E: JDBCEffect[S, F]
   }
 
   def rawSQLStream(
-      sql: S[F, String]
-  ): S[F, WriteOp] = {
+      sql: S[String]
+  ): S[WriteOp] = {
     SM.map(sql)(rawSQL)
   }
 
@@ -254,7 +265,7 @@ object JDBCQueries {
     (colWhere, bindParameters(columnExprs.map(_._1._1)).map(v => Seq(WhereLog(v))))
   }
 
-  case class DeleteBuilder[S[_[_], _], F[_], C[_] <: JDBCColumn, DataRec <: HList, B <: BindValues](
+  case class DeleteBuilder[S[_], F[_], C[_] <: JDBCColumn, DataRec <: HList, B <: BindValues](
       S: Streamable[S, F],
       table: TableRecord[C, DataRec],
       dialect: SQLDialect,
@@ -281,15 +292,15 @@ object JDBCQueries {
     def build[W2](
         implicit b: BindStream[B, JDBCWhereClause],
         c: AutoConvert[W2, whereClause.Value]
-    ): W2 => S[F, WriteOp] = w => {
-      S.M.map(S.emits(b.apply(whereClause)(w)))(a => {
+    ): W2 => S[WriteOp] = w => {
+      S.SM.map(S.emits(b.apply(whereClause)(w)))(a => {
         val deleteSQL = dialect.querySQL(JDBCDelete(table.name, a._1))
         JDBCWriteOp(deleteSQL, a._2)
       })
     }
   }
 
-  case class QueryBuilder[S[_[_], _],
+  case class QueryBuilder[S[_],
                           F[_],
                           C[_] <: JDBCColumn,
                           DataRec <: HList,
@@ -306,7 +317,7 @@ object JDBCQueries {
   ) {
 
     val S  = E.S
-    val SM = S.M
+    val SM = S.SM
 
     def count(
         implicit intCol: C[Int]
@@ -374,17 +385,17 @@ object JDBCQueries {
         implicit c: AutoConvert[In, where.Value],
         cout: AutoConvert[Out, Out2],
         binder: BindStream[B, JDBCWhereClause]
-    ): In => S[F, Out2] = build[In].andThen(o => S.M.map(o)(cout.apply))
+    ): In => S[Out2] = build[In].andThen(o => SM.map(o)(cout.apply))
 
     def build[In](
         implicit c: AutoConvert[In, where.Value],
         binder: BindStream[B, JDBCWhereClause]
-    ): In => S[F, Out] = {
+    ): In => S[Out] = {
       val baseSel =
         JDBCSelect(table.name, projections.columns.map(_._1), Seq.empty, orderCols, false)
       w2: In =>
         {
-          S.M.flatMap(S.emits(binder(where)(c.apply(w2)))) {
+          SM.flatMap(S.emits(binder(where)(c.apply(w2)))) {
             case (wc, bind) =>
               val selSQL = dialect.querySQL(baseSel.copy(where = wc))
               SM.map(E.streamForQuery(selSQL, bind, projections))(mapOut)

@@ -26,17 +26,17 @@ object CompositeRelations {
                         fieldLong: Long,
                         fieldUUID: UUID)
 
-  case class Queries2[S[_[_], _], F[_]](updates: WriteQueries[S, F, Composite2],
-                            byPK: ((Long, UUID)) => S[F, Composite2],
-                            truncate: S[F, WriteOp])
+  case class Queries2[S[_], F[_]](updates: WriteQueries[S, F, Composite2],
+                            byPK: ((Long, UUID)) => S[Composite2],
+                            truncate: S[WriteOp])
 
-  case class Queries3[S[_[_], _], F[_]](updates: WriteQueries[S, F, Composite3],
-                            byPK: ((Int, String, Boolean)) => S[F, Composite3],
-                            truncate: S[F, WriteOp])
+  case class Queries3[S[_], F[_]](updates: WriteQueries[S, F, Composite3],
+                            byPK: ((Int, String, Boolean)) => S[Composite3],
+                            truncate: S[WriteOp])
 
 }
 
-abstract class CompositeRelations[S[_[_], _], F[_]](name: String)(implicit M: Monad[F])
+abstract class CompositeRelations[S[_], F[_]](name: String)(implicit M: Monad[F])
     extends AbstractRelationsProperties[S, F](s"$name - Composite") {
 
   val queries2: Queries2[S, F]

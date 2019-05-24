@@ -13,10 +13,10 @@ object AttributeMapper extends ColumnMapper[DynamoDBColumn, String, (String, Att
     a -> column.toAttribute(value)
 }
 
-class DynamoDBQueries[S[_[_], _], F[_]](effect: DynamoDBEffect[S, F]) {
+class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
 
   val S  = effect.S
-  val SM = S.M
+  val SM = S.SM
 
   def writes[T](tables: DynamoDBTable.SameT[T]*): WriteQueries[S, F, T] =
     new WriteQueries[S, F, T] {
@@ -87,7 +87,7 @@ class DynamoDBQueries[S[_[_], _], F[_]](effect: DynamoDBEffect[S, F]) {
   case class QueryBuilder[T, CR <: HList, PK, SK](table: DynamoDBTable.Aux[T, CR, PK, _, _],
                                                   index: Option[LocalIndex[SK, CR]]) {
 
-    def build[Inp](asc: Boolean)(implicit convert: AutoConvert[Inp, PK]): Inp => S[F, T] =
+    def build[Inp](asc: Boolean)(implicit convert: AutoConvert[Inp, PK]): Inp => S[T] =
       inp => {
         val qb = QueryRequest.builder().tableName(table.name)
         index.foreach(li => qb.indexName(li.name))
@@ -129,7 +129,7 @@ class DynamoDBQueries[S[_[_], _], F[_]](effect: DynamoDBEffect[S, F]) {
       selectCol: ColumnRecordIso[DynamoDBColumn, String, OutR, Output],
       selectAll: Boolean) {
 
-    def build[Inp](implicit convert: AutoConvert[Inp, Input]): Inp => S[F, Output] = inp => {
+    def build[Inp](implicit convert: AutoConvert[Inp, Input]): Inp => S[Output] = inp => {
       SM.flatMap {
         S.evalMap(
           S.eval {

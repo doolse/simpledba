@@ -24,32 +24,31 @@ case class Sortable(pk1: UUID,
                     doubleField: Double,
                     uuidField: UUID)
 
-abstract class SortedQueryProperties[S[_[_], _], F[_]: Monad](implicit arb: Arbitrary[Sortable])
+abstract class SortedQueryProperties[S[_], F[_]: Monad](implicit arb: Arbitrary[Sortable])
     extends AbstractRelationsProperties[S, F]("Sorting") {
 
   case class Queries(writes: WriteQueries[S, F, Sortable],
-                     truncate: S[F, WriteOp],
-                     int1: UUID => S[F, Sortable],
-                     int2: UUID => S[F, Sortable],
-                     string1: UUID => S[F, Sortable],
-                     string2: UUID => S[F, Sortable],
-                     short1: UUID => S[F, Sortable],
-                     short2: UUID => S[F, Sortable],
-                     long1: UUID => S[F, Sortable],
-                     long2: UUID => S[F, Sortable],
-                     float1: UUID => S[F, Sortable],
-                     float2: UUID => S[F, Sortable],
-                     double1: UUID => S[F, Sortable],
-                     double2: UUID => S[F, Sortable],
-                     uuid1: UUID => S[F, Sortable],
-                     uuid2: UUID => S[F, Sortable])
+                     truncate: S[WriteOp],
+                     int1: UUID => S[Sortable],
+                     int2: UUID => S[Sortable],
+                     string1: UUID => S[Sortable],
+                     string2: UUID => S[Sortable],
+                     short1: UUID => S[Sortable],
+                     short2: UUID => S[Sortable],
+                     long1: UUID => S[Sortable],
+                     long2: UUID => S[Sortable],
+                     float1: UUID => S[Sortable],
+                     float2: UUID => S[Sortable],
+                     double1: UUID => S[Sortable],
+                     double2: UUID => S[Sortable],
+                     uuid1: UUID => S[Sortable],
+                     uuid2: UUID => S[Sortable])
 
-  implicit def SM = S.M
   val queries: (Queries, Queries)
 
   implicit val shrinkSortable = Shrink[Sortable](_ => scala.Stream.empty)
 
-  case class OrderQuery[A](lens: Sortable => A, query: Queries => UUID => S[F, Sortable])(
+  case class OrderQuery[A](lens: Sortable => A, query: Queries => UUID => S[Sortable])(
       implicit val o: Ordering[A])
 
   def checkOrder[A](same: UUID, v: Vector[Sortable], sortQ: Seq[(String, OrderQuery[_])]) = {

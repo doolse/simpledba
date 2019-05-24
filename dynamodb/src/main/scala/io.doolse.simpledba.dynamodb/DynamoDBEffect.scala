@@ -3,18 +3,12 @@ package io.doolse.simpledba.dynamodb
 import java.util.concurrent.CompletableFuture
 
 import cats.Monad
-import io.doolse.simpledba.Streamable
+import io.doolse.simpledba.{JavaEffects, Streamable}
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient
 
-trait DynamoDBEffect[S[_[_], _], F[_]] {
-
-  def S: Streamable[S, F]
-
-  def M: Monad[F]
-
-  def asyncClient: F[DynamoDbAsyncClient]
-
-  def fromFuture[A](future: => CompletableFuture[A]): F[A]
-
+case class DynamoDBEffect[S[_], F[_]](asyncClient: F[DynamoDbAsyncClient])(
+  implicit val S: Streamable[S, F], val M : Monad[F],
+  JE: JavaEffects[F])
+{
+  def fromFuture[A](future: => CompletableFuture[A]):F[A] = JE.fromFuture(() => future)
 }
-

@@ -14,7 +14,7 @@ import software.amazon.awssdk.services.dynamodb.model.DeleteTableRequest
 
 case class MyTest(name: String, frogs: Int)
 
-trait DynamoDBTest[S[_[_], _], F[_]] extends Test[S, F] {
+trait DynamoDBTest[S[_], F[_]] extends Test[S, F] {
 //  def last[A](s: fs2.Stream[IO, A]) = s.last
 
   lazy val localClient = {
@@ -25,6 +25,7 @@ trait DynamoDBTest[S[_[_], _], F[_]] extends Test[S, F] {
 //  def S = implicitly[Streamable[fs2.Stream, IO]]
 
   def effect: DynamoDBEffect[S, F]
+  def S = effect.S
   implicit def AE: MonadError[F, Throwable]
 
 //  private val effect: DynamoDBEffect[fs2.Stream, IO] = new DynamoDBEffect[fs2.Stream, IO] {
@@ -69,7 +70,7 @@ trait DynamoDBTest[S[_[_], _], F[_]] extends Test[S, F] {
     } yield ()
   }
 
-  override def flusher: Flushable[S, F] = mapper.flusher
+  override def flusher: Flushable[S] = mapper.flusher
 
   val q = mapper.queries
   import q._

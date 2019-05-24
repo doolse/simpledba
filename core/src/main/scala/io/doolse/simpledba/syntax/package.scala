@@ -1,8 +1,8 @@
 package io.doolse.simpledba
 
 package object syntax {
-  implicit class FlushableOps[S[_[_], _], F[_], A](fa: S[F, WriteOp])(implicit F: Flushable[S, F]) {
-    def flush: S[F, Unit] = F.flush(fa)
+  implicit class FlushableOps[S[_], A](fa: S[WriteOp])(implicit F: Flushable[S]) {
+    def flush: S[Unit] = F.flush(fa)
   }
 
   implicit class AutoConvertOps[A](a: A) {
