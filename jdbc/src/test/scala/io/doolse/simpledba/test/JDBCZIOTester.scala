@@ -2,24 +2,26 @@ package io.doolse.simpledba.test
 
 import java.sql.Connection
 
-import cats.effect.IO
-import fs2.Stream
+import io.doolse.simpledba.Cols
 import io.doolse.simpledba.jdbc._
-import io.doolse.simpledba.{Cols, Flushable, Streamable}
-import shapeless.{::, HList, HNil}
+import io.doolse.simpledba.zio._
+import scalaz.zio.interop.catz._
+import scalaz.zio.stream.ZStream
+import scalaz.zio.{Task, ZIO}
+import shapeless.HList
 import shapeless.syntax.singleton._
-import io.doolse.simpledba.fs2._
 
-trait JDBCTester[C[_] <: JDBCColumn] extends StdColumns[C] with Test[fs2.Stream[IO, ?], IO] {
+trait JDBCZIOTester[C[_] <: JDBCColumn] extends StdColumns[C] with Test[ZStream[Any, Throwable, ?], Task] {
 
-  type F[A] = IO[A]
+  type F[A] = Task[A]
+  type S[A] = ZStream[Any, Throwable, A]
 
   def connection: Connection
-  def effect: JDBCEffect[fs2.Stream[IO, ?], F] = JDBCEffect(IO.pure(connection), _ => IO.pure(), ConsoleLogger())
+  def effect = JDBCEffect[S, F](ZIO.succeed(connection), _ => ZIO(), ConsoleLogger())
   def S = effect.S
   def mapper: JDBCMapper[C]
   def builder = mapper.queries(effect)
-  implicit def flusher : Flushable[fs2.Stream[IO, ?]] = builder.flushable
+  implicit def flusher = builder.flushable
 
   implicit def cols = mapper.mapped[EmbeddedFields].embedded
 
@@ -27,21 +29,22 @@ trait JDBCTester[C[_] <: JDBCColumn] extends StdColumns[C] with Test[fs2.Stream[
   val userTable = mapper.mapped[User].table("user").keys(Cols('firstName, 'lastName))
 
 
-  def insertInst: (Long => Inst) => Stream[F, Inst]
+  def insertInst: (Long => Inst) => ZStream[Any, Throwable, Inst]
 
   def makeQueries = {
 
     val b = builder
+    val S = b.S
     import b._
 
     val schemaSQL = mapper.dialect
     Queries(
-      flusher.flush {
-        Stream(instTable, userTable).flatMap { t =>
+      S.drain { flusher.flush {
+        S.emits(Seq(instTable, userTable)).flatMap { t =>
           val d = t.definition
-          rawSQLStream(Stream(schemaSQL.dropTable(d), schemaSQL.createTable(d)))
+          rawSQLStream(S.emits(Seq(schemaSQL.dropTable(d), schemaSQL.createTable(d))))
         }
-      }.compile.drain,
+      }},
       writes(instTable),
       writes(userTable),
       insertInst,

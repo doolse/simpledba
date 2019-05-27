@@ -30,14 +30,12 @@ package object fs2 {
 
       override def drain(s: Stream[F, _]): F[Unit] = s.compile.drain
 
-      override def read[A, B](acquire: F[A],
-                                 release: A => F[Unit],
-                                 read: A => F[Option[B]]): Stream[F, B] = {
+      override def read[A, B](acquire: F[A])(release: A => F[Unit])(
+          read: A => F[Option[B]]): Stream[F, B] = {
         val s = Stream.bracket(acquire)(release)
-        def loop(a: A): Stream[F, B] =
-        {
+        def loop(a: A): Stream[F, B] = {
           Stream.eval(read(a)).flatMap {
-            case None => Stream.empty
+            case None    => Stream.empty
             case Some(b) => Stream.emit(b) ++ loop(a)
           }
         }

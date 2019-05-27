@@ -1,18 +1,10 @@
 package io.doolse.simpledba.dynamodb
 
-import io.doolse.simpledba.dynamodb.DynamoDBTable.Aux
-import io.doolse.simpledba.{Columns, Iso}
+import io.doolse.simpledba.Columns
 import shapeless.labelled.FieldType
 import shapeless.ops.record.Selector
 import shapeless.{::, HList, Witness}
-import software.amazon.awssdk.services.dynamodb.model.{
-  CreateTableRequest,
-  KeySchemaElement,
-  KeyType,
-  LocalSecondaryIndex,
-  Projection,
-  ProvisionedThroughput
-}
+import software.amazon.awssdk.services.dynamodb.model._
 
 import scala.collection.JavaConverters._
 
@@ -37,6 +29,8 @@ trait DynamoDBTable {
   def skColumn: Option[NamedAttribute[SK]]
   def columns: Columns[DynamoDBColumn, T, CR]
   def localIndexes: Seq[LocalIndex[_, _]]
+  def pkValue: T => PK
+  def skValue: T => Option[SK]
 
   protected def addIndex[NewIndexes <: HList](
       index: LocalIndex[_, _]): DynamoDBTable.Aux[T, CR, PK, SK, NewIndexes]
@@ -88,7 +82,9 @@ case class DynamoDBTableRepr[T0, CR0 <: HList, PK0, SK0, Indexes0 <: HList](
     pkColumn: NamedAttribute[PK0],
     skColumn: Option[NamedAttribute[SK0]],
     columns: Columns[DynamoDBColumn, T0, CR0],
-    localIndexes: Seq[LocalIndex[_, _]])
+    localIndexes: Seq[LocalIndex[_, _]],
+    pkValue: T0 => PK0,
+    skValue: T0 => Option[SK0])
     extends DynamoDBTable {
   type T       = T0
   type CR      = CR0

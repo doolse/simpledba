@@ -1,9 +1,5 @@
 package io.doolse.simpledba
 
-import java.util.concurrent.CompletableFuture
-
-import cats.Monad
-
 trait WriteOp
 
 trait Flushable[S[_]]

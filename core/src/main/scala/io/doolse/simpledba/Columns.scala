@@ -1,7 +1,5 @@
 package io.doolse.simpledba
 
-import java.sql.ResultSet
-
 import cats.arrow.Compose
 import cats.instances.function._
 import cats.syntax.compose._

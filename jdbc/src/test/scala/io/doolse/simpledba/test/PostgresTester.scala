@@ -2,11 +2,12 @@ package io.doolse.simpledba.test
 
 import java.sql.DriverManager
 
-import fs2.Stream
 import io.doolse.simpledba.jdbc._
 import io.doolse.simpledba.jdbc.postgres._
+import scalaz.zio.stream.ZSink
+import scalaz.zio.{App, ZIO}
 
-object PostgresTester extends App with JDBCTester[PostgresColumn] with StdPostgresColumns {
+object PostgresTester extends App with JDBCZIOTester[PostgresColumn] with StdPostgresColumns {
 
   lazy val connection = DriverManager.getConnection("jdbc:postgresql:simpledba2", "equellauser", "tle010")
 
@@ -16,11 +17,14 @@ object PostgresTester extends App with JDBCTester[PostgresColumn] with StdPostgr
 
   val q = makeQueries
   val prog = for {
-    t <- Stream.eval(q.initDB)
+    t <- S.eval(q.initDB)
     r <- doTest(q)
   } yield r
 
-  println(prog.compile.last.unsafeRunSync())
+  override def run(args: List[String]): ZIO[PostgresTester.Environment, Nothing, Int] = {
+    prog.run(ZSink.identity[String].?).fold(_ => 1, v => {println(v); 0})
+  }
+
 
   override def insertInst =
     postgresQueries.insertWith(instTable, seq)

@@ -4,7 +4,14 @@ import io.doolse.simpledba.dynamodb.DynamoDBExpression.ExprState
 import io.doolse.simpledba._
 import shapeless.ops.record.Selector
 import shapeless.{::, HList, HNil, Witness}
-import software.amazon.awssdk.services.dynamodb.model.{AttributeValue, GetItemRequest, PutItemRequest, QueryRequest}
+import software.amazon.awssdk.services.dynamodb.model.{
+  AttributeValue,
+  DeleteItemRequest,
+  GetItemRequest,
+  PutItemRequest,
+  QueryRequest,
+  QueryResponse
+}
 
 import scala.collection.JavaConverters._
 
@@ -37,7 +44,25 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
 
       override def updateAll = in => insertAll(SM.map(in)(_._2))
 
-      override def deleteAll = _ => S.empty
+      override def deleteAll =
+        ts =>
+          SM.flatMap(ts) { t: T =>
+            S.emits {
+              tables.map { table =>
+                val b   = DeleteItemRequest.builder()
+                val pkC = table.pkColumn
+                val pkV = table.pkValue(t)
+                val skA = for {
+                  skC <- table.skColumn
+                  skV <- table.skValue(t)
+                } yield skC.name -> skC.column.toAttribute(skV)
+                b.tableName(table.name)
+                b.key((Seq(pkC.name -> pkC.column.toAttribute(pkV)) ++ skA).toMap.asJava)
+                DeleteItem(b.build())
+              }
+            }
+
+        }
     }
 
   def get(table: DynamoDBTable): GetBuilder[table.CR, table.PK :: table.SK :: HNil, table.T] =
@@ -87,28 +112,36 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
   case class QueryBuilder[T, CR <: HList, PK, SK](table: DynamoDBTable.Aux[T, CR, PK, _, _],
                                                   index: Option[LocalIndex[SK, CR]]) {
 
+    private def query(asc: Boolean, pk: PK): QueryRequest.Builder = {
+      val qb = QueryRequest.builder().tableName(table.name)
+      index.foreach(li => qb.indexName(li.name))
+      val pkCol = table.pkColumn
+      val (ExprState(names, vals), expr) = DynamoDBExpression
+        .keyExpression(pkCol.name, pkCol.column.toAttribute(pk), None)
+        .run(ExprState(Map.empty, Map.empty))
+        .value
+      qb.keyConditionExpression(expr)
+      qb.scanIndexForward(!asc)
+      if (names.nonEmpty)
+        qb.expressionAttributeNames(names.asJava)
+      if (vals.nonEmpty) qb.expressionAttributeValues(vals.asJava)
+      qb
+    }
+
+    def responseStream(qb: QueryRequest.Builder): S[QueryResponse] =
+      S.eval {
+        S.M.flatMap(effect.asyncClient) { client =>
+          effect.fromFuture(client.query(qb.build()))
+        }
+      }
+
+    def count[Inp](implicit convert: AutoConvert[Inp, PK]): Inp => S[Int] = inp => {
+      S.SM.map(responseStream(query(true, convert(inp))))(r => r.scannedCount())
+    }
+
     def build[Inp](asc: Boolean)(implicit convert: AutoConvert[Inp, PK]): Inp => S[T] =
       inp => {
-        val qb = QueryRequest.builder().tableName(table.name)
-        index.foreach(li => qb.indexName(li.name))
-        val pkCol = table.pkColumn
-        val (ExprState(names, vals), expr) = DynamoDBExpression
-          .keyExpression(pkCol.name, pkCol.column.toAttribute(convert(inp)), None)
-          .run(ExprState(Map.empty, Map.empty))
-          .value
-        qb.keyConditionExpression(expr)
-        qb.scanIndexForward(!asc)
-        if (names.nonEmpty)
-          qb.expressionAttributeNames(names.asJava)
-        if (vals.nonEmpty) qb.expressionAttributeValues(vals.asJava)
-
-        SM.flatMap {
-          S.evalMap(S.eval {
-            effect.asyncClient
-          }) { client =>
-            effect.fromFuture(client.query(qb.build()))
-          }
-        } { response =>
+        SM.flatMap(responseStream(query(asc, convert(inp)))) { response =>
           SM.flatMap(S.emits(response.items().asScala)) { attrsJ =>
             val attrs = attrsJ.asScala.toMap
             if (attrs.isEmpty) {
@@ -131,10 +164,9 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
 
     def build[Inp](implicit convert: AutoConvert[Inp, Input]): Inp => S[Output] = inp => {
       SM.flatMap {
-        S.evalMap(
-          S.eval {
-              effect.asyncClient
-            }) { client =>
+        S.evalMap(S.eval {
+          effect.asyncClient
+        }) { client =>
           val b = GetItemRequest
             .builder()
             .key(toKeyValue(convert(inp)).asJava)

@@ -9,7 +9,7 @@ import syntax.singleton._
 import record._
 
 object JDBCSortedProperties extends SimpleDBAProperties("JDBC") {
-  include(new SortedQueryProperties[fs2.Stream[IO, ?], IO] with JDBCProperties {
+  include(new SortedQueryProperties[fs2.Stream[IO, ?], IO] with JDBCProperties[fs2.Stream[IO, ?], IO] with FS2Properties {
 
     override val queries = {
 

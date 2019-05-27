@@ -13,7 +13,7 @@ case class JDBCEffect[S[_], F[_]](
 
   def blockingIO[A](thunk: => A): F[A] = JE.blockingIO(thunk)
 
-  private def SM                       = S.SM
+  private def SM = S.SM
 
   def logAndPrepare[PS](sql: String, f: Connection => PS): Connection => F[PS] =
     con => M.productR(logger.logPrepare(sql))(blockingIO(f(con)))
@@ -35,11 +35,6 @@ case class JDBCEffect[S[_], F[_]](
     }
   }
 
-  def nextLoop(rs: ResultSet): S[ResultSet] =
-    SM.flatMap(S.eval(blockingIO(rs.next()))) { n =>
-      if (n) S.append(S.emit(rs), nextLoop(rs)) else S.empty
-    }
-
   def executePreparedQuery(sql: String,
                            bindFunc: BindFunc[Seq[BindLog]]): S[(PreparedStatement, Boolean)] = {
 
@@ -52,8 +47,9 @@ case class JDBCEffect[S[_], F[_]](
   def executeResultSet(sql: String, bindFunc: BindFunc[Seq[BindLog]]): S[ResultSet] = {
     SM.flatMap(executePreparedQuery(sql, bindFunc)) {
       case (ps, _) =>
-        SM.flatMap { S.bracket(blockingIO(ps.getResultSet))(rs => blockingIO(rs.close())) }(
-          nextLoop)
+        S.read(blockingIO(ps.getResultSet))(rs => blockingIO(rs.close())) { rs: ResultSet =>
+          M.map(blockingIO(rs.next()))(b => if (b) Some(rs) else None)
+        }
     }
   }
 

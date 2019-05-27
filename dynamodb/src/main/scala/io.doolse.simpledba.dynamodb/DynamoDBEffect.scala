@@ -11,4 +11,6 @@ case class DynamoDBEffect[S[_], F[_]](asyncClient: F[DynamoDbAsyncClient])(
   JE: JavaEffects[F])
 {
   def fromFuture[A](future: => CompletableFuture[A]):F[A] = JE.fromFuture(() => future)
+
+  def void(f: F[_]): F[Unit] = M.map(f)(_ => ())
 }

@@ -15,37 +15,16 @@ import software.amazon.awssdk.services.dynamodb.model.DeleteTableRequest
 case class MyTest(name: String, frogs: Int)
 
 trait DynamoDBTest[S[_], F[_]] extends Test[S, F] {
-//  def last[A](s: fs2.Stream[IO, A]) = s.last
 
   lazy val localClient = {
     val builder = DynamoDbAsyncClient.builder()
     builder.region(Region.US_EAST_1).endpointOverride(URI.create("http://localhost:8000")).build()
   }
 
-//  def S = implicitly[Streamable[fs2.Stream, IO]]
-
   def effect: DynamoDBEffect[S, F]
   def S = effect.S
   implicit def AE: MonadError[F, Throwable]
 
-//  private val effect: DynamoDBEffect[fs2.Stream, IO] = new DynamoDBEffect[fs2.Stream, IO] {
-//    def S = implicitly[Streamable[fs2.Stream, IO]]
-//    def M                                             = Monad[IO]
-//    override def asyncClient: IO[DynamoDbAsyncClient] = IO.pure(localClient)
-//
-//    case object EmptyValue extends Throwable
-//
-//    override def fromFuture[A](future: => CompletableFuture[A]): IO[A] = IO.delay(future).flatMap {
-//      cf =>
-//        IO.async { cb =>
-//          cf.handle[Unit] { (value: A, t: Throwable) =>
-//            if (t != null) cb(Left(t))
-//            else if (value != null) cb(Right(value))
-//            else cb(Left(EmptyValue))
-//          }
-//        }
-//    }
-//  }
 
   val mapper  = new DynamoDBMapper(effect)
 
@@ -92,7 +71,7 @@ trait DynamoDBTest[S[_], F[_]] extends Test[S, F] {
       query(userLNTable).build(false),
       get(userTable).build,
       getAttr(userTable, Cols('year)).buildAs[Username, Int],
-      o => S.empty
+      query(userLNTable).count
     )
   }
 

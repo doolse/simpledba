@@ -19,12 +19,13 @@ package object zio {
 
   implicit def zioStreamable = new Streamable[ZStream[Any, Throwable, ?], ZIO[Any, Throwable, ?]] {
 
-    def onceOnly[A, R, E] : A => ZIO[R, E, Option[A]] = {
+    def onceOnly[A, R, E]: A => ZIO[R, E, Option[A]] = {
       var first = true
-      a => if (first) {
-        first = false
-        ZIO.succeed(Some(a))
-      } else ZIO.succeed(None)
+      a =>
+        if (first) {
+          first = false
+          ZIO.succeed(Some(a))
+        } else ZIO.succeed(None)
     }
 
     override def M: Monad[ZIO[Any, Throwable, ?]] = Monad[ZIO[Any, Throwable, ?]]
@@ -36,7 +37,10 @@ package object zio {
       override def pure[A](x: A): ZStream[Any, Throwable, A] = ZStream.succeed(x)
 
       override def tailRecM[A, B](a: A)(
-          f: A => ZStream[Any, Throwable, Either[A, B]]): ZStream[Any, Throwable, B] = ???
+          f: A => ZStream[Any, Throwable, Either[A, B]]): ZStream[Any, Throwable, B] = f(a).flatMap {
+        case Left(a) => tailRecM(a)(f)
+        case Right(b) => ZStream.succeed(b)
+      }
     }
 
     override def eval[A](fa: ZIO[Any, Throwable, A]): ZStream[Any, Throwable, A] =
@@ -52,13 +56,14 @@ package object zio {
     override def emits[A](a: Seq[A]): ZStream[Any, Throwable, A] = ZStream(a: _*)
 
     override def scan[O, O2](s: ZStream[Any, Throwable, O], z: O2)(
-        f: (O2, O) => O2): ZStream[Any, Throwable, O2] =  ZStream.fromEffect(s.foldLeft(z)(f))
+        f: (O2, O) => O2): ZStream[Any, Throwable, O2] = ZStream.fromEffect(s.foldLeft(z)(f))
 
     override def append[A](a: ZStream[Any, Throwable, A],
                            b: ZStream[Any, Throwable, A]): ZStream[Any, Throwable, A] = a ++ b
 
-    override def read[A, B](acquire: ZIO[Any, Throwable, A],
-        release: A => ZIO[Any, Throwable, Unit], read: A => ZIO[Any, Throwable, Option[B]]): ZStream[Any, Throwable, B] =
+    override def read[A, B](acquire: ZIO[Any, Throwable, A])(
+        release: A => ZIO[Any, Throwable, Unit])(
+        read: A => ZIO[Any, Throwable, Option[B]]): ZStream[Any, Throwable, B] =
       ZStream.bracket(acquire)(a => release(a).orDie)(read)
 
     override def toVector[A](s: ZStream[Any, Throwable, A]): ZIO[Any, Throwable, Vector[A]] =
@@ -70,7 +75,8 @@ package object zio {
     override def drain(s: ZStream[Any, Throwable, _]): ZIO[Any, Throwable, Unit] =
       s.run(ZSink.drain)
 
-    override def bracket[A](acquire: ZIO[Any, Throwable, A])(release: A => ZIO[Any, Throwable, Unit]): ZStream[Any, Throwable, A] =
+    override def bracket[A](acquire: ZIO[Any, Throwable, A])(
+        release: A => ZIO[Any, Throwable, Unit]): ZStream[Any, Throwable, A] =
       ZStream.bracket(acquire)(release.andThen(_.orDie))(onceOnly)
   }
 }
