@@ -21,6 +21,7 @@ trait Streamable[S[_], F[_]] {
   def scan[O, O2](s: S[O], z: O2)(f: (O2, O) => O2): S[O2]
   def append[A](a: S[A], b: S[A]): S[A]
   def bracket[A](acquire: F[A])(release: A => F[Unit]): S[A]
+  def read[A, B](acquire: F[A], release: A => F[Unit], read: A => F[Option[B]]): S[B]
   def toVector[A](s: S[A]): F[Vector[A]]
   def last[A](s: S[A]): S[Option[A]]
   def drain(s: S[_]): F[Unit]

@@ -4,11 +4,11 @@ import java.sql.Connection
 
 import cats.effect.IO
 import fs2.Stream
-import io.doolse.simpledba.jdbc._
-import io.doolse.simpledba.{Cols, Flushable, Streamable}
-import shapeless.{::, HList, HNil}
-import shapeless.syntax.singleton._
 import io.doolse.simpledba.fs2._
+import io.doolse.simpledba.jdbc._
+import io.doolse.simpledba.{Cols, Flushable}
+import shapeless.HList
+import shapeless.syntax.singleton._
 
 trait JDBCTester[C[_] <: JDBCColumn] extends StdColumns[C] with Test[fs2.Stream[IO, ?], IO] {
 

@@ -60,7 +60,7 @@ lazy val zio = project.settings(subSettings: _*).dependsOn(coreDep)
 lazy val zioTest = zio % "test->test"
 lazy val dynamodb = project.settings(subSettings: _*).dependsOn(coreDep,fs2Test, zioTest)
 //lazy val cassandra = project.settings(subSettings: _*).dependsOn(coreDep)
-lazy val jdbc = project.settings(subSettings: _*).dependsOn(coreDep, fs2Test)
+lazy val jdbc = project.settings(subSettings: _*).dependsOn(coreDep, fs2Test, zioTest)
 lazy val circe = project.settings(subSettings: _*).dependsOn(coreDep)
 
 lazy val parent = (project in file(".")).aggregate(core, fs2, jdbc, circe)
