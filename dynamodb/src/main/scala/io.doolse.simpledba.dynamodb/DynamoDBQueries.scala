@@ -65,7 +65,7 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
         }
     }
 
-  def get(table: DynamoDBTable): GetBuilder[table.CR, table.PK :: table.SK :: HNil, table.T] =
+  def get(table: DynamoDBTable): GetBuilder[table.PK :: table.SK :: HNil, table.T] =
     GetBuilder(
       table,
       pk => {
@@ -81,7 +81,7 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
 
   def getAttr[Attrs <: HList, AttrVals <: HList](table: DynamoDBTable, attrs: Cols[Attrs])(
       implicit c: ColumnSubsetBuilder.Aux[table.CR, Attrs, AttrVals])
-    : GetBuilder[AttrVals, table.PK :: table.SK :: HNil, AttrVals] =
+    : GetBuilder[table.PK :: table.SK :: HNil, AttrVals] =
     GetBuilder(
       table,
       pk => {
@@ -91,7 +91,7 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
             sk.name -> sk.column.toAttribute(pk.tail.head)
           }).toMap
       },
-      table.columns.subset(c)._1,
+      table.columns.subset(c),
       false
     )
 
@@ -156,10 +156,10 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
 
   }
 
-  case class GetBuilder[OutR <: HList, Input, Output](
+  case class GetBuilder[Input, Output](
       table: DynamoDBTable,
       toKeyValue: Input => Map[String, AttributeValue],
-      selectCol: ColumnRecordIso[DynamoDBColumn, String, OutR, Output],
+      selectCol: ColumnRetriever[DynamoDBColumn, String, Output],
       selectAll: Boolean) {
 
     def build[Inp](implicit convert: AutoConvert[Inp, Input]): Inp => S[Output] = inp => {

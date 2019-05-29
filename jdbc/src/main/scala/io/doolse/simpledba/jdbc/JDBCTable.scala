@@ -21,14 +21,14 @@ case class JDBCRelation[C[_] <: JDBCColumn, T, R <: HList](
   def key(k: Witness)(
       implicit css: ColumnSubsetBuilder[R, k.T :: HNil]
   ): JDBCTable.Aux[C, T, R, css.Out, k.T :: HNil] = {
-    val (keys, toKey) = all.subset[k.T :: HNil]
+    val toKey = all.subset[k.T :: HNil].from
     JDBCTable(name, all, css, toKey)
   }
 
   def keys[K <: HList](
       k: Cols[K]
   )(implicit css: ColumnSubsetBuilder[R, K]): JDBCTable.Aux[C, T, R, css.Out, K] = {
-    val (keys, toKey) = all.subset[K]
+    val toKey = all.subset[K].from
     JDBCTable(name, all, css, toKey)
   }
 }
@@ -44,7 +44,7 @@ trait JDBCTable {
   def toKey: DataRec => KeyList
   implicit def keySubset: ColumnSubsetBuilder.Aux[DataRec, KeyNames, KeyList]
   def keyNames                                                    = new Cols[KeyNames]
-  lazy val keyColumns: ColumnSubset[C, DataRec, KeyList, KeyList] = cols(keyNames)
+  lazy val keyColumns: ColumnSubset[C, DataRec, KeyList] = cols(keyNames)
   def allColumns: Columns[C, Data, DataRec]
 
   def definition: TableDefinition =
@@ -56,13 +56,13 @@ trait JDBCTable {
 
   def cols[Names <: HList](
       c: Cols[Names]
-  )(implicit ss: ColumnSubsetBuilder[DataRec, Names]): ColumnSubset[C, DataRec, ss.Out, ss.Out] =
-    allColumns.subset[Names]._1
+  )(implicit ss: ColumnSubsetBuilder[DataRec, Names]): ColumnSubset[C, DataRec, ss.Out] =
+    allColumns.subset[Names]
 
   def subset[Names <: HList](
       c: Cols[Names]
   )(implicit ss: ColumnSubsetBuilder[DataRec, Names]): TableColumns =
-    TableColumns(name, allColumns.subset[Names]._1.columns.map(NamedColumn.apply[C]))
+    TableColumns(name, allColumns.subset[Names].columns.map(NamedColumn.apply[C]))
 }
 
 object JDBCTable {

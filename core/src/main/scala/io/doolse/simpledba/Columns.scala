@@ -64,8 +64,8 @@ sealed trait ColumnRecord[C[_], A, R <: HList] {
     def loop(i: Int, rec: HList): Unit = {
       rec match {
         case h :: tail =>
-          val (a, col: C[Any]) = columns(i)
-          out += f(col, h, a)
+          val (a, col) = columns(i)
+          out += f(col.asInstanceOf[C[Any]], h, a)
           loop(i + 1, tail)
         case HNil => ()
       }
@@ -88,11 +88,6 @@ sealed trait ColumnRecord[C[_], A, R <: HList] {
 
     loop(columns.length - 1, HNil).asInstanceOf[R]
   }
-}
-
-sealed trait ColumnRecordIso[C[_], A, R <: HList, T] extends ColumnRecord[C, A, R] {
-  def iso: Iso[T, R]
-  def retrieve(f: ColumnRetrieve[C, A]): T = iso.from(mkRecord(f))
 }
 
 object ColumnRecord {
@@ -119,28 +114,33 @@ object ColumnRecord {
 
 }
 
-case class ColumnSubset[C[_], R, T, Repr <: HList](columns: Seq[(String, C[_])], iso: Iso[T, Repr])
-    extends ColumnRecordIso[C, String, Repr, T]
+sealed trait ColumnRetriever[C[_], A, T] {
+  def columns: Seq[(A, C[_])]
+  def retrieve(f: ColumnRetrieve[C, A]): T
+}
 
-object ColumnSubset {
-  def empty[C[_], R] = ColumnSubset[C, R, HNil, HNil](Seq.empty, Iso.id)
+case class ColumnSubset[C[_], T, Repr <: HList](columns: Seq[(String, C[_])], from: T => Repr)
+    extends ColumnRecord[C, String, Repr] with ColumnRetriever[C, String, Repr] {
+  override def retrieve(f: ColumnRetrieve[C, String]): Repr = mkRecord(f)
 }
 
 case class Columns[C[_], T, R <: HList](columns: Seq[(String, C[_])], iso: Iso[T, R])
-    extends ColumnRecordIso[C, String, R, T] {
+    extends ColumnRecord[C, String, R] with ColumnRetriever[C, String, T] {
+  override def retrieve(f: ColumnRetrieve[C, String]): T = iso.from(mkRecord(f))
   def compose[T2](ciso: Iso[T2, T]): Columns[C, T2, R] = copy(iso = ciso >>> iso)
 
   def subset[Keys](
       implicit ss: ColumnSubsetBuilder[R, Keys]
-  ): (ColumnSubset[C, R, ss.Out, ss.Out], R => ss.Out) = {
+  ): ColumnSubset[C, R, ss.Out] = {
     val (subCols, convert) = ss.apply()
-    (ColumnSubset(subCols.map(colName => columns.find(_._1 == colName).get), Iso.id), convert)
+    ColumnSubset(subCols.map(colName => columns.find(_._1 == colName).get), convert)
   }
+
+  def toSubset: ColumnSubset[C, T, R] = ColumnSubset(columns, iso.to)
 }
 
 object Columns {
   def empty[C[_]]: Columns[C, HNil, HNil] = Columns(Seq.empty, Iso.id)
-
 }
 
 trait ColumnBuilder[C[_], T] {

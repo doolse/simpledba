@@ -28,7 +28,7 @@ class DynamoDBMapper[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
         ev2: Out <:< (PK :: HNil),
         isPK: DynamoDBPKColumn[PK]): DynamoDBTable.Aux[T, CR, PK, Unit, HNil] = {
       val cols   = columns()
-      val toOut  = cols.subset(pkSubset)._2
+      val toOut  = cols.subset(pkSubset).from
       val pkName = pk.value.name
       val pkCol  = NamedAttribute.unsafe[PK](cols.columns.find(_._1 == pkName).get)
       DynamoDBTableRepr[T, CR, PK, Unit, HNil](name,
@@ -52,8 +52,8 @@ class DynamoDBMapper[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
         isPK: DynamoDBPKColumn[PK],
         isSK: DynamoDBPKColumn[SK]): DynamoDBTable.Aux[T, CR, PK, SK, HNil] = {
       val cols   = columns()
-      val toPK  = cols.subset(pkSubset)._2
-      val toSK  = cols.subset(skSubset)._2
+      val toPK  = cols.subset(pkSubset).from
+      val toSK  = cols.subset(skSubset).from
       val pkName = pk.value.name
       val skName = sk.value.name
       val pkCol  = NamedAttribute.unsafe[PK](cols.columns.find(_._1 == pkName).get)

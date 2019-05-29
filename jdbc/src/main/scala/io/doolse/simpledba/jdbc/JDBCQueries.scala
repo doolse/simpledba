@@ -253,11 +253,11 @@ object JDBCQueries {
 
   case class ParameterBinder(param: ParamBinder, value: Any)
 
-  def colsOp[C[_] <: JDBCColumn, R <: HList, K, KL <: HList](
+  def colsOp[C[_] <: JDBCColumn, R <: HList, K <: HList](
       op: BinOp,
-      where: ColumnSubset[C, R, K, KL]
+      where: ColumnSubset[C, R, K]
   ): BindOne[R, JDBCWhereClause, K] = BindOne[R, JDBCWhereClause, K] { k: K =>
-    val columnExprs = bindValues(where, where.iso.to(k)).columns
+    val columnExprs = bindValues(where, k).columns
     val colWhere = columnExprs.map {
       case ((_, name), col) =>
         BinClause(ColumnReference(NamedColumn(name, col.columnType)), op, Parameter(col.columnType))
@@ -339,7 +339,7 @@ object JDBCQueries {
         prepend: Prepend.Aux[CT, OutRec, NewOutRec]
     ): QueryBuilder[S, F, C, DataRec, B, NewOutRec, NewOutRec] = {
       val newProjection =
-        ColumnRecord.prepend(toProjection(table.allColumns.subset(c)._1), projections)
+        ColumnRecord.prepend(toProjection(table.allColumns.subset(c)), projections)
       copy[S, F, C, DataRec, B, prepend.Out, prepend.Out](projections = newProjection,
                                                           mapOut = identity)
     }
