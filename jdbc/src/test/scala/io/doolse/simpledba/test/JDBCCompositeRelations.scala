@@ -2,9 +2,9 @@ package io.doolse.simpledba.test
 
 import io.doolse.simpledba.Cols
 import io.doolse.simpledba.test.CompositeRelations.{Composite2, Composite3, Queries2, Queries3}
-import scalaz.zio.Task
-import scalaz.zio.interop.catz._
-import scalaz.zio.stream.ZStream
+import zio.Task
+import zio.interop.catz._
+import zio.stream.ZStream
 
 object JDBCCompositeRelations
     extends CompositeRelations[ZStream[Any, Throwable, ?], Task]("JDBC Composite")

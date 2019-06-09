@@ -21,8 +21,8 @@ package object fs2 {
 
       override def emits[A](a: Seq[A]): Stream[F, A] = Stream.emits(a)
 
-      override def scan[O, O2](s: Stream[F, O], z: O2)(f: (O2, O) => O2): Stream[F, O2] =
-        s.scan(z)(f)
+      override def foldLeft[O, O2](s: Stream[F, O], z: O2)(f: (O2, O) => O2): Stream[F, O2] =
+        s.fold(z)(f)
 
       override def append[A](a: Stream[F, A], b: Stream[F, A]): Stream[F, A] = a ++ b
 

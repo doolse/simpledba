@@ -2,10 +2,10 @@ package io.doolse.simpledba.test
 
 import cats.effect.Sync
 import io.doolse.simpledba.{JavaEffects, Streamable}
-import io.doolse.simpledba.zio._
-import scalaz.zio.{DefaultRuntime, Task}
-import scalaz.zio.stream.ZStream
-import scalaz.zio.interop.catz._
+import io.doolse.simpledba.ziointerop._
+import zio.{DefaultRuntime, Task}
+import zio.stream.ZStream
+import zio.interop.catz._
 
 trait ZIOProperties {
   def S : Streamable[ZStream[Any, Throwable, ?], Task] = implicitly[Streamable[ZStream[Any, Throwable, ?], Task]]

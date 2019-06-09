@@ -2,8 +2,7 @@ package io.doolse.simpledba
 
 trait WriteOp
 
-trait Flushable[S[_]]
-{
+trait Flushable[S[_]] {
   def flush: S[WriteOp] => S[Unit]
 }
 
@@ -25,10 +24,10 @@ trait WriteQueries[S[_], F[_], T] {
       val M = S.SM
 
       M.flatMap {
-        S.scan(exstream, Map.empty[K, T])((m, t) => m.updated(f(t), t))
+        S.foldLeft(exstream, Map.empty[K, T])((m, t) => m.updated(f(t), t))
       } { exmap =>
         M.flatMap {
-          S.scan(newstream, (S.empty[WriteOp], exmap)) { (m, t) =>
+          S.foldLeft(newstream, (S.empty[WriteOp], exmap)) { (m, t) =>
             val k  = f(t)
             val ex = exmap.get(k)
             ex match {

@@ -4,8 +4,8 @@ import java.sql.DriverManager
 
 import io.doolse.simpledba.jdbc._
 import io.doolse.simpledba.jdbc.postgres._
-import scalaz.zio.stream.ZSink
-import scalaz.zio.{App, ZIO}
+import zio.stream.ZSink
+import zio.{App, ZIO}
 
 object PostgresTester extends App with JDBCZIOTester[PostgresColumn] with StdPostgresColumns {
 

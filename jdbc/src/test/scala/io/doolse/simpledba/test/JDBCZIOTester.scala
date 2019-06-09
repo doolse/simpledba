@@ -4,10 +4,10 @@ import java.sql.Connection
 
 import io.doolse.simpledba.Cols
 import io.doolse.simpledba.jdbc._
-import io.doolse.simpledba.zio._
-import scalaz.zio.interop.catz._
-import scalaz.zio.stream.ZStream
-import scalaz.zio.{Task, ZIO}
+import io.doolse.simpledba.ziointerop._
+import zio.interop.catz._
+import zio.stream.ZStream
+import zio.{Task, ZIO}
 import shapeless.HList
 import shapeless.syntax.singleton._
 

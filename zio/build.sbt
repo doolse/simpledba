@@ -1,6 +1,7 @@
-val ZioVersion = "1.0-RC4"
+val ZioVersion = "1.0-RC5+30-fb9a9e2d"
+val ZioGroup = "dev.zio"
 
-libraryDependencies ++= Seq("org.scalaz" %% "scalaz-zio",
-                            "org.scalaz" %% "scalaz-zio-streams",
-                            "org.scalaz" %% "scalaz-zio-interop-cats",
-                            "org.scalaz" %% "scalaz-zio-interop-java").map(_ % ZioVersion)
+libraryDependencies ++= Seq("zio",
+                            "zio-streams",
+                            "zio-interop-cats",
+                            "zio-interop-java").map(ZioGroup %% _ % ZioVersion)

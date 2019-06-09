@@ -3,12 +3,12 @@ package io.doolse.simpledba
 import java.util.concurrent.CompletableFuture
 
 import cats.Monad
-import scalaz.zio.interop.javaconcurrent._
-import scalaz.zio.{Task, TaskR, ZIO, ZManaged}
-import scalaz.zio.stream._
-import scalaz.zio.interop.catz._
+import zio.interop.javaconcurrent._
+import zio.{Task, TaskR, ZIO, ZManaged}
+import zio.stream._
+import zio.interop.catz._
 
-package object zio {
+package object ziointerop {
 
   implicit def zioJavaEffect[R] = new JavaEffects[TaskR[R, ?]] {
     override def blockingIO[A](thunk: => A): TaskR[R, A] = TaskR(thunk)
@@ -55,19 +55,14 @@ package object zio {
 
     override def emits[A](a: Seq[A]): ZStream[Any, Throwable, A] = ZStream(a: _*)
 
-    override def scan[O, O2](s: ZStream[Any, Throwable, O], z: O2)(
-        f: (O2, O) => O2): ZStream[Any, Throwable, O2] = ZStream.fromEffect(s.foldLeft(z)(f))
+    override def foldLeft[O, O2](s: ZStream[Any, Throwable, O], z: O2)(
+        f: (O2, O) => O2): ZStream[Any, Throwable, O2] = ZStream.fromEffect(s.foldLeft(z)(f).use(ZIO.succeed[O2]))
 
     override def append[A](a: ZStream[Any, Throwable, A],
                            b: ZStream[Any, Throwable, A]): ZStream[Any, Throwable, A] = a ++ b
 
-    override def read[A, B](acquire: ZIO[Any, Throwable, A])(
-        release: A => ZIO[Any, Throwable, Unit])(
-        read: A => ZIO[Any, Throwable, Option[B]]): ZStream[Any, Throwable, B] =
-      ZStream.bracket(acquire)(a => release(a).orDie)(read)
-
     override def toVector[A](s: ZStream[Any, Throwable, A]): ZIO[Any, Throwable, Vector[A]] =
-      s.run(ZSink.collect[A]).map(_.toVector)
+      s.run(ZSink.collectAll[A]).map(_.toVector)
 
     override def last[A](s: ZStream[Any, Throwable, A]): ZStream[Any, Throwable, Option[A]] =
       ZStream.fromEffect(s.run(ZSink.identity[A].?))
@@ -77,6 +72,6 @@ package object zio {
 
     override def bracket[A](acquire: ZIO[Any, Throwable, A])(
         release: A => ZIO[Any, Throwable, Unit]): ZStream[Any, Throwable, A] =
-      ZStream.bracket(acquire)(release.andThen(_.orDie))(onceOnly)
+      ZStream.bracket(acquire)(release.andThen(_.orDie))
   }
 }

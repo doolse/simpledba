@@ -18,10 +18,19 @@ trait Streamable[S[_], F[_]] {
   def empty[A]: S[A]
   def emit[A](a: A): S[A]
   def emits[A](a: Seq[A]): S[A]
-  def scan[O, O2](s: S[O], z: O2)(f: (O2, O) => O2): S[O2]
+  def foldLeft[O, O2](s: S[O], z: O2)(f: (O2, O) => O2): S[O2]
   def append[A](a: S[A], b: S[A]): S[A]
   def bracket[A](acquire: F[A])(release: A => F[Unit]): S[A]
-  def read[A, B](acquire: F[A])(release: A => F[Unit])(read: A => F[Option[B]]): S[B]
+  def read[A, B](acquire: F[A])(release: A => F[Unit])(
+    read: A => F[Option[B]]): S[B] = {
+    val s = bracket(acquire)(release)
+    def loop(a: A): S[B] = SM.flatMap(eval(read(a))) {
+        case None    => empty
+        case Some(b) => append(emit(b), loop(a))
+      }
+    SM.flatMap(s)(loop)
+  }
+
   def toVector[A](s: S[A]): F[Vector[A]]
   def last[A](s: S[A]): S[Option[A]]
   def drain(s: S[_]): F[Unit]
