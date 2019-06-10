@@ -9,6 +9,9 @@ import software.amazon.awssdk.services.dynamodb.model._
 import scala.collection.JavaConverters._
 
 case class NamedAttribute[A](name: String, column: DynamoDBColumn[A])
+{
+  def toValue(a: A): (String, AttributeValue) = name -> column.toAttribute(a)
+}
 
 object NamedAttribute
 {

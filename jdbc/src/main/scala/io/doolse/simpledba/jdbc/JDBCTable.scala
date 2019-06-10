@@ -3,7 +3,7 @@ package io.doolse.simpledba.jdbc
 import io.doolse.simpledba._
 import shapeless.{::, HList, HNil, Witness}
 
-case class JDBCRelation[C[_] <: JDBCColumn, T, R <: HList](
+case class JDBCRelation[C[_] <: JDBCColumn[_], T, R <: HList](
     name: String,
     all: Columns[C, T, R]
 ) {
@@ -34,7 +34,7 @@ case class JDBCRelation[C[_] <: JDBCColumn, T, R <: HList](
 }
 
 trait JDBCTable {
-  type C[A] <: JDBCColumn
+  type C[A] <: JDBCColumn[A]
   type Data
   type DataRec <: HList
   type KeyList <: HList
@@ -44,29 +44,29 @@ trait JDBCTable {
   def toKey: DataRec => KeyList
   implicit def keySubset: ColumnSubsetBuilder.Aux[DataRec, KeyNames, KeyList]
   def keyNames                                                    = new Cols[KeyNames]
-  lazy val keyColumns: ColumnSubset[C, DataRec, KeyList] = cols(keyNames)
-  def allColumns: Columns[C, Data, DataRec]
+  lazy val keyColumns: ColumnSubset[JDBCColumn, DataRec, KeyList] = cols(keyNames)
+  def allColumns: Columns[JDBCColumn, Data, DataRec]
 
   def definition: TableDefinition =
     TableDefinition(
       name,
-      allColumns.columns.map(NamedColumn.apply[C]),
+      allColumns.columns.map(NamedColumn.apply[JDBCColumn]),
       keyColumns.columns.map(_._1)
     )
 
   def cols[Names <: HList](
       c: Cols[Names]
-  )(implicit ss: ColumnSubsetBuilder[DataRec, Names]): ColumnSubset[C, DataRec, ss.Out] =
+  )(implicit ss: ColumnSubsetBuilder[DataRec, Names]): ColumnSubset[JDBCColumn, DataRec, ss.Out] =
     allColumns.subset[Names]
 
   def subset[Names <: HList](
       c: Cols[Names]
   )(implicit ss: ColumnSubsetBuilder[DataRec, Names]): TableColumns =
-    TableColumns(name, allColumns.subset[Names].columns.map(NamedColumn.apply[C]))
+    TableColumns(name, allColumns.subset[Names].columns.map(NamedColumn.apply[JDBCColumn]))
 }
 
 object JDBCTable {
-  type Aux[C2[_] <: JDBCColumn, T, R, K, KeyN] = JDBCTable {
+  type Aux[C2[_] <: JDBCColumn[_], T, R, K, KeyN] = JDBCTable {
     type C[A]     = C2[A]
     type Data     = T
     type DataRec  = R
@@ -74,14 +74,14 @@ object JDBCTable {
     type KeyList  = K
   }
 
-  type TableRecord[C2[_] <: JDBCColumn, R] = JDBCTable {
+  type TableRecord[C2[_] <: JDBCColumn[_], R] = JDBCTable {
     type C[A]    = C2[A]
     type DataRec = R
   }
 
-  def apply[C2[_] <: JDBCColumn, T, R <: HList, K <: HList, KeyN <: HList](
+  def apply[C2[_] <: JDBCColumn[_], T, R <: HList, K <: HList, KeyN <: HList](
       tableName: String,
-      all: Columns[C2, T, R],
+      all: Columns[JDBCColumn, T, R],
       keys: ColumnSubsetBuilder.Aux[R, KeyN, K],
       tkey: R => K
   ): Aux[C2, T, R, K, KeyN] = new JDBCTable {

@@ -10,7 +10,8 @@ import software.amazon.awssdk.services.dynamodb.model.{
   GetItemRequest,
   PutItemRequest,
   QueryRequest,
-  QueryResponse
+  QueryResponse,
+  UpdateItemRequest
 }
 
 import scala.collection.JavaConverters._
@@ -28,37 +29,61 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
   def writes[T](tables: DynamoDBTable.SameT[T]*): WriteQueries[S, F, T] =
     new WriteQueries[S, F, T] {
       def S = effect.S
+
+      def putItem(table: DynamoDBTable)(t: table.T): WriteOp = {
+        val b = PutItemRequest.builder()
+        b.tableName(table.name)
+        b.item(table.columns.mapRecord(table.columns.iso.to(t), AttributeMapper).toMap.asJava)
+        PutItem(b.build())
+      }
+
       override def insertAll =
         ts =>
           SM.flatMap(ts) { t: T =>
             S.emits {
               tables.map { table =>
-                val b = PutItemRequest.builder()
-                b.tableName(table.name)
-                b.item(
-                  table.columns.mapRecord(table.columns.iso.to(t), AttributeMapper).toMap.asJava)
-                PutItem(b.build())
+                putItem(table)(t)
               }
             }
         }
 
-      override def updateAll = in => insertAll(SM.map(in)(_._2))
+      override def updateAll =
+        in =>
+          SM.flatMap(in) {
+            case (o, n) =>
+              tables.foldLeft(S.empty[WriteOp])((ops, table) => {
+                val b          = UpdateItemRequest.builder()
+                val allColumns = table.columns
+                val oldKey     = (table.pkValue(o), table.skValue(o))
+                val keyVal     = (table.pkValue(n), table.skValue(n))
+                val nextWrites = if (oldKey != keyVal) {
+                  S.emits(Seq(deleteItem(table)(oldKey), putItem(table)(n)))
+                } else {
+                  S.empty[WriteOp]
+                }
+                S.append(ops, nextWrites)
+              })
+        }
+
+      def deleteItem(table: DynamoDBTable)(keys: (table.PK, Option[table.SK])): WriteOp = {
+        val b = DeleteItemRequest.builder()
+        b.tableName(table.name)
+
+        val skA = for {
+          skC <- table.skColumn
+          v   <- keys._2
+        } yield skC.toValue(v)
+
+        b.key((Seq(table.pkColumn.toValue(keys._1)) ++ skA).toMap.asJava)
+        DeleteItem(b.build())
+      }
 
       override def deleteAll =
         ts =>
           SM.flatMap(ts) { t: T =>
             S.emits {
               tables.map { table =>
-                val b   = DeleteItemRequest.builder()
-                val pkC = table.pkColumn
-                val pkV = table.pkValue(t)
-                val skA = for {
-                  skC <- table.skColumn
-                  skV <- table.skValue(t)
-                } yield skC.name -> skC.column.toAttribute(skV)
-                b.tableName(table.name)
-                b.key((Seq(pkC.name -> pkC.column.toAttribute(pkV)) ++ skA).toMap.asJava)
-                DeleteItem(b.build())
+                deleteItem(table)((table.pkValue(t), table.skValue(t)))
               }
             }
 
@@ -156,11 +181,10 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
 
   }
 
-  case class GetBuilder[Input, Output](
-      table: DynamoDBTable,
-      toKeyValue: Input => Map[String, AttributeValue],
-      selectCol: ColumnRetriever[DynamoDBColumn, String, Output],
-      selectAll: Boolean) {
+  case class GetBuilder[Input, Output](table: DynamoDBTable,
+                                       toKeyValue: Input => Map[String, AttributeValue],
+                                       selectCol: ColumnRetriever[DynamoDBColumn, String, Output],
+                                       selectAll: Boolean) {
 
     def build[Inp](implicit convert: AutoConvert[Inp, Input]): Inp => S[Output] = inp => {
       SM.flatMap {

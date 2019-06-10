@@ -51,12 +51,17 @@ trait ColumnMapper[C[_], A, B] {
   def apply[V](column: C[V], value: V, a: A): B
 }
 
+trait ColumnCompare[C[_], A, B] {
+  def apply[V](column: C[V], value1: V, value2: V, a: A): Option[B]
+}
+
 trait ColumnRetrieve[C[_], A] {
   def apply[V](column: C[V], offset: Int, a: A): V
 }
 
 sealed trait ColumnRecord[C[_], A, R <: HList] {
   def columns: Seq[(A, C[_])]
+
   def mapRecord[B](r: R, f: ColumnMapper[C, A, B]): Seq[B] = {
     val out = mutable.Buffer[B]()
 
@@ -72,6 +77,24 @@ sealed trait ColumnRecord[C[_], A, R <: HList] {
     }
 
     loop(0, r)
+    out
+  }
+
+  def compareRecords[B](r1: R, r2: R, f: ColumnCompare[C, A, B]): Seq[B] = {
+    val out = mutable.Buffer[B]()
+
+    @tailrec
+    def loop(i: Int, rec1: HList, rec2: HList): Unit = {
+      (rec1, rec2) match {
+        case (hex :: tailold, hnr :: tailnew) =>
+          val (a, col) = columns(i)
+          out ++= f(col.asInstanceOf[C[Any]], hex, hnr, a)
+          loop(i + 1, tailold, tailnew)
+        case _ => ()
+      }
+    }
+
+    loop(0, r1, r2)
     out
   }
 

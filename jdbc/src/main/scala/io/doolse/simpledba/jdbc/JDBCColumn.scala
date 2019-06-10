@@ -17,8 +17,7 @@ case class ColumnType(typeName: String, nullable: Boolean = false, flags: Seq[An
   }
 }
 
-trait JDBCColumn {
-  type A
+trait JDBCColumn[A] {
 
   def jdbcType: JDBCType
 
@@ -31,18 +30,16 @@ trait JDBCColumn {
   def read: (Int, ResultSet) => Option[A]
 }
 
-trait WrappedColumn[AA] extends JDBCColumn {
-  val wrapped: StdJDBCColumn[AA]
-
-  override type A = AA
+trait WrappedColumn[A] extends JDBCColumn[A] {
+  val wrapped: StdJDBCColumn[A]
 
   override def jdbcType: JDBCType = wrapped.jdbcType
 
   override def read: (Int, ResultSet) => Option[A] = wrapped.read
 
-  override def bindValue: AA => ParamBinder = wrapped.bind
+  override def bindValue: A => ParamBinder = wrapped.bind
 
-  override def bindUpdate: (AA, AA) => Option[ParamBinder] =
+  override def bindUpdate: (A, A) => Option[ParamBinder] =
     (o, n) =>
       if (o == n) None
       else {

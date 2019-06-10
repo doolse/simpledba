@@ -53,13 +53,13 @@ case class JDBCEffect[S[_], F[_]](
     }
   }
 
-  def resultSetRecord[C[_] <: JDBCColumn, R <: HList, A](
-      cols: ColumnRecord[C, A, R],
+  def resultSetRecord[R <: HList, A](
+      cols: ColumnRecord[JDBCColumn, A, R],
       i: Int,
       rs: ResultSet
   ): F[R] = blockingIO {
-    cols.mkRecord(new ColumnRetrieve[C, A] {
-      override def apply[V](column: C[V], offset: Int, name: A): V =
+    cols.mkRecord(new ColumnRetrieve[JDBCColumn, A] {
+      override def apply[V](column: JDBCColumn[V], offset: Int, name: A): V =
         column.read(offset + i, rs) match {
           case None    => throw new Error(s"Column $name is null")
           case Some(v) => v.asInstanceOf[V]
@@ -67,10 +67,10 @@ case class JDBCEffect[S[_], F[_]](
     })
   }
 
-  def streamForQuery[C[_] <: JDBCColumn, Out <: HList](
+  def streamForQuery[Out <: HList](
       sql: String,
       bind: BindFunc[Seq[BindLog]],
-      resultCols: ColumnRecord[C, _, Out]
+      resultCols: ColumnRecord[JDBCColumn, _, Out]
   ): S[Out] = {
     S.evalMap(executeResultSet(sql, bind)) { rs =>
       resultSetRecord(resultCols, 1, rs)
