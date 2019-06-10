@@ -11,7 +11,7 @@ case class TableColumns(name: String, columns: Seq[NamedColumn])
 case class NamedColumn(name: String, columnType: ColumnType)
 
 object NamedColumn {
-  def apply[C[_] <: JDBCColumn](p: (String, C[_])): NamedColumn =
+  def apply(p: (String, JDBCColumn[_])): NamedColumn =
     NamedColumn(p._1, p._2.columnType)
 }
 

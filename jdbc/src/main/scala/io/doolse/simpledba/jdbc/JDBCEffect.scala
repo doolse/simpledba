@@ -53,8 +53,8 @@ case class JDBCEffect[S[_], F[_]](
     }
   }
 
-  def resultSetRecord[R <: HList, A](
-      cols: ColumnRecord[JDBCColumn, A, R],
+  def resultSetRecord[C[_] <: JDBCColumn[_], R <: HList, A](
+      cols: ColumnRecord[C, A, R],
       i: Int,
       rs: ResultSet
   ): F[R] = blockingIO {
@@ -67,10 +67,10 @@ case class JDBCEffect[S[_], F[_]](
     })
   }
 
-  def streamForQuery[Out <: HList](
+  def streamForQuery[C[_] <: JDBCColumn[_], Out <: HList](
       sql: String,
       bind: BindFunc[Seq[BindLog]],
-      resultCols: ColumnRecord[JDBCColumn, _, Out]
+      resultCols: ColumnRecord[C, _, Out]
   ): S[Out] = {
     S.evalMap(executeResultSet(sql, bind)) { rs =>
       resultSetRecord(resultCols, 1, rs)

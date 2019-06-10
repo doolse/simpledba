@@ -105,9 +105,9 @@ package object sqlserver {
         val fullRec   = table.allColumns.iso.to(f(sampleValue.v))
         val sscols    = table.allColumns.subset(withoutKeys)
         val keyCols   = table.keyColumns.columns
-        val colValues = JDBCQueries.bindValues(sscols, sscols.from(fullRec)).columns
-        val colBindings = colValues.map {
-          case ((_, name), col) => name -> Parameter(col.columnType)
+        val colValues = sscols.mapRecord(sscols.from(fullRec), BindValues)
+        val colBindings = colValues.map { bc =>
+          bc.name -> Parameter(bc.column.columnType)
         }
         import StdSQLDialect._
         import dialect._
@@ -120,7 +120,7 @@ package object sqlserver {
         SM.map(
           E.streamForQuery(
             insertSQL,
-            JDBCQueries.bindParameters(colValues.map(_._1._1)).map(c => Seq(ValueLog(c))),
+            JDBCQueries.bindParameters(colValues.map(_.binder)).map(c => Seq(ValueLog(c))),
             Columns(keyCols, Iso.id[A :: HNil])
           )) { a =>
           f(a.head)

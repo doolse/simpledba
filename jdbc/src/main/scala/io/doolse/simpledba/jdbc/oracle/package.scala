@@ -104,9 +104,9 @@ package object oracle {
         val sscols    = table.allColumns.subset(withoutKeys)
         val keyCols   = table.keyColumns.columns
         val seqExpr   = FunctionCall("nextval", Seq(SQLString(sequence.name)))
-        val colValues = JDBCQueries.bindValues(sscols, sscols.from(fullRec)).columns
-        val colBindings = Seq(keyCols.head._1 -> seqExpr) ++ colValues.map {
-          case ((_, name), col) => name -> Parameter(col.columnType)
+        val colValues = sscols.mapRecord(sscols.from(fullRec), BindValues)
+        val colBindings = Seq(keyCols.head._1 -> seqExpr) ++ colValues.map { bc =>
+          bc.name -> Parameter(bc.column.columnType)
         }
         val insertSQL =
           s"INSERT INTO ${dialect.escapeTableName(table.name)} " +
@@ -114,7 +114,7 @@ package object oracle {
             s"VALUES ${StdSQLDialect.brackets(colBindings.map(v => dialect.expressionSQL(v._2)))}"
 
         val binder =
-          JDBCQueries.bindParameters(colValues.map(_._1._1)).map(c => Seq(ValueLog(c): BindLog))
+          JDBCQueries.bindParameters(colValues.map(_.binder)).map(c => Seq(ValueLog(c): BindLog))
 
         SM.map(
           S.evalMap(E.executeStream[PreparedStatement, ResultSet](

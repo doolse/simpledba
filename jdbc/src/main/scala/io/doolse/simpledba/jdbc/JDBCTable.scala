@@ -33,8 +33,7 @@ case class JDBCRelation[C[_] <: JDBCColumn[_], T, R <: HList](
   }
 }
 
-trait JDBCTable {
-  type C[A] <: JDBCColumn[A]
+trait JDBCTable[C[_] <: JDBCColumn[_]] {
   type Data
   type DataRec <: HList
   type KeyList <: HList
@@ -43,49 +42,47 @@ trait JDBCTable {
   def name: String
   def toKey: DataRec => KeyList
   implicit def keySubset: ColumnSubsetBuilder.Aux[DataRec, KeyNames, KeyList]
-  def keyNames                                                    = new Cols[KeyNames]
-  lazy val keyColumns: ColumnSubset[JDBCColumn, DataRec, KeyList] = cols(keyNames)
-  def allColumns: Columns[JDBCColumn, Data, DataRec]
+  def keyNames                                           = new Cols[KeyNames]
+  lazy val keyColumns: ColumnSubset[C, DataRec, KeyList] = cols(keyNames)
+
+  def allColumns: Columns[C, Data, DataRec]
 
   def definition: TableDefinition =
     TableDefinition(
       name,
-      allColumns.columns.map(NamedColumn.apply[JDBCColumn]),
+      allColumns.columns.map(NamedColumn.apply),
       keyColumns.columns.map(_._1)
     )
 
   def cols[Names <: HList](
       c: Cols[Names]
-  )(implicit ss: ColumnSubsetBuilder[DataRec, Names]): ColumnSubset[JDBCColumn, DataRec, ss.Out] =
+  )(implicit ss: ColumnSubsetBuilder[DataRec, Names]): ColumnSubset[C, DataRec, ss.Out] =
     allColumns.subset[Names]
 
   def subset[Names <: HList](
       c: Cols[Names]
   )(implicit ss: ColumnSubsetBuilder[DataRec, Names]): TableColumns =
-    TableColumns(name, allColumns.subset[Names].columns.map(NamedColumn.apply[JDBCColumn]))
+    TableColumns(name, allColumns.subset[Names].columns.map(NamedColumn.apply))
 }
 
 object JDBCTable {
-  type Aux[C2[_] <: JDBCColumn[_], T, R, K, KeyN] = JDBCTable {
-    type C[A]     = C2[A]
+  type Aux[C[_] <: JDBCColumn[_], T, R, K, KeyN] = JDBCTable[C] {
     type Data     = T
     type DataRec  = R
     type KeyNames = KeyN
     type KeyList  = K
   }
 
-  type TableRecord[C2[_] <: JDBCColumn[_], R] = JDBCTable {
-    type C[A]    = C2[A]
+  type TableRecord[C[_] <: JDBCColumn[_], R] = JDBCTable[C] {
     type DataRec = R
   }
 
-  def apply[C2[_] <: JDBCColumn[_], T, R <: HList, K <: HList, KeyN <: HList](
+  def apply[C[_] <: JDBCColumn[_], T, R <: HList, K <: HList, KeyN <: HList](
       tableName: String,
-      all: Columns[JDBCColumn, T, R],
+      all: Columns[C, T, R],
       keys: ColumnSubsetBuilder.Aux[R, KeyN, K],
       tkey: R => K
-  ): Aux[C2, T, R, K, KeyN] = new JDBCTable {
-    override type C[A]     = C2[A]
+  ) = new JDBCTable[C] {
     override type Data     = T
     override type DataRec  = R
     override type KeyList  = K

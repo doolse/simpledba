@@ -62,7 +62,7 @@ trait ColumnRetrieve[C[_], A] {
 sealed trait ColumnRecord[C[_], A, R <: HList] {
   def columns: Seq[(A, C[_])]
 
-  def mapRecord[B](r: R, f: ColumnMapper[C, A, B]): Seq[B] = {
+  def mapRecord[C2[_], B](r: R, f: ColumnMapper[C2, A, B])(implicit ev: C[_] <:< C2[_]): Seq[B] = {
     val out = mutable.Buffer[B]()
 
     @tailrec
@@ -70,7 +70,7 @@ sealed trait ColumnRecord[C[_], A, R <: HList] {
       rec match {
         case h :: tail =>
           val (a, col) = columns(i)
-          out += f(col.asInstanceOf[C[Any]], h, a)
+          out += f(col.asInstanceOf[C2[Any]], h, a)
           loop(i + 1, tail)
         case HNil => ()
       }
@@ -80,7 +80,7 @@ sealed trait ColumnRecord[C[_], A, R <: HList] {
     out
   }
 
-  def compareRecords[B](r1: R, r2: R, f: ColumnCompare[C, A, B]): Seq[B] = {
+  def compareRecords[C2[_], B](r1: R, r2: R, f: ColumnCompare[C2, A, B])(implicit ev: C[_] <:< C2[_]): Seq[B] = {
     val out = mutable.Buffer[B]()
 
     @tailrec
@@ -88,7 +88,7 @@ sealed trait ColumnRecord[C[_], A, R <: HList] {
       (rec1, rec2) match {
         case (hex :: tailold, hnr :: tailnew) =>
           val (a, col) = columns(i)
-          out ++= f(col.asInstanceOf[C[Any]], hex, hnr, a)
+          out ++= f(col.asInstanceOf[C2[Any]], hex, hnr, a)
           loop(i + 1, tailold, tailnew)
         case _ => ()
       }
@@ -98,7 +98,7 @@ sealed trait ColumnRecord[C[_], A, R <: HList] {
     out
   }
 
-  def mkRecord(f: ColumnRetrieve[C, A]): R = {
+  def mkRecord[C2[_]](f: ColumnRetrieve[C2, A])(implicit ev: C[_] <:< C2[_]): R = {
     @tailrec
     def loop(offs: Int, l: HList): HList = {
       if (offs < 0) l

@@ -11,7 +11,7 @@ import zio.{Task, ZIO}
 import shapeless.HList
 import shapeless.syntax.singleton._
 
-trait JDBCZIOTester[C[_] <: JDBCColumn] extends StdColumns[C] with Test[ZStream[Any, Throwable, ?], Task] {
+trait JDBCZIOTester[C[_] <: JDBCColumn[_]] extends StdColumns[C] with Test[ZStream[Any, Throwable, ?], Task] {
 
   type F[A] = Task[A]
   type S[A] = ZStream[Any, Throwable, A]

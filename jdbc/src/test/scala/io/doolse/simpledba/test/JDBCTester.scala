@@ -10,7 +10,7 @@ import shapeless.{::, HList, HNil}
 import shapeless.syntax.singleton._
 import io.doolse.simpledba.fs2._
 
-trait JDBCTester[C[_] <: JDBCColumn] extends StdColumns[C] with Test[fs2.Stream[IO, ?], IO] {
+trait JDBCTester[C[_] <: JDBCColumn[_]] extends StdColumns[C] with Test[fs2.Stream[IO, ?], IO] {
 
   type F[A] = IO[A]
 

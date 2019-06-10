@@ -30,7 +30,7 @@ trait JDBCProperties[S[_], F[_]] {
 
   import sqlQueries._
 
-  def setup(bq: JDBCTable*): Unit = {
+  def setup(bq: JDBCTable[HSQLColumn]*): Unit = {
     implicit val SM = S.SM
     run( S.drain { for {
       t <- S.emits(Seq(bq: _*)).map(_.definition)
