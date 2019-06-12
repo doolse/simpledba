@@ -120,7 +120,7 @@ package object sqlserver {
         SM.map(
           E.streamForQuery(
             insertSQL,
-            JDBCQueries.bindParameters(colValues.map(_.binder)).map(c => Seq(ValueLog(c))),
+            JDBCQueries.bindParameters(colValues.map(_.binder)),
             Columns(keyCols, Iso.id[A :: HNil])
           )) { a =>
           f(a.head)

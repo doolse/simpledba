@@ -114,7 +114,7 @@ package object oracle {
             s"VALUES ${StdSQLDialect.brackets(colBindings.map(v => dialect.expressionSQL(v._2)))}"
 
         val binder =
-          JDBCQueries.bindParameters(colValues.map(_.binder)).map(c => Seq(ValueLog(c): BindLog))
+          JDBCQueries.bindParameters(colValues.map(_.binder))
 
         SM.map(
           S.evalMap(E.executeStream[PreparedStatement, ResultSet](

@@ -50,7 +50,7 @@ trait JDBCTable[C[_] <: JDBCColumn[_]] {
   def definition: TableDefinition =
     TableDefinition(
       name,
-      allColumns.columns.map(NamedColumn.apply),
+      allColumns.columns.map { case (n, col) => NamedColumn(n, col.columnType) },
       keyColumns.columns.map(_._1)
     )
 
@@ -62,7 +62,7 @@ trait JDBCTable[C[_] <: JDBCColumn[_]] {
   def subset[Names <: HList](
       c: Cols[Names]
   )(implicit ss: ColumnSubsetBuilder[DataRec, Names]): TableColumns =
-    TableColumns(name, allColumns.subset[Names].columns.map(NamedColumn.apply))
+    TableColumns(name, allColumns.subset[Names].columns.map { case (n,col) => NamedColumn(n, col.columnType) })
 }
 
 object JDBCTable {
