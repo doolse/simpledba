@@ -1,19 +1,24 @@
 package io.doolse.simpledba.jdbc
 
+import java.sql.{Connection, PreparedStatement}
+
 import io.doolse.simpledba.WriteOp
 import io.doolse.simpledba.jdbc.AggregateOp.AggregateOp
 import io.doolse.simpledba.jdbc.BinOp.BinOp
+
+case class ColumnType(typeName: String, nullable: Boolean = false, flags: Seq[Any] = Seq.empty) {
+  def hasFlag(flag: Any): Boolean = flags.contains(flag)
+
+  def withFlag(a: Any): ColumnType = {
+    copy(flags = flags :+ a)
+  }
+}
 
 case class TableDefinition(name: String, columns: Seq[NamedColumn], primaryKey: Seq[String])
 
 case class TableColumns(name: String, columns: Seq[NamedColumn])
 
 case class NamedColumn(name: String, columnType: ColumnType)
-
-object NamedColumn {
-  def apply(p: (String, JDBCColumn[_])): NamedColumn =
-    NamedColumn(p._1, p._2.columnType)
-}
 
 object AggregateOp extends Enumeration {
   type AggregateOp = Value
@@ -61,5 +66,5 @@ sealed trait JDBCWhereClause
 
 case class BinClause(left: SQLExpression, op: BinOp, right: SQLExpression) extends JDBCWhereClause
 
-case class JDBCWriteOp(sql: String, binder: BindFunc[Seq[BindLog]])
+case class JDBCWriteOp(sql: String, binder: (Connection, PreparedStatement) => Seq[Any])
     extends WriteOp

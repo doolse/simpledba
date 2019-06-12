@@ -9,13 +9,7 @@ import io.doolse.simpledba.Iso
 import scala.collection.mutable
 import scala.reflect.ClassTag
 
-case class ColumnType(typeName: String, nullable: Boolean = false, flags: Seq[Any] = Seq.empty) {
-  def hasFlag(flag: Any): Boolean = flags.contains(flag)
-
-  def withFlag(a: Any): ColumnType = {
-    copy(flags = flags :+ a)
-  }
-}
+case class BoundValue(expr: SQLExpression, bind: (Int, Connection, PreparedStatement) => Int, value: Any)
 
 trait JDBCColumn[A] {
 
@@ -23,9 +17,9 @@ trait JDBCColumn[A] {
 
   def columnType: ColumnType
 
-  def bindValue: A => ParamBinder
+  def bindValue: A => BoundValue
 
-  def bindUpdate: (A, A) => Option[ParamBinder]
+  def bindUpdate: (A, A) => Option[BoundValue]
 
   def read: (Int, ResultSet) => Option[A]
 }
@@ -37,13 +31,16 @@ trait WrappedColumn[A] extends JDBCColumn[A] {
 
   override def read: (Int, ResultSet) => Option[A] = wrapped.read
 
-  override def bindValue: A => ParamBinder = wrapped.bind
+  override def bindValue: A => BoundValue = v => BoundValue(Parameter(columnType), (i,c,ps) => {
+    wrapped.bind(v)(i, c, ps)
+    i+1
+  }, v)
 
-  override def bindUpdate: (A, A) => Option[ParamBinder] =
+  override def bindUpdate: (A, A) => Option[BoundValue] =
     (o, n) =>
       if (o == n) None
       else {
-        Some(wrapped.bind(n))
+        Some(bindValue(n))
     }
 
 }

@@ -19,10 +19,10 @@ case class JDBCEffect[S[_], F[_]](
     con => M.productR(logger.logPrepare(sql))(blockingIO(f(con)))
 
   def logAndBind[A](sql: String,
-                    bindFunc: BindFunc[Seq[BindLog]],
+                    bindFunc: (Connection, PreparedStatement) => Seq[Any],
                     f: PreparedStatement => A): (Connection, PreparedStatement) => F[A] =
     (con, ps) =>
-      M.flatMap { blockingIO(bindFunc.apply(con, ps).runA(1).value) } { log =>
+      M.flatMap { blockingIO(bindFunc(con, ps)) } { log =>
         M.productR(logger.logBind(sql, log))(blockingIO(f(ps)))
     }
 
@@ -36,7 +36,7 @@ case class JDBCEffect[S[_], F[_]](
   }
 
   def executePreparedQuery(sql: String,
-                           bindFunc: BindFunc[Seq[BindLog]]): S[(PreparedStatement, Boolean)] = {
+                           bindFunc: (Connection, PreparedStatement) => Seq[Any]): S[(PreparedStatement, Boolean)] = {
 
     executeStream[PreparedStatement, (PreparedStatement, Boolean)](
       logAndPrepare(sql, _.prepareStatement(sql)),
@@ -44,7 +44,7 @@ case class JDBCEffect[S[_], F[_]](
     )
   }
 
-  def executeResultSet(sql: String, bindFunc: BindFunc[Seq[BindLog]]): S[ResultSet] = {
+  def executeResultSet(sql: String, bindFunc: (Connection, PreparedStatement) => Seq[Any]): S[ResultSet] = {
     SM.flatMap(executePreparedQuery(sql, bindFunc)) {
       case (ps, _) =>
         S.read(blockingIO(ps.getResultSet))(rs => blockingIO(rs.close())) { rs: ResultSet =>
@@ -69,7 +69,7 @@ case class JDBCEffect[S[_], F[_]](
 
   def streamForQuery[C[_] <: JDBCColumn[_], Out <: HList](
       sql: String,
-      bind: BindFunc[Seq[BindLog]],
+      bind: (Connection, PreparedStatement) => Seq[Any],
       resultCols: ColumnRecord[C, _, Out]
   ): S[Out] = {
     S.evalMap(executeResultSet(sql, bind)) { rs =>
