@@ -8,9 +8,9 @@ import io.doolse.simpledba.jdbc.BinOp.BinOp
 import io.doolse.simpledba.jdbc.JDBCQueries._
 import io.doolse.simpledba.jdbc.JDBCTable.TableRecord
 import shapeless.labelled._
-import shapeless.ops.hlist.{Length, Prepend, Split}
+import shapeless.ops.hlist.{Length, Prepend, Split, Take}
 import shapeless.ops.record.{Keys, ToMap}
-import shapeless.{::, DepFn2, HList, HNil, LabelledGeneric, Nat, Witness}
+import shapeless.{::, DepFn2, HList, HNil, LabelledGeneric, Nat, Witness, _0}
 
 import scala.annotation.tailrec
 
@@ -167,10 +167,12 @@ case class JDBCQueries[C[_] <: JDBCColumn[_], S[_], F[_]](E: JDBCEffect[S, F],
       Seq.empty
     )
 
-  def byPK[K2](table: JDBCTable[C])(
-      implicit c: AutoConvert[K2, table.KeyList]): K2 => S[table.Data] = {
+  def byPK[WLen <: Nat](table: JDBCTable[C])(
+      implicit length: Length.Aux[table.KeyList, WLen],
+      split: Split.Aux[table.KeyList, WLen, table.KeyList, HNil])
+    : QueryBuilder[S, F, C, table.DataRec, table.KeyList, table.DataRec, table.Data] = {
     implicit val kn = table.keySubset
-    query(table).where(table.keyNames, BinOp.EQ).build[K2]
+    query(table).where(table.keyNames, BinOp.EQ)
   }
 
   def allRows(table: JDBCTable[C]): S[table.Data] =
@@ -207,17 +209,9 @@ object JDBCQueries {
       where: ColumnSubset[C, R, K]
   ): K => Seq[(JDBCWhereClause, BoundValue)] = k => {
     where.mapRecord(k, BindValues).map { bv =>
-      ???
+      (BinClause(ColumnReference(bv.namedColumn), op, Parameter(bv.column.columnType)), bv.binder)
     }
   }
-
-//    { k: K =>
-//    val columnExprs = where.mapRecord(k, BindValues)
-//    val colWhere = columnExprs.map { bc =>
-//      BinClause(ColumnReference(bc.namedColumn), op, Parameter(bc.column.columnType))
-//    }
-//    (colWhere, bindParameters(columnExprs.map(_.binder)).map(v => Seq(WhereLog(v))))
-//  }
 
   case class DeleteBuilder[S[_], C[_] <: JDBCColumn[_], F[_], DataRec <: HList, InRec <: HList](
       S: Streamable[S, F],
@@ -306,16 +300,31 @@ object JDBCQueries {
       copy(orderCols = cols)
     }
 
-    def where[W2 <: HList](whereCol: Witness, binOp: BinOp)(
-        implicit csb: ColumnSubsetBuilder.Aux[DataRec, whereCol.T :: HNil, W2],
-      prepend: Prepend[W2, InRec]
-    ) : QueryBuilder[S, F, C, DataRec, prepend.Out, OutRec, Out] = ???
-
-    def where[W2 <: HList, ColNames <: HList](whereCols: Cols[ColNames], binOp: BinOp)(
+    def where[WhereVals <: HList, NewIn <: HList, WLen <: Nat](whereCol: Witness, binOp: BinOp)(
         implicit
-        css: ColumnSubsetBuilder.Aux[DataRec, ColNames, W2],
-          prepend: Prepend[W2, InRec]
-    ): QueryBuilder[S, F, C, DataRec, prepend.Out, OutRec, Out] = ???
+        csb: ColumnSubsetBuilder.Aux[DataRec, whereCol.T :: HNil, WhereVals],
+        prepend: Prepend.Aux[WhereVals, InRec, NewIn],
+        length: Length.Aux[WhereVals, WLen],
+        split: Split.Aux[NewIn, WLen, WhereVals, InRec]
+    ): QueryBuilder[S, F, C, DataRec, NewIn, OutRec, Out] = where(Cols(whereCol), binOp)
+
+    def where[ColNames <: HList, WhereVals <: HList, NewIn <: HList, WLen <: Nat](
+        whereCols: Cols[ColNames],
+        binOp: BinOp)(
+        implicit
+        css: ColumnSubsetBuilder.Aux[DataRec, ColNames, WhereVals],
+        len: Length.Aux[WhereVals, WLen],
+        prepend: Prepend.Aux[WhereVals, InRec, NewIn],
+        split: Split.Aux[NewIn, WLen, WhereVals, InRec]
+    ): QueryBuilder[S, F, C, DataRec, NewIn, OutRec, Out] = {
+
+      copy(toWhere = newin => {
+        val (newWhere, oldWhere) = split(newin)
+        val res                  = colsOp(binOp, table.allColumns.subset(css)).apply(newWhere)
+        (res.map(_._1), res.map(_._2))
+      })
+
+    }
 
     def buildAs[In, Out2](
         implicit c: AutoConvert[In, InRec],
@@ -334,23 +343,19 @@ object JDBCQueries {
     }
   }
 
-  def bindParameters(params: Seq[BoundValue]): (Connection, PreparedStatement) => Seq[Any] = ???
+  def bindParameters(params: Seq[BoundValue]): (Connection, PreparedStatement) => Seq[Any] =
+    (con, ps) => {
+      @tailrec
+      def loop(i: Int, offs: Int, outvals: List[Any]): List[Any] = {
+        if (i < params.length) {
+          val c        = params(i)
+          val nextOffs = c.bind(offs, con, ps)
+          loop(i + 1, nextOffs, c.value :: outvals)
+        } else outvals
+      }
 
-//    Kleisli {
-//    case (con, ps) =>
-//      State { offs =>
-//        @tailrec
-//        def loop(i: Int, outvals: List[Any]): (Int, List[Any]) = {
-//          if (i < params.length) {
-//            val c = params(i)
-//            c.param(i + offs, con, ps)
-//            loop(i + 1, c.value :: outvals)
-//          } else (i + offs, outvals)
-//        }
-//
-//        loop(0, Nil)
-//      }
-//  }
+      loop(0, 1, Nil)
+    }
 
   def columnExpression[A](bound: BoundColumn): ColumnExpression =
     ColumnExpression(bound.namedColumn, Parameter(bound.column.columnType))

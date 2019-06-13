@@ -45,13 +45,13 @@ trait JDBCTester[C[_] <: JDBCColumn[_]] extends StdColumns[C] with Test[fs2.Stre
       writes(instTable),
       writes(userTable),
       insertInst,
-      byPK(instTable),
+      byPK(instTable).build,
       query(userTable)
         .where('firstName, BinOp.EQ)
         .orderWith(HList('lastName ->> false, 'year ->> false))
         .build[String],
       query(userTable).where('lastName, BinOp.EQ).orderBy('year, true).build[String],
-      byPK(userTable),
+      byPK(userTable).build,
       selectFrom(userTable)
         .cols(Cols('year))
         .where(userTable.keyNames, BinOp.EQ)

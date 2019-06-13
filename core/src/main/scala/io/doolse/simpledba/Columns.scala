@@ -238,7 +238,7 @@ trait ColumnSubsetBuilder[Repr, Keys] {
 }
 
 object ColumnSubsetBuilder {
-  type Aux[Repr, Keys, Out0] = ColumnSubsetBuilder[Repr, Keys] {
+  type Aux[Repr, Keys, Out0 <: HList] = ColumnSubsetBuilder[Repr, Keys] {
     type Out = Out0
   }
 
