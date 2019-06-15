@@ -73,5 +73,8 @@ package object ziointerop {
     override def bracket[A](acquire: ZIO[Any, Throwable, A])(
         release: A => ZIO[Any, Throwable, Unit]): ZStream[Any, Throwable, A] =
       ZStream.bracket(acquire)(release.andThen(_.orDie))
+
+    override def maxMapped[A, B](n: Int, s: ZStream[Any, Throwable, A])(f: Seq[A] => B): ZStream[Any, Throwable, B]
+      = s.transduce(ZSink.identity[A].collectAllN(n).mapError(_ => throw new Throwable("How?")) ).map(f)
   }
 }

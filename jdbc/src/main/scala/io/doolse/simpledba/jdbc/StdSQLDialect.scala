@@ -9,6 +9,7 @@ trait StdSQLDialect extends SQLDialect {
   import StdSQLDialect._
   override def querySQL(query: JDBCPreparedQuery): String = stdQuerySQL(query)
 
+  override def maxInParamaters: Int = 100
   def expressionSQL(expression: SQLExpression): String    = stdExpressionSQL(expression)
   def typeName(c: ColumnType, keyColumn: Boolean): String = stdTypeName(c, keyColumn)
   def orderBy(oc: Seq[(NamedColumn, Boolean)]): String    = stdOrderBy(oc)
@@ -18,10 +19,11 @@ trait StdSQLDialect extends SQLDialect {
     expr match {
       case ColumnReference(name) => escapeColumnName(name.name)
       case FunctionCall(name, params) =>
-        s"$name${params.map(expressionSQL).mkString("(", ",", ")")}"
+        s"$name${brackets(params.map(expressionSQL))}"
       case SQLString(s)                       => s"'$s'"
       case Parameter(sqlType)                 => "?"
       case Aggregate(AggregateOp.Count, None) => "count(*)"
+      case Expressions(exprs) => brackets(exprs.map(expressionSQL))
     }
   }
 
@@ -60,6 +62,7 @@ trait StdSQLDialect extends SQLDialect {
           case BinOp.LT   => "<"
           case BinOp.LTE  => "<="
           case BinOp.LIKE => "LIKE"
+          case BinOp.IN => "IN"
         }
         s"${expressionSQL(left)} $opString ${expressionSQL(right)}"
     }

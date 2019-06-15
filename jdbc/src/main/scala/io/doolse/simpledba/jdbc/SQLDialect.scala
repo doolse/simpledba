@@ -10,4 +10,5 @@ trait SQLDialect {
   def addColumns(t: TableColumns): Seq[String]
   def truncateTable(t: TableDefinition): String
   def createIndex(t: TableColumns, named: String): String
+  def maxInParamaters: Int
 }

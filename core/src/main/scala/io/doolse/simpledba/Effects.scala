@@ -30,6 +30,7 @@ trait Streamable[S[_], F[_]] {
       }
     SM.flatMap(s)(loop)
   }
+  def maxMapped[A, B](n: Int, s: S[A])(f: Seq[A] => B): S[B]
 
   def toVector[A](s: S[A]): F[Vector[A]]
   def last[A](s: S[A]): S[Option[A]]

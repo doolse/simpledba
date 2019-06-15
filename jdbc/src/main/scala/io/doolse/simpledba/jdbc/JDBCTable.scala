@@ -3,7 +3,7 @@ package io.doolse.simpledba.jdbc
 import io.doolse.simpledba._
 import shapeless.{::, HList, HNil, Witness}
 
-case class JDBCRelation[C[_] <: JDBCColumn[_], T, R <: HList](
+case class JDBCRelation[C[A] <: JDBCColumn[A], T, R <: HList](
     name: String,
     all: Columns[C, T, R]
 ) {
@@ -33,7 +33,7 @@ case class JDBCRelation[C[_] <: JDBCColumn[_], T, R <: HList](
   }
 }
 
-trait JDBCTable[C[_] <: JDBCColumn[_]] {
+trait JDBCTable[C[A] <: JDBCColumn[A]] {
   type Data
   type DataRec <: HList
   type KeyList <: HList
@@ -66,18 +66,18 @@ trait JDBCTable[C[_] <: JDBCColumn[_]] {
 }
 
 object JDBCTable {
-  type Aux[C[_] <: JDBCColumn[_], T, R, K, KeyN] = JDBCTable[C] {
+  type Aux[C[A] <: JDBCColumn[A], T, R, K, KeyN] = JDBCTable[C] {
     type Data     = T
     type DataRec  = R
     type KeyNames = KeyN
     type KeyList  = K
   }
 
-  type TableRecord[C[_] <: JDBCColumn[_], R] = JDBCTable[C] {
+  type TableRecord[C[A] <: JDBCColumn[A], R] = JDBCTable[C] {
     type DataRec = R
   }
 
-  def apply[C[_] <: JDBCColumn[_], T, R <: HList, K <: HList, KeyN <: HList](
+  def apply[C[A] <: JDBCColumn[A], T, R <: HList, K <: HList, KeyN <: HList](
       tableName: String,
       all: Columns[C, T, R],
       keys: ColumnSubsetBuilder.Aux[R, KeyN, K],

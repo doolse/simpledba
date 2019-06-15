@@ -5,7 +5,7 @@ import cats.instances.function._
 import cats.syntax.compose._
 import shapeless.labelled.FieldType
 import shapeless.ops.hlist.{Length, LiftAll, Prepend, Split, ToList, ZipWithKeys}
-import shapeless.ops.record.{Keys, SelectAll}
+import shapeless.ops.record.{Keys, SelectAll, Selector}
 import shapeless.{::, HList, HNil, Nat, Witness}
 
 import scala.annotation.tailrec
@@ -160,6 +160,9 @@ case class Columns[C[_], T, R <: HList](columns: Seq[(String, C[_])], iso: Iso[T
   }
 
   def toSubset: ColumnSubset[C, T, R] = ColumnSubset(columns, iso.to)
+
+  def singleColumn[A](col: Witness)(implicit selector: Selector.Aux[R, col.T, A], ev: col.T <:< Symbol): (String, C[A]) =
+    columns.find(_._1 == col.value.name).get.asInstanceOf[(String, C[A])]
 }
 
 object Columns {

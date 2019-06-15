@@ -27,7 +27,7 @@ object AggregateOp extends Enumeration {
 
 object BinOp extends Enumeration {
   type BinOp = Value
-  val EQ, GT, GTE, LT, LTE, LIKE = Value
+  val EQ, GT, GTE, LT, LTE, LIKE, IN = Value
 }
 
 sealed trait SQLExpression
@@ -37,6 +37,7 @@ case class Aggregate(name: AggregateOp, column: Option[NamedColumn]) extends SQL
 case class FunctionCall(name: String, params: Seq[SQLExpression])    extends SQLExpression
 case class SQLString(s: String)                                      extends SQLExpression
 case class Parameter(columnType: ColumnType)                         extends SQLExpression
+case class Expressions(expressions: Seq[SQLExpression])              extends SQLExpression
 
 case class ColumnExpression(column: NamedColumn, expression: SQLExpression)
 case class SQLProjection(columnType: ColumnType, sql: SQLExpression)

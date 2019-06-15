@@ -48,5 +48,7 @@ package object fs2 {
 
       override def bracket[A](acquire: F[A])(release: A => F[Unit]): Stream[F, A] =
         Stream.bracket(acquire)(release)
+
+      override def maxMapped[A, B](n: Int, s: Stream[F, A])(f: Seq[A] => B): Stream[F, B] = s.chunkN(n).map(c => f(c.toVector))
     }
 }
