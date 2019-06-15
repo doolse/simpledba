@@ -1,4 +1,4 @@
-package io.doolse.simpledba.test
+package io.doolse.simpledba.test.jdbc
 
 import cats.effect.Sync
 import io.doolse.simpledba.{JavaEffects, Streamable}

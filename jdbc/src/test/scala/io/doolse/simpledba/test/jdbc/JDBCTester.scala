@@ -1,4 +1,4 @@
-package io.doolse.simpledba.test
+package io.doolse.simpledba.test.jdbc
 
 import java.sql.Connection
 
@@ -9,6 +9,7 @@ import io.doolse.simpledba.{Cols, Flushable, Streamable}
 import shapeless.{::, HList, HNil}
 import shapeless.syntax.singleton._
 import io.doolse.simpledba.fs2._
+import io.doolse.simpledba.test.Test
 
 trait JDBCTester[C[_] <: JDBCColumn[_]] extends StdColumns[C] with Test[fs2.Stream[IO, ?], IO] {
 

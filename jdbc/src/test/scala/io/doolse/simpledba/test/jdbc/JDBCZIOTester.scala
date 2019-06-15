@@ -1,9 +1,10 @@
-package io.doolse.simpledba.test
+package io.doolse.simpledba.test.jdbc
 
 import java.sql.Connection
 
 import io.doolse.simpledba.Cols
 import io.doolse.simpledba.jdbc._
+import io.doolse.simpledba.test.Test
 import io.doolse.simpledba.ziointerop._
 import zio.interop.catz._
 import zio.stream.ZStream
