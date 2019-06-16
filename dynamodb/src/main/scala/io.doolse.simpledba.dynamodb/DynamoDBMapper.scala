@@ -88,5 +88,5 @@ class DynamoDBMapper[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
       }
   }
 
-  def queries: DynamoDBQueries[S, F] = new DynamoDBQueries[S, F](effect)
+  val queries: DynamoDBQueries[S, F] = new DynamoDBQueries[S, F](effect)
 }

@@ -1,5 +1,7 @@
 package io.doolse.simpledba
 
+import java.util.UUID
+
 import cats.arrow.Compose
 import cats.instances.function._
 import cats.syntax.compose._
@@ -15,6 +17,8 @@ case class Iso[A, B](to: A => B, from: B => A)
 
 object Iso {
   def id[A]: Iso[A, A] = Iso(identity, identity)
+
+  def uuidString: Iso[UUID, String] = Iso(_.toString, UUID.fromString)
 
   implicit val composeIso: Compose[Iso] = new Compose[Iso] {
     override def compose[A, B, C](f: Iso[B, C], g: Iso[A, B]): Iso[A, C] =

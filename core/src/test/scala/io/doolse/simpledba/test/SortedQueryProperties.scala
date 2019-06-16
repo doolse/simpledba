@@ -53,6 +53,7 @@ abstract class SortedQueryProperties[S[_], F[_]: Monad](implicit arb: Arbitrary[
 
   def checkOrder[A](same: UUID, v: Vector[Sortable], sortQ: Seq[(String, OrderQuery[_])]) = {
     val vSame = v.map(_.copy(same = same))
+    val S = streamable
     for {
       _ <- flushed(S.append(queries._1.truncate, queries._1.writes.insertAll(S.emits(vSame))))
       p = sortQ.map {

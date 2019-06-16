@@ -10,6 +10,7 @@ import org.scalacheck.Prop._
 import Arbitrary._
 import io.doolse.simpledba.jdbc.BinOp
 import io.doolse.simpledba.jdbc.BinOp.BinOp
+import io.doolse.simpledba.test.zio.ZIOProperties
 
 case class SimpleTable(id: UUID, value1: Int, value2: String)
 
@@ -50,7 +51,7 @@ object JDBCExpressionProperties
   def insertData(rows: Seq[SimpleTable]): Task[Seq[SimpleTable]] = {
     val dupesRemoved = uniqueify(rows, _.id)
     flushable
-      .flush(S
+      .flush(streamable
         .emit(sqlQueries.rawSQL(sqlQueries.dialect.truncateTable(simpleTable.definition))) ++ writer
         .insertAll(ZStream(dupesRemoved: _*)))
       .runDrain

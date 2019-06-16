@@ -1,17 +1,16 @@
-package io.doolse.simpledba.dynamodb.test
+package io.doolse.simpledba.test.dynamodb
 
 import cats.MonadError
 import io.doolse.simpledba.dynamodb.DynamoDBEffect
-import io.doolse.simpledba.ziointerop._
+import io.doolse.simpledba.test.zio.ZIOProperties
 import zio.console._
 import zio.interop.catz._
 import zio.{App, Task, ZIO}
 import zio.stream.{Stream, ZSink}
+import io.doolse.simpledba.zio._
 
-object DynamoDBZIOTest extends App with DynamoDBTest[Stream[Throwable, ?], Task] {
+object DynamoDBZIOTest extends App with DynamoDBTest[Stream[Throwable, ?], Task] with ZIOProperties {
   override def effect = DynamoDBEffect[Stream[Throwable, ?], Task](ZIO.succeed(localClient))
-
-  override def AE: MonadError[Task, Throwable] = implicitly[MonadError[Task, Throwable]]
 
   override def run(args: List[String]): ZIO[DynamoDBZIOTest.Environment, Nothing, Int] = {
     prog.runCollect

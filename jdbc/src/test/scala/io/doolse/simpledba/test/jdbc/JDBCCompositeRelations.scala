@@ -3,6 +3,7 @@ package io.doolse.simpledba.test.jdbc
 import io.doolse.simpledba.Cols
 import io.doolse.simpledba.test.CompositeRelations
 import io.doolse.simpledba.test.CompositeRelations.{Composite2, Composite3, Queries2, Queries3}
+import io.doolse.simpledba.test.zio.ZIOProperties
 import zio.Task
 import zio.interop.catz._
 import zio.stream.ZStream

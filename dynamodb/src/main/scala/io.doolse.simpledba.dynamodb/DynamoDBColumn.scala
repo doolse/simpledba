@@ -1,13 +1,7 @@
 package io.doolse.simpledba.dynamodb
 
-import io.doolse.simpledba.ColumnRetrieve
-import software.amazon.awssdk.services.dynamodb.model.{
-  AttributeAction,
-  AttributeDefinition,
-  AttributeValue,
-  AttributeValueUpdate,
-  ScalarAttributeType
-}
+import io.doolse.simpledba.{ColumnRetrieve, Iso}
+import software.amazon.awssdk.services.dynamodb.model.{AttributeAction, AttributeDefinition, AttributeValue, AttributeValueUpdate, ScalarAttributeType}
 
 trait DynamoDBColumn[A] {
   def toAttribute(a: A): AttributeValue
@@ -67,5 +61,16 @@ object DynamoDBColumn {
   implicit def longCol: DynamoDBColumn[Long] = numberColumn[Long](_.toLong)
   implicit def boolCol: DynamoDBColumn[Boolean] =
     ScalarDynamoDBColumn[Boolean](_.bool(), ScalarAttributeType.B, (a, b) => b.bool(a))
+
+  implicit def isoCol[A, B](implicit iso: Iso[B, A], col: DynamoDBColumn[A]): DynamoDBColumn[B] =
+    new DynamoDBColumn[B] {
+      def toAttribute(a: B): AttributeValue = col.toAttribute(iso.to(a))
+
+      def fromAttribute(a: Option[AttributeValue]): B = iso.from(col.fromAttribute(a))
+
+      def toAttributeUpdate(o: B, n: B): Option[AttributeValueUpdate] = col.toAttributeUpdate(iso.to(o), iso.to(n))
+
+      def definition(name: String): AttributeDefinition = col.definition(name)
+    }
 
 }

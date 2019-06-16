@@ -17,7 +17,7 @@ object PostgresTester extends App with JDBCZIOTester[PostgresColumn] with StdPos
 
   val q = makeQueries
   val prog = for {
-    t <- S.eval(q.initDB)
+    t <- streamable.eval(q.initDB)
     r <- doTest(q)
   } yield r
 

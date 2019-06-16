@@ -1,16 +1,18 @@
-package io.doolse.simpledba.test.jdbc
+package io.doolse.simpledba.test.zio
 
 import cats.effect.Sync
 import io.doolse.simpledba.{JavaEffects, Streamable}
-import io.doolse.simpledba.ziointerop._
+import zio.stream._
 import zio.{DefaultRuntime, Task}
-import zio.stream.ZStream
+import io.doolse.simpledba.zio._
 import zio.interop.catz._
 
 trait ZIOProperties {
-  def S : Streamable[ZStream[Any, Throwable, ?], Task] = implicitly[Streamable[ZStream[Any, Throwable, ?], Task]]
+  type S[A] = Stream[Throwable, A]
+  def streamable : Streamable[S, Task] = implicitly[Streamable[S, Task]]
   def JE : JavaEffects[Task] = implicitly[JavaEffects[Task]]
   def Sync : Sync[Task] = implicitly[Sync[Task]]
+  def attempt[A](f: Task[A]) : Task[Either[Throwable, A]] = f.fold(Left.apply, Right.apply)
   lazy val runtime = new DefaultRuntime {}
   def run[A](prog: Task[A]): A = runtime.unsafeRun(prog)
 }

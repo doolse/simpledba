@@ -12,12 +12,12 @@ import io.doolse.simpledba.syntax._
   */
 trait CrudProperties[S[_], F[_]] {
 
-  def S: Streamable[S, F]
-  implicit def SM = S.SM
-  implicit def M: Monad[F] = S.M
+  def streamable: Streamable[S, F]
+  implicit def SM = streamable.SM
+  implicit def M: Monad[F] = streamable.M
   def flushable: Flushable[S]
   def run[A](f: F[A]): A
-  def flushed(s: S[WriteOp]): F[Unit] = S.drain(flushable.flush(s))
+  def flushed(s: S[WriteOp]): F[Unit] = streamable.drain(flushable.flush(s))
 
   def crudProps[A: Arbitrary, K](writes: WriteQueries[S, F, A],
                                  truncate: S[WriteOp],
@@ -27,11 +27,11 @@ trait CrudProperties[S[_], F[_]] {
     implicit def runProp(fa: F[Prop]): Prop = run(fa)
 
     new Properties("CRUD ops") {
-      val countAll = (a: A) => S.toVector(findAll(a)).map(_.count(a.==))
+      val countAll = (a: A) => streamable.toVector(findAll(a)).map(_.count(a.==))
 
       property("createReadDelete") = forAll { (a: A) =>
         for {
-          _        <- flushed(S.append(truncate, writes.insert(a)))
+          _        <- flushed(streamable.append(truncate, writes.insert(a)))
           count    <- countAll(a)
           _        <- flushed(writes.delete(a))
           afterDel <- countAll(a)
@@ -44,7 +44,7 @@ trait CrudProperties[S[_], F[_]] {
       property("update") = forAll(genUpdate) {
         case (a1, a2) =>
           for {
-            _         <- flushed(S.append(truncate, writes.insert(a1)))
+            _         <- flushed(streamable.append(truncate, writes.insert(a1)))
             _         <- flushed(writes.update(a1, a2))
             countOrig <- countAll(a1)
             countNew  <- countAll(a2)

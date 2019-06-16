@@ -17,7 +17,7 @@ trait JDBCTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[fs2.Stre
 
   def connection: Connection
   def effect: JDBCEffect[fs2.Stream[IO, ?], F] = JDBCEffect(IO.pure(connection), _ => IO.pure(), ConsoleLogger())
-  def S = effect.S
+  def streamable = effect.S
   def mapper: JDBCMapper[C]
   def builder = mapper.queries(effect)
   implicit def flusher : Flushable[fs2.Stream[IO, ?]] = builder.flushable

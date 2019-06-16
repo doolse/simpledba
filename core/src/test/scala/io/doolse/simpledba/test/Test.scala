@@ -8,11 +8,11 @@ import io.doolse.simpledba.{Flushable, Streamable, WriteOp, WriteQueries}
 
 trait Test[S[_], F[_]] {
 
-  def S: Streamable[S, F]
+  def streamable: Streamable[S, F]
   def flusher: Flushable[S]
 
   def flush(s: S[WriteOp]) = flusher.flush(s)
-  implicit def SM             = S.SM
+  implicit def SM             = streamable.SM
 
   case class EmbeddedFields(adminpassword: String, enabled: Boolean)
 
@@ -35,7 +35,7 @@ trait Test[S[_], F[_]] {
 
   def insertData(writeInst: WriteQueries[S, F, Inst], writeUsers: WriteQueries[S, F, User]) = {
     writeUsers.insertAll(
-      S.emits(
+      streamable.emits(
         Seq(
           User("Jolse", "Maginnis", 1980),
           User("Emma", "Maginnis", 1982),
@@ -44,8 +44,8 @@ trait Test[S[_], F[_]] {
     )
   }
 
-  def last[A](s: S[A]): S[Option[A]] = S.last(s)
-  def toVector[A](s: S[A]): S[Vector[A]] = S.eval(S.toVector(s))
+  def last[A](s: S[A]): S[Option[A]] = streamable.last(s)
+  def toVector[A](s: S[A]): S[Vector[A]] = streamable.eval(streamable.toVector(s))
 
   def doTest(q: Queries, updateId: (Inst, Inst) => Inst = (o, n) => n) = {
     import q._
@@ -63,7 +63,7 @@ trait Test[S[_], F[_]] {
       all             <- toVector(queryByLastNameDesc("Maginnis"))
       allFirst        <- toVector(querybyFirstNameAsc("Jolse"))
       fullPK          <- toVector(queryByFullName(Username("Jolse", "Maginnis")))
-      _               <- flush(res4.map(writeInst.delete).sequence.flatMap(wo => S.emits(wo.toSeq)))
+      _               <- flush(res4.map(writeInst.delete).sequence.flatMap(wo => streamable.emits(wo.toSeq)))
       yearOnly        <- last(q.justYear(Username("Jolse", "Maginnis")))
       countOfMaginnis <- last(q.usersWithLastName("Maginnis"))
     } yield {

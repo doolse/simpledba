@@ -2,13 +2,13 @@ package io.doolse.simpledba
 
 import java.util.concurrent.CompletableFuture
 
+import _root_.zio.interop.catz._
+import _root_.zio.interop.javaconcurrent._
+import _root_.zio.stream._
+import _root_.zio.{Task, TaskR, ZIO}
 import cats.Monad
-import zio.interop.javaconcurrent._
-import zio.{Task, TaskR, ZIO, ZManaged}
-import zio.stream._
-import zio.interop.catz._
 
-package object ziointerop {
+package object zio {
 
   implicit def zioJavaEffect[R] = new JavaEffects[TaskR[R, ?]] {
     override def blockingIO[A](thunk: => A): TaskR[R, A] = TaskR(thunk)

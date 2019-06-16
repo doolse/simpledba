@@ -5,7 +5,7 @@ import java.sql.Connection
 import io.doolse.simpledba.Cols
 import io.doolse.simpledba.jdbc._
 import io.doolse.simpledba.test.Test
-import io.doolse.simpledba.ziointerop._
+import io.doolse.simpledba.zio._
 import zio.interop.catz._
 import zio.stream.ZStream
 import zio.{Task, ZIO}
@@ -19,7 +19,7 @@ trait JDBCZIOTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[ZStre
 
   def connection: Connection
   def effect = JDBCEffect[S, F](ZIO.succeed(connection), _ => ZIO(), ConsoleLogger())
-  def S = effect.S
+  def streamable = effect.S
   def mapper: JDBCMapper[C]
   def builder = mapper.queries(effect)
   implicit def flusher = builder.flushable
