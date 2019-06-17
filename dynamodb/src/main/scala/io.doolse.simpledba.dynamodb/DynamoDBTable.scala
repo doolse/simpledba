@@ -35,7 +35,7 @@ object KeyAttribute {
   }
 }
 
-case class LocalIndex[IK, CR](name: String, attribute: KeyAttribute[IK], projection: Projection)
+case class LocalIndex[IK](name: String, attribute: KeyAttribute[IK], projection: Projection)
 
 trait DynamoDBTable {
   type T
@@ -48,7 +48,7 @@ trait DynamoDBTable {
   def pkColumn: KeyAttribute[PK]
   def keyColumns: Seq[KeyAttribute[_]]
   def columns: Columns[DynamoDBColumn, T, CR]
-  def localIndexes: Seq[LocalIndex[_, _]]
+  def localIndexes: Seq[LocalIndex[_]]
   def derivedColumns: CR => Seq[(String, AttributeValue)]
   def keyValue: T => FullKey
   def keyAttributes: FullKey => Seq[(String, AttributeValue)]

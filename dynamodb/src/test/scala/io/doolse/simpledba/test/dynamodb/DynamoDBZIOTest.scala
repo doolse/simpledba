@@ -1,10 +1,8 @@
 package io.doolse.simpledba.test.dynamodb
 
-import cats.MonadError
 import io.doolse.simpledba.dynamodb.DynamoDBEffect
 import io.doolse.simpledba.test.zio.ZIOProperties
 import zio.console._
-import zio.interop.catz._
 import zio.{App, Task, ZIO}
 import zio.stream.{Stream, ZSink}
 import io.doolse.simpledba.zio._

@@ -102,18 +102,18 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
 
   def queryIndex(table: DynamoDBTable, indexName: Witness)(
       implicit selIndex: Selector[table.Indexes, indexName.T],
-      ev: indexName.T <:< Symbol): QueryBuilder[table.T, table.CR, table.PK, Unit] = {
+      ev: indexName.T <:< Symbol): QueryBuilder[table.T, table.CR, table.PK, selIndex.Out] = {
     val indexString = indexName.value.name
     QueryBuilder(table,
                  table.columns,
                  table.localIndexes
                    .find(_.name == indexString)
-                   .asInstanceOf[Option[LocalIndex[Unit, table.CR]]])
+                   .asInstanceOf[Option[LocalIndex[selIndex.Out]]])
   }
 
   case class QueryBuilder[T, CR <: HList, PK, SK](table: DynamoDBTable.PK[PK],
                                               selectCol: ColumnRetriever[DynamoDBColumn, String, T],
-                                              index: Option[LocalIndex[SK, CR]]) {
+                                              index: Option[LocalIndex[SK]]) {
 
     private def query(asc: Boolean, pk: PK): QueryRequest.Builder = {
       val qb = QueryRequest.builder().tableName(table.name)

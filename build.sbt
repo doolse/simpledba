@@ -48,7 +48,7 @@ val subSettings = Seq(
   testOptions in Test += Tests.Argument(TestFrameworks.ScalaCheck, "-s", "10"),
   scalacOptions += "-Ypartial-unification",
   scalacOptions ++= Seq("-P:splain:implicits:true", "-P:splain:color:false"),
-  addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.3"),
+  addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.10.3"),
   addCompilerPlugin("io.tryp" % "splain" % "0.4.1" cross CrossVersion.patch)
 ) ++ commonSettings
 

@@ -3,7 +3,7 @@ package io.doolse.simpledba.dynamodb
 import java.io.{ByteArrayOutputStream, DataOutputStream}
 
 import io.doolse.simpledba.{Cols, ColumnBuilder, ColumnSubsetBuilder, Columns, Flushable, Iso, WriteOp}
-import shapeless.labelled.FieldType
+import shapeless.labelled.{FieldType, KeyTag}
 import shapeless.ops.record.Selector
 import shapeless.{::, HList, HNil, LabelledGeneric, Witness}
 import software.amazon.awssdk.core.SdkBytes
@@ -88,7 +88,7 @@ class DynamoDBMapper[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
       toRec: T0 => ColRec,
       pkValue: ColRec => PK0,
       derivedColumns: ColRec => Seq[(String, AttributeValue)],
-      localIndexes: Seq[LocalIndex[_, _]])
+      localIndexes: Seq[LocalIndex[_]])
       extends DynamoDBTable {
     type T       = T0
     type CR      = ColRec
@@ -108,7 +108,7 @@ class DynamoDBMapper[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
         ev: col.T <:< Symbol,
         skSubset: ColumnSubsetBuilder.Aux[ColRec, col.T :: HNil, Out],
         ev2: Out <:< (SK :: HNil),
-        isPK: DynamoDBPKColumn[SK]): FullKeyTable[T0, ColRec, PK, SK, Indexes] = {
+        isPK: DynamoDBPKColumn[SK]): FullKeyTable[T0, ColRec, PK0, SK, Indexes0] = {
       val toOut  = columns.subset(skSubset).from
       val skName = col.value.name
       val skCol  = KeyAttribute.unsafe[SK](KeyType.RANGE, columns.columns.find(_._1 == skName).get)
@@ -121,7 +121,7 @@ class DynamoDBMapper[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
     def sortKeys[Out <: HList, SKL <: HList](cols: Cols[SKL])(
       implicit
       skSubset: ColumnSubsetBuilder.Aux[ColRec, SKL, Out],
-      keyBuilder: CompositeKeyBuilder[Out]): FullKeyTable[T0, ColRec, PK, Out, Indexes] = {
+      keyBuilder: CompositeKeyBuilder[Out]): FullKeyTable[T0, ColRec, PK0, Out, Indexes0] = {
       val toOut = columns.subset(skSubset).from
 
       val derivedKey = KeyAttribute
@@ -145,7 +145,7 @@ class DynamoDBMapper[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
       columns: Columns[DynamoDBColumn, T0, ColRec],
       keyValue: T0 => PK0 :: SK0 :: HNil,
       derivedColumns: ColRec => Seq[(String, AttributeValue)],
-      localIndexes: Seq[LocalIndex[_, _]])
+      localIndexes: Seq[LocalIndex[_]])
       extends DynamoDBSortTable
       {
     type T       = T0
@@ -160,15 +160,13 @@ class DynamoDBMapper[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
       fk => Seq(pkColumn.toNamedValue(fk.head), skColumn.toNamedValue(fk.tail.head))
 
     def withLocalIndex[IK](name: Witness, column: Witness)
-                                                     (
-      implicit kc: Selector.Aux[ColRec, column.T, IK], dynamoDBColumn: DynamoDBColumn[IK])
-//    : FullKeyTable[T, CR, PK, SK, FieldType[S, LocalIndex[IK, CR]] :: Indexes] =
-    : FullKeyTable[T0, ColRec, PK0, SK0, Indexes0] = ???
-//    : FullKeyTable[T0, ColRec, PK0, SK0, FieldType[name.T, LocalIndex[IK, CR]] :: Indexes0] = ???
-//      copy(localIndexes = localIndexes :+
-//        LocalIndex(name.value.name,
-//          KeyAttribute(KeyType.RANGE, (column.value.name, dynamoDBColumn)),
-//          Projection.builder().projectionType("ALL").build))
+                          (implicit kc: Selector.Aux[ColRec, column.T, IK], dynamoDBColumn: DynamoDBColumn[IK],
+                           ev: name.T <:< Symbol, ev2: column.T <:< Symbol)
+    : FullKeyTable[T0, ColRec, PK0, SK0, IK with KeyTag[name.T, IK] :: Indexes0] =
+      copy(localIndexes = localIndexes :+
+        LocalIndex(name.value.name,
+          KeyAttribute(KeyType.RANGE, (column.value.name, dynamoDBColumn)),
+          Projection.builder().projectionType("ALL").build))
   }
 
   def flusher: Flushable[S] = new Flushable[S] {
