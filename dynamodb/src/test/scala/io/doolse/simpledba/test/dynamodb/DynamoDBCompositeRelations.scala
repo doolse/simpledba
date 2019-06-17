@@ -1,6 +1,8 @@
 package io.doolse.simpledba.test.dynamodb
 
-import io.doolse.simpledba.WriteOp
+import java.util.UUID
+
+import io.doolse.simpledba.{AutoConvert, Cols, WriteOp}
 import io.doolse.simpledba.dynamodb.DynamoDBEffect
 import io.doolse.simpledba.test.CompositeRelations
 import io.doolse.simpledba.test.CompositeRelations.{Composite2, Composite3, Queries2, Queries3}
@@ -17,14 +19,15 @@ object DynamoDBCompositeRelations extends CompositeRelations[Stream[Throwable, ?
 
   lazy val queries2: CompositeRelations.Queries2[S, Task] = {
     import mapper.queries._
-    val table = mapper.mapped[Composite2].table("composite2", 'pkLong, 'pkUUID)
+    val table = mapper.mapped[Composite2].table("composite2").partKey('pkLong).sortKey('pkUUID)
     run(delAndCreate(table))
-    Queries2[S, Task](writes(table), get(table).build, Stream.empty)
+    Queries2[S, Task](writes(table), get(table).build[(Long, UUID)], Stream.empty)
   }
   lazy val queries3: CompositeRelations.Queries3[Stream[Throwable, ?], Task] = {
     import mapper.queries._
-    val table = mapper.mapped[Composite3].table("composite3", 'pkInt)
-    Queries3[S, Task](writes(table), _ => ???, Stream.empty)
+    val table = mapper.mapped[Composite3].table("composite3").partKeys(Cols('pkInt, 'pkString, 'pkBool))
+    run(delAndCreate(table))
+    Queries3[S, Task](writes(table), get(table).build, Stream.empty)
   }
 
 }

@@ -23,8 +23,8 @@ object AttributeMapper extends ColumnMapper[DynamoDBColumn, String, (String, Att
 
 class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
 
-  val S  = effect.S
-  val SM = S.SM
+  private val S  = effect.S
+  private val SM = S.SM
 
   def writes[T](tables: DynamoDBTable.SameT[T]*): WriteQueries[S, F, T] =
     new WriteQueries[S, F, T] {
@@ -33,7 +33,8 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
       def putItem(table: DynamoDBTable)(t: table.T): WriteOp = {
         val b = PutItemRequest.builder()
         b.tableName(table.name)
-        b.item(table.columns.mapRecord(table.columns.iso.to(t), AttributeMapper).toMap.asJava)
+        val itemRec = table.columns.iso.to(t)
+        b.item((table.columns.mapRecord(itemRec, AttributeMapper) ++ table.derivedColumns(itemRec)).toMap.asJava)
         PutItem(b.build())
       }
 
@@ -54,8 +55,8 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
               tables.foldLeft(S.empty[WriteOp])((ops, table) => {
                 val b          = UpdateItemRequest.builder()
                 val allColumns = table.columns
-                val oldKey     = (table.pkValue(o), table.skValue(o))
-                val keyVal     = (table.pkValue(n), table.skValue(n))
+                val oldKey     = table.keyValue(o)
+                val keyVal     = table.keyValue(n)
                 val nextWrites = if (oldKey != keyVal) {
                   S.emits(Seq(deleteItem(table)(oldKey), putItem(table)(n)))
                 } else {
@@ -65,16 +66,10 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
               })
         }
 
-      def deleteItem(table: DynamoDBTable)(keys: (table.PK, Option[table.SK])): WriteOp = {
+      def deleteItem(table: DynamoDBTable)(keys: table.FullKey): WriteOp = {
         val b = DeleteItemRequest.builder()
         b.tableName(table.name)
-
-        val skA = for {
-          skC <- table.skColumn
-          v   <- keys._2
-        } yield skC.toValue(v)
-
-        b.key((Seq(table.pkColumn.toValue(keys._1)) ++ skA).toMap.asJava)
+        b.key(table.keyAttributes(keys).toMap.asJava)
         DeleteItem(b.build())
       }
 
@@ -83,45 +78,26 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
           SM.flatMap(ts) { t: T =>
             S.emits {
               tables.map { table =>
-                deleteItem(table)((table.pkValue(t), table.skValue(t)))
+                deleteItem(table)(table.keyValue(t))
               }
             }
 
         }
     }
 
-  def get(table: DynamoDBTable): GetBuilder[table.PK :: table.SK :: HNil, table.T] =
-    GetBuilder(
-      table,
-      pk => {
-        val NamedAttribute(name, col) = table.pkColumn
-        (Seq(name -> col.toAttribute(pk.head)) ++
-          table.skColumn.map { sk =>
-            sk.name -> sk.column.toAttribute(pk.tail.head)
-          }).toMap
-      },
-      table.columns,
-      true
-    )
+  def get(table: DynamoDBTable): GetBuilder[table.FullKey, table.T] =
+    GetBuilder(table, table.columns, true)
 
   def getAttr[Attrs <: HList, AttrVals <: HList](table: DynamoDBTable, attrs: Cols[Attrs])(
-      implicit c: ColumnSubsetBuilder.Aux[table.CR, Attrs, AttrVals])
-    : GetBuilder[table.PK :: table.SK :: HNil, AttrVals] =
+      implicit c: ColumnSubsetBuilder.Aux[table.CR, Attrs, AttrVals]): GetBuilder[table.FullKey, AttrVals] =
     GetBuilder(
       table,
-      pk => {
-        val NamedAttribute(name, col) = table.pkColumn
-        (Seq(name -> col.toAttribute(pk.head)) ++
-          table.skColumn.map { sk =>
-            sk.name -> sk.column.toAttribute(pk.tail.head)
-          }).toMap
-      },
       table.columns.subset(c),
       false
     )
 
-  def query(table: DynamoDBTable): QueryBuilder[table.T, table.CR, table.PK, table.SK] = {
-    QueryBuilder(table, None)
+  def query(table: DynamoDBSortTable): QueryBuilder[table.T, table.CR, table.PK, table.SK] = {
+    QueryBuilder(table, table.columns, None)
   }
 
   def queryIndex(table: DynamoDBTable, indexName: Witness)(
@@ -129,20 +105,22 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
       ev: indexName.T <:< Symbol): QueryBuilder[table.T, table.CR, table.PK, Unit] = {
     val indexString = indexName.value.name
     QueryBuilder(table,
+                 table.columns,
                  table.localIndexes
                    .find(_.name == indexString)
                    .asInstanceOf[Option[LocalIndex[Unit, table.CR]]])
   }
 
-  case class QueryBuilder[T, CR <: HList, PK, SK](table: DynamoDBTable.Aux[T, CR, PK, _, _],
-                                                  index: Option[LocalIndex[SK, CR]]) {
+  case class QueryBuilder[T, CR <: HList, PK, SK](table: DynamoDBTable.PK[PK],
+                                              selectCol: ColumnRetriever[DynamoDBColumn, String, T],
+                                              index: Option[LocalIndex[SK, CR]]) {
 
     private def query(asc: Boolean, pk: PK): QueryRequest.Builder = {
       val qb = QueryRequest.builder().tableName(table.name)
       index.foreach(li => qb.indexName(li.name))
       val pkCol = table.pkColumn
       val (ExprState(names, vals), expr) = DynamoDBExpression
-        .keyExpression(pkCol.name, pkCol.column.toAttribute(pk), None)
+        .keyExpression(pkCol.name, pkCol.toAttribute(pk), None)
         .run(ExprState(Map.empty, Map.empty))
         .value
       qb.keyConditionExpression(expr)
@@ -172,7 +150,7 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
             if (attrs.isEmpty) {
               S.empty
             } else {
-              S.emit(table.columns.retrieve(DynamoDBRetrieve(attrs)))
+              S.emit(selectCol.retrieve(DynamoDBRetrieve(attrs)))
             }
           }
         }
@@ -181,10 +159,9 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
 
   }
 
-  case class GetBuilder[Input, Output](table: DynamoDBTable,
-                                       toKeyValue: Input => Map[String, AttributeValue],
-                                       selectCol: ColumnRetriever[DynamoDBColumn, String, Output],
-                                       selectAll: Boolean) {
+  case class GetBuilder[Input, Output](table: DynamoDBTable.FullKey[Input],
+                                selectCol: ColumnRetriever[DynamoDBColumn, String, Output],
+                                selectAll: Boolean) {
 
     def build[Inp](implicit convert: AutoConvert[Inp, Input]): Inp => S[Output] = inp => {
       SM.flatMap {
@@ -193,7 +170,7 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
         }) { client =>
           val b = GetItemRequest
             .builder()
-            .key(toKeyValue(convert(inp)).asJava)
+            .key(table.keyAttributes(convert(inp)).toMap.asJava)
             .tableName(table.name)
 
           if (!selectAll) {

@@ -5,8 +5,18 @@ import java.util.UUID
 
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import io.doolse.simpledba.dynamodb.{DynamoDBEffect, DynamoDBMapper, DynamoDBPKColumn, DynamoDBTable}
+import io.doolse.simpledba.dynamodb.{
+  DynamoDBEffect,
+  DynamoDBMapper,
+  DynamoDBPKColumn,
+  DynamoDBTable
+}
 import io.doolse.simpledba.{Flushable, Iso}
+import software.amazon.awssdk.auth.credentials.{
+  AwsBasicCredentials,
+  AwsCredentialsProvider,
+  StaticCredentialsProvider
+}
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient
 import software.amazon.awssdk.services.dynamodb.model.DeleteTableRequest
@@ -18,7 +28,11 @@ trait DynamoDBTestHelper[S[_], F[_]] {
 
   lazy val localClient = {
     val builder = DynamoDbAsyncClient.builder()
-    builder.region(Region.US_EAST_1).endpointOverride(URI.create("http://localhost:8000")).build()
+    builder
+      .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create("test", "test")))
+      .region(Region.US_EAST_1)
+      .endpointOverride(URI.create("http://localhost:8000"))
+      .build()
   }
 
   def effect: DynamoDBEffect[S, F]
@@ -41,6 +55,5 @@ trait DynamoDBTestHelper[S[_], F[_]] {
       }
     } yield ()
   }
-
 
 }

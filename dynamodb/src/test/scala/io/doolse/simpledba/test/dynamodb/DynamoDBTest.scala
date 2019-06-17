@@ -10,33 +10,34 @@ case class MyTest(name: String, frogs: Int)
 trait DynamoDBTest[S[_], F[_]] extends Test[S, F] with DynamoDBTestHelper[S, F] {
 
   implicit val embedded = mapper.mapped[EmbeddedFields].embedded
-  val userLNTable       = mapper.mapped[User].table("userLN", 'lastName, 'firstName)
+  val userLNTable       = mapper.mapped[User].table("userLN").partKey('lastName).sortKey('firstName)
   val userTable =
     mapper
       .mapped[User]
-      .table("user", 'firstName, 'lastName)
+      .table("user").partKey('firstName).sortKey('lastName)
       .withLocalIndex('yearIndex, 'year)
-  val instTable = mapper.mapped[Inst].table("inst", 'uniqueid)
+  val instTable = mapper.mapped[Inst].table("inst").partKey('uniqueid)
 
   override def flusher: Flushable[S] = mapper.flusher
 
   val q = mapper.queries
   import q._
 
-  val tables = S.emits(Seq(userTable, userLNTable, instTable))
+  val tables = streamable.emits(Seq(userTable, userLNTable, instTable))
   val writeInst = writes(instTable)
   val queries = {
     implicit def M = effect.S.M
     Queries(
-      S.drain(S.evalMap(tables)(delAndCreate)),
+      streamable.drain(streamable.evalMap(tables)(delAndCreate)),
       writeInst,
       writes(userTable, userLNTable),
       f => {
         val inst = f(1L)
         flusher.flush(writeInst.insert(inst)).map(_ => inst)
       },
-      get(instTable).build,
-      queryIndex(userTable, 'yearIndex).build(true),
+      get(instTable).build[Long],
+      ???,
+//      queryIndex(userTable, 'yearIndex).build(true)[Int],
       query(userLNTable).build(false),
       get(userTable).build,
       getAttr(userTable, Cols('year)).buildAs[Username, Int],
@@ -45,7 +46,7 @@ trait DynamoDBTest[S[_], F[_]] extends Test[S, F] with DynamoDBTestHelper[S, F] 
   }
 
   val prog = for {
-    _   <- S.eval(queries.initDB)
+    _   <- streamable.eval(queries.initDB)
     res <- doTest(queries)
   } yield res
 

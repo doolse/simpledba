@@ -1,64 +1,64 @@
 package io.doolse.simpledba.dynamodb
 
 import io.doolse.simpledba.Columns
-import shapeless.labelled.FieldType
-import shapeless.ops.record.Selector
-import shapeless.{::, HList, Witness}
+import shapeless.{::, HList, HNil}
 import software.amazon.awssdk.services.dynamodb.model._
 
 import scala.collection.JavaConverters._
 
-case class NamedAttribute[A](name: String, column: DynamoDBColumn[A])
-{
-  def toValue(a: A): (String, AttributeValue) = name -> column.toAttribute(a)
+trait KeyAttribute[A] {
+  def name: String
+  def keyType: KeyType
+  def toAttribute(a: A): AttributeValue
+  def toNamedValue(a: A): (String, AttributeValue) = name -> toAttribute(a)
+  def toKeySchemaElement : KeySchemaElement =
+    KeySchemaElement.builder().attributeName(name).keyType(keyType).build()
+  def definition: AttributeDefinition
 }
 
-object NamedAttribute
-{
-  def unsafe[A](t: (String, DynamoDBColumn[_])): NamedAttribute[A] = NamedAttribute(t._1, t._2.asInstanceOf[DynamoDBColumn[A]])
+object KeyAttribute {
+  def unsafe[A](kt: KeyType, t: (String, DynamoDBColumn[_])) = apply[A](kt, t.asInstanceOf[(String, DynamoDBColumn[A])])
+
+  def apply[A](kt: KeyType, t: (String, DynamoDBColumn[A])): KeyAttribute[A] = new KeyAttribute[A] {
+    val col = t._2
+    override def name: String = t._1
+    override def keyType: KeyType = kt
+    override def toAttribute(a: A): AttributeValue = col.toAttribute(a)
+    override def definition: AttributeDefinition = col.definition(name)
+  }
+
+  def mapped[A, B](kt: KeyType, name0: String, col: DynamoDBColumn[A], toA: B => A): KeyAttribute[B] = new KeyAttribute[B] {
+    override def name: String = name0
+    override def keyType: KeyType = kt
+    override def toAttribute(a: B): AttributeValue = col.toAttribute(toA(a))
+    override def definition: AttributeDefinition = col.definition(name)
+  }
 }
 
-case class LocalIndex[IK, CR](name: String, attribute: NamedAttribute[IK], projection: Projection)
+case class LocalIndex[IK, CR](name: String, attribute: KeyAttribute[IK], projection: Projection)
 
 trait DynamoDBTable {
   type T
   type CR <: HList
-  type PK
-  type SK
   type Indexes <: HList
+  type PK
+  type FullKey
 
   def name: String
-  def pkColumn: NamedAttribute[PK]
-  def skColumn: Option[NamedAttribute[SK]]
+  def pkColumn: KeyAttribute[PK]
+  def keyColumns: Seq[KeyAttribute[_]]
   def columns: Columns[DynamoDBColumn, T, CR]
   def localIndexes: Seq[LocalIndex[_, _]]
-  def pkValue: T => PK
-  def skValue: T => Option[SK]
-
-  protected def addIndex[NewIndexes <: HList](
-      index: LocalIndex[_, _]): DynamoDBTable.Aux[T, CR, PK, SK, NewIndexes]
-
-  def withLocalIndex[S <: Symbol, CS <: Symbol, IK](name: Witness.Aux[S], column: Witness.Aux[CS])(
-      implicit kc: Selector.Aux[CR, column.T, IK],
-      dynamoDBColumn: DynamoDBColumn[IK])
-    : DynamoDBTable.Aux[T, CR, PK, SK, FieldType[S, LocalIndex[IK, CR]] :: Indexes] =
-    addIndex(
-      LocalIndex(name.value.name,
-                 NamedAttribute(column.value.name, dynamoDBColumn),
-                 Projection.builder().projectionType("ALL").build))
+  def derivedColumns: CR => Seq[(String, AttributeValue)]
+  def keyValue: T => FullKey
+  def keyAttributes: FullKey => Seq[(String, AttributeValue)]
 
   def tableDefiniton: CreateTableRequest.Builder = {
     val b = CreateTableRequest.builder()
-    def asKeySchema(kt: KeyType, keyCol: NamedAttribute[_]): KeySchemaElement =
-      KeySchemaElement.builder().attributeName(keyCol.name).keyType(kt).build()
 
-    val partitionKeySchema = asKeySchema(KeyType.HASH, pkColumn)
     b.tableName(name)
-      .attributeDefinitions((Seq(pkColumn) ++ localIndexes.map(_.attribute) ++ skColumn).map {
-        case NamedAttribute(n, c) => c.definition(n)
-      }.asJava)
-      .keySchema((Seq(partitionKeySchema) ++ skColumn
-        .map(c => asKeySchema(KeyType.RANGE, c))).asJavaCollection)
+      .attributeDefinitions((keyColumns.map(_.definition) ++ localIndexes.map(_.attribute.definition)).asJava)
+      .keySchema(keyColumns.map(_.toKeySchemaElement).asJavaCollection)
       .provisionedThroughput(
         ProvisionedThroughput
           .builder()
@@ -71,45 +71,34 @@ trait DynamoDBTable {
       sib.projection(li.projection)
       sib
         .indexName(li.name)
-        .keySchema(partitionKeySchema, asKeySchema(KeyType.RANGE, li.attribute))
+        .keySchema(keyColumns.head.toKeySchemaElement, li.attribute.toKeySchemaElement)
       sib.build()
     }
 
     if (indexDefs.nonEmpty) b.localSecondaryIndexes(indexDefs.asJavaCollection)
     b
   }
+
 }
 
-case class DynamoDBTableRepr[T0, CR0 <: HList, PK0, SK0, Indexes0 <: HList](
-    name: String,
-    pkColumn: NamedAttribute[PK0],
-    skColumn: Option[NamedAttribute[SK0]],
-    columns: Columns[DynamoDBColumn, T0, CR0],
-    localIndexes: Seq[LocalIndex[_, _]],
-    pkValue: T0 => PK0,
-    skValue: T0 => Option[SK0])
-    extends DynamoDBTable {
-  type T       = T0
-  type CR      = CR0
-  type PK      = PK0
-  type SK      = SK0
-  type Indexes = Indexes0
+trait DynamoDBSortTable extends DynamoDBTable {
+  type SK
+  override type FullKey = PK :: SK :: HNil
 
-  override protected def addIndex[NewIndexes <: HList](index: LocalIndex[_, _]) =
-    copy(localIndexes = index +: localIndexes)
+  def skColumn: KeyAttribute[SK]
 }
 
 object DynamoDBTable {
 
-  type SameT[T0]  = DynamoDBTable {
+  type SameT[T0] = DynamoDBTable {
     type T = T0
   }
 
-  type Aux[T0, CR0, PK0, SK0, Indexes0] = DynamoDBTable {
-    type T       = T0
-    type CR      = CR0
-    type PK      = PK0
-    type SK      = SK0
-    type Indexes = Indexes0
+  type FullKey[FullKey0] = DynamoDBTable {
+    type FullKey = FullKey0
+  }
+
+  type PK[PK0] = DynamoDBTable {
+    type PK = PK0
   }
 }
