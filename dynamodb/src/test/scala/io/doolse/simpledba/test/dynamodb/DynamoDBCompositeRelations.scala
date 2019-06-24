@@ -27,7 +27,7 @@ object DynamoDBCompositeRelations extends CompositeRelations[Stream[Throwable, ?
     import mapper.queries._
     val table = mapper.mapped[Composite3].table("composite3").partKeys(Cols('pkInt, 'pkString, 'pkBool))
     run(delAndCreate(table))
-    Queries3[S, Task](writes(table), get(table).build, Stream.empty)
+    Queries3[S, Task](writes(table), get(table).build[(Int, String, Boolean)], Stream.empty)
   }
 
 }

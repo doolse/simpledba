@@ -47,7 +47,7 @@ object DynamoDBExpression {
 
   def keyExpression(pkName: String,
                         pkValue: AttributeValue,
-                        sk: Option[(String, SortKeyOperator, Seq[AttributeValue])]): Expr[String] =
+                        sk: Option[(String, SortKeyOperator, AttributeValue)]): Expr[String] =
     for {
       pkVal        <- newValue("pk", pkValue)
       pkNameString <- newAttr(pkName)

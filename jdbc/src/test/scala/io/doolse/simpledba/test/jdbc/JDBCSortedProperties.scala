@@ -31,13 +31,11 @@ object JDBCSortedProperties extends SimpleDBAProperties("JDBC") {
           sameQuery.orderBy('stringField, asc).build,
           sameQuery.orderWith(('stringField ->> asc) :: ('shortField ->> asc) :: HNil).build,
           sameQuery.orderBy('shortField, asc).build,
-          sameQuery.orderWith(('shortField ->> asc) :: ('doubleField ->> asc) :: HNil).build,
+          sameQuery.orderWith(('shortField ->> asc) :: ('uuidField ->> asc) :: HNil).build,
           sameQuery.orderBy('longField, asc).build,
           sameQuery.orderWith(('longField ->> asc) :: ('floatField ->> asc) :: HNil).build,
           sameQuery.orderBy('floatField, asc).build,
           sameQuery.orderWith(('floatField ->> asc) :: ('uuidField ->> asc) :: HNil).build,
-          sameQuery.orderBy('doubleField, asc).build,
-          sameQuery.orderWith(('doubleField ->> asc) :: ('intField ->> asc) :: HNil).build,
           sameQuery.orderBy('uuidField, asc).build,
           sameQuery.orderWith(('uuidField ->> asc) :: ('longField ->> asc) :: HNil).build
         )

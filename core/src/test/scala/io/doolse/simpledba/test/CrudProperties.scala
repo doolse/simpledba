@@ -13,8 +13,8 @@ import io.doolse.simpledba.syntax._
 trait CrudProperties[S[_], F[_]] {
 
   def streamable: Streamable[S, F]
-  implicit def SM = streamable.SM
-  implicit def M: Monad[F] = streamable.M
+  def SM = streamable.SM
+  def M: Monad[F] = streamable.M
   def flushable: Flushable[S]
   def run[A](f: F[A]): A
   def flushed(s: S[WriteOp]): F[Unit] = streamable.drain(flushable.flush(s))
@@ -26,6 +26,8 @@ trait CrudProperties[S[_], F[_]] {
                                  genUpdate: Gen[(A, A)]) = {
     implicit def runProp(fa: F[Prop]): Prop = run(fa)
 
+    implicit val MV = M
+    implicit val SMV = SM
     new Properties("CRUD ops") {
       val countAll = (a: A) => streamable.toVector(findAll(a)).map(_.count(a.==))
 

@@ -54,5 +54,4 @@ trait JDBCProperties[S[_], F[_]] {
   }
 
   def run[A](fa: F[A]): A
-
 }

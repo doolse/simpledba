@@ -45,11 +45,8 @@ object JDBCExpressionProperties
       opf(f(t), compare)
     }
 
-  def uniqueify(rows: Seq[SimpleTable], f: SimpleTable => Any) =
-    rows.map(t => f(t) -> t).toMap.values.toSeq
-
   def insertData(rows: Seq[SimpleTable]): Task[Seq[SimpleTable]] = {
-    val dupesRemoved = uniqueify(rows, _.id)
+    val dupesRemoved = uniqueify[SimpleTable](rows, _.id)
     flushable
       .flush(streamable
         .emit(sqlQueries.rawSQL(sqlQueries.dialect.truncateTable(simpleTable.definition))) ++ writer
@@ -158,7 +155,7 @@ object JDBCExpressionProperties
     rawRows =>
       run {
         for {
-          rows <- insertData(uniqueify(rawRows, _.value1))
+          rows <- insertData(uniqueify[SimpleTable](rawRows, _.value1))
           fromDB <- sqlQueries
             .query(simpleTable)
             .whereIn('value1)
@@ -176,7 +173,7 @@ object JDBCExpressionProperties
                                       arbitrary[Int]) { (rawRows, op, compareInt) =>
     run {
       for {
-        rows <- insertData(uniqueify(rawRows, _.value2))
+        rows <- insertData(uniqueify[SimpleTable](rawRows, _.value2))
         fromDB <- sqlQueries
           .query(simpleTable)
           .where('value1, op)

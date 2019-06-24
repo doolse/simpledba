@@ -1,18 +1,29 @@
 package io.doolse.simpledba.dynamodb
 
 import java.io.{ByteArrayOutputStream, DataOutputStream}
+import java.util.UUID
 
 import shapeless._
 import shapeless.HNil
+import software.amazon.awssdk.core.SdkBytes
 
-trait CompositeKeyBuilder[A] {
+trait CompositeKeyBuilder[A] { self =>
   def apply(a: A, append: DataOutputStream): Unit
+  def cmap[B](f: B => A): CompositeKeyBuilder[B] = new CompositeKeyBuilder[B] {
+    override def apply(a: B, append: DataOutputStream): Unit = self.apply(f(a), append)
+  }
 }
 
 object CompositeKeyBuilder
 {
+  def toSdkBytes[A](a: A)(implicit keyBuilder: CompositeKeyBuilder[A]): SdkBytes = {
+    val baos = new ByteArrayOutputStream()
+    keyBuilder.apply(a, new DataOutputStream(baos))
+    SdkBytes.fromByteArray(baos.toByteArray)
+  }
+
   implicit def intComposite: CompositeKeyBuilder[Int] = (a: Int, append: DataOutputStream) => {
-    append.writeInt(a)
+    append.writeLong(a.toLong + Int.MaxValue + 1)
   }
 
   implicit def boolComposite: CompositeKeyBuilder[Boolean] = (a: Boolean, append: DataOutputStream) => append.writeBoolean(a)
@@ -25,6 +36,11 @@ object CompositeKeyBuilder
     append.writeLong(a)
   }
 
+  implicit def uuidComposite: CompositeKeyBuilder[UUID] = (a: UUID, append: DataOutputStream) => {
+    append.writeLong(a.getMostSignificantBits)
+    append.writeLong(a.getLeastSignificantBits)
+  }
+
   implicit def hnilBuilder : CompositeKeyBuilder[HNil] = (a: HNil, append: DataOutputStream) => {}
 
   implicit def hconsBuilder[H, T <: HList](implicit head: CompositeKeyBuilder[H], tail: CompositeKeyBuilder[T]) : CompositeKeyBuilder[H :: T] = new CompositeKeyBuilder[H :: T] {
@@ -33,4 +49,7 @@ object CompositeKeyBuilder
       tail.apply(a.tail, append)
     }
   }
+
+  implicit def genBuilder[A, Repr <: HList](implicit gen: Generic.Aux[A, Repr], keyGen: CompositeKeyBuilder[Repr]) : CompositeKeyBuilder[A] =
+    keyGen.cmap(gen.to)
 }

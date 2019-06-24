@@ -34,7 +34,7 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
         val b = PutItemRequest.builder()
         b.tableName(table.name)
         val itemRec = table.columns.iso.to(t)
-        b.item((table.columns.mapRecord(itemRec, AttributeMapper) ++ table.derivedColumns(itemRec)).toMap.asJava)
+        b.item((table.columns.mapRecord(itemRec, AttributeMapper) ++ table.derivedColumns(t, itemRec)).toMap.asJava)
         PutItem(b.build())
       }
 
@@ -96,35 +96,47 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
       false
     )
 
-  def query(table: DynamoDBSortTable): QueryBuilder[table.T, table.CR, table.PK, table.SK] = {
-    QueryBuilder(table, table.columns, None)
+  def query(table: DynamoDBSortTable): QueryBuilder[table.T, table.CR, table.PK] = {
+    QueryBuilder(table, table.columns, {
+      val pkCol = table.pkColumn
+      pk => DynamoDBExpression.keyExpression(pkCol.name, pkCol.toAttribute(pk), None)
+    }, None)
+  }
+
+  def queryOp(table: DynamoDBSortTable, sortOp: SortKeyOperator): QueryBuilder[table.T, table.CR, table.FullKey] = {
+    QueryBuilder(table, table.columns, {
+      val pkCol = table.pkColumn
+      val skCol = table.skColumn
+      k => DynamoDBExpression.keyExpression(pkCol.name, pkCol.toAttribute(k.head),
+          Some((skCol.name, sortOp, skCol.toAttribute(k.tail.head))))
+    }, None)
   }
 
   def queryIndex(table: DynamoDBTable, indexName: Witness)(
       implicit selIndex: Selector[table.Indexes, indexName.T],
-      ev: indexName.T <:< Symbol): QueryBuilder[table.T, table.CR, table.PK, selIndex.Out] = {
+      ev: indexName.T <:< Symbol): QueryBuilder[table.T, table.CR, table.PK] = {
     val indexString = indexName.value.name
     QueryBuilder(table,
-                 table.columns,
+                 table.columns, ???,
                  table.localIndexes
                    .find(_.name == indexString)
-                   .asInstanceOf[Option[LocalIndex[selIndex.Out]]])
+                   )
   }
 
-  case class QueryBuilder[T, CR <: HList, PK, SK](table: DynamoDBTable.PK[PK],
-                                              selectCol: ColumnRetriever[DynamoDBColumn, String, T],
-                                              index: Option[LocalIndex[SK]]) {
 
-    private def query(asc: Boolean, pk: PK): QueryRequest.Builder = {
+  case class QueryBuilder[T, CR <: HList, KeyInp](table: DynamoDBTable,
+                                              selectCol: ColumnRetriever[DynamoDBColumn, String, T],
+                                                  keyExpr: KeyInp => DynamoDBExpression.Expr[String],
+                                              index: Option[LocalIndex[_]]) {
+
+    private def query(asc: Boolean, keyInp: KeyInp): QueryRequest.Builder = {
       val qb = QueryRequest.builder().tableName(table.name)
       index.foreach(li => qb.indexName(li.name))
-      val pkCol = table.pkColumn
-      val (ExprState(names, vals), expr) = DynamoDBExpression
-        .keyExpression(pkCol.name, pkCol.toAttribute(pk), None)
+      val (ExprState(names, vals), expr) = keyExpr(keyInp)
         .run(ExprState(Map.empty, Map.empty))
         .value
       qb.keyConditionExpression(expr)
-      qb.scanIndexForward(!asc)
+      qb.scanIndexForward(asc)
       if (names.nonEmpty)
         qb.expressionAttributeNames(names.asJava)
       if (vals.nonEmpty) qb.expressionAttributeValues(vals.asJava)
@@ -138,11 +150,11 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
         }
       }
 
-    def count[Inp](implicit convert: AutoConvert[Inp, PK]): Inp => S[Int] = inp => {
+    def count[Inp](implicit convert: AutoConvert[Inp, KeyInp]): Inp => S[Int] = inp => {
       S.SM.map(responseStream(query(true, convert(inp))))(r => r.scannedCount())
     }
 
-    def build[Inp](asc: Boolean)(implicit convert: AutoConvert[Inp, PK]): Inp => S[T] =
+    def build[Inp](asc: Boolean)(implicit convert: AutoConvert[Inp, KeyInp]): Inp => S[T] =
       inp => {
         SM.flatMap(responseStream(query(asc, convert(inp)))) { response =>
           SM.flatMap(S.emits(response.items().asScala)) { attrsJ =>

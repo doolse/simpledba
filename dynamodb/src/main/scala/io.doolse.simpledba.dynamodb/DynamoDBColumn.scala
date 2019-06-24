@@ -32,6 +32,8 @@ object DynamoDBPKColumn {
   implicit val stringKey = new DynamoDBPKColumn[String]
   implicit val intKey    = new DynamoDBPKColumn[Int]
   implicit val longKey   = new DynamoDBPKColumn[Long]
+  implicit val shortKey   = new DynamoDBPKColumn[Short]
+  implicit val bytesKey   = new DynamoDBPKColumn[SdkBytes]
 }
 
 case class ScalarDynamoDBColumn[A](fromAttr: AttributeValue => A,
@@ -84,8 +86,11 @@ object DynamoDBColumn {
     }
   }
 
+  implicit def shortCol: DynamoDBColumn[Short] = numberColumn[Short](_.toShort)
   implicit def intCol: DynamoDBColumn[Int]   = numberColumn[Int](_.toInt)
   implicit def longCol: DynamoDBColumn[Long] = numberColumn[Long](_.toLong)
+  implicit def floatCol: DynamoDBColumn[Float] = numberColumn[Float](_.toFloat)
+  implicit def doubleCol: DynamoDBColumn[Double] = numberColumn[Double](_.toDouble)
 
   implicit def bytesCol: DynamoDBColumn[SdkBytes] =
     ScalarDynamoDBColumn[SdkBytes](_.b(), ScalarAttributeType.B, (a, b) => b.b(a))

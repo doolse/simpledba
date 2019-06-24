@@ -8,4 +8,8 @@ import org.scalacheck.{Arbitrary, Gen, Properties}
 abstract class SimpleDBAProperties(name: String) extends Properties(name) {
   implicit def arbUUID = Arbitrary(Gen.uuid)
 
+  def uniqueify[A](rows: Seq[A], f: A => Any): Seq[A] =
+    rows.map(t => f(t) -> t).toMap.values.toSeq
+
+
 }

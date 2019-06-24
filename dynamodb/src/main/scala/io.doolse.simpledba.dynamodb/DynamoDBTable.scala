@@ -49,7 +49,7 @@ trait DynamoDBTable {
   def keyColumns: Seq[KeyAttribute[_]]
   def columns: Columns[DynamoDBColumn, T, CR]
   def localIndexes: Seq[LocalIndex[_]]
-  def derivedColumns: CR => Seq[(String, AttributeValue)]
+  def derivedColumns: (T, CR) => Seq[(String, AttributeValue)]
   def keyValue: T => FullKey
   def keyAttributes: FullKey => Seq[(String, AttributeValue)]
 
@@ -86,6 +86,15 @@ trait DynamoDBSortTable extends DynamoDBTable {
   override type FullKey = PK :: SK :: HNil
 
   def skColumn: KeyAttribute[SK]
+}
+
+object DynamoDBSortTable
+{
+  type Aux[T0, PK0, SK0] = DynamoDBSortTable {
+    type PK = PK0
+    type SK = SK0
+    type T = T0
+  }
 }
 
 object DynamoDBTable {
