@@ -1,6 +1,7 @@
 package io.doolse.simpledba.dynamodb
 
 import java.io.{ByteArrayOutputStream, DataOutputStream}
+import java.nio.charset.{Charset, StandardCharsets}
 import java.util.UUID
 
 import shapeless._
@@ -23,13 +24,14 @@ object CompositeKeyBuilder
   }
 
   implicit def intComposite: CompositeKeyBuilder[Int] = (a: Int, append: DataOutputStream) => {
-    append.writeLong(a.toLong + Int.MaxValue + 1)
+    append.writeInt(a + Int.MaxValue + 1)
   }
 
   implicit def boolComposite: CompositeKeyBuilder[Boolean] = (a: Boolean, append: DataOutputStream) => append.writeBoolean(a)
 
   implicit def stringComposite: CompositeKeyBuilder[String] = (a: String, append: DataOutputStream) => {
-    append.writeUTF(a)
+    append.write(a.getBytes(StandardCharsets.UTF_8))
+    append.writeByte(0x00);
   }
 
   implicit def longComposite: CompositeKeyBuilder[Long] = (a: Long, append: DataOutputStream) => {

@@ -11,14 +11,10 @@ object SafeString {
   implicit val arbSafeString : Arbitrary[SafeString] = Arbitrary {
     for {
       s <- Arbitrary.arbitrary[String]
-    } yield {
-      val noNul = s.filterNot(_ == 0)
-      SafeString(if (noNul.nonEmpty) noNul else "-")
-    }
+    } yield SafeString(s)
   }
   implicit val ordSS : Ordering[SafeString] = Ordering.by(_.s)
+  def apply(s: String): SafeString = new SafeString(if (s.isEmpty) "-" else s)
 }
 
-case class SafeString(s: String) {
-  override def toString = s"($s)-${s.length}"
-}
+case class SafeString(s: String)

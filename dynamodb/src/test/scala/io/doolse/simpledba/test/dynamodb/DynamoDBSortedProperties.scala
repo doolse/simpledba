@@ -50,16 +50,17 @@ object DynamoDBSortedProperties extends SimpleDBAProperties("DynamoDB") {
       implicit val safeStringComposite = CompositeKeyBuilder.stringComposite.cmap[SafeString](_.s)
 
       val int1Table = table(baseTable.derivedSortKey(s => CompositeKeyBuilder.toSdkBytes(s.intField -> s.pk1)))
-      val int2Table = table(baseTable.derivedSortKey(s => CompositeKeyBuilder.toSdkBytes((s.intField, s.stringField, s.pk1))))
+      val int2Table = table(baseTable.derivedSortKey {
+        s =>
+          val b = CompositeKeyBuilder.toSdkBytes((s.intField, s.stringField, s.pk1))
+//          println(s"$b ${s.intField} ${s.stringField} ${s.pk1}")
+          b
+      })
 
 
       def mkQueries(asc: Boolean): Queries = {
         val q = mapper.queries
         import q._
-//        def prefixQuery(table: DynamoDBSortTable.Aux[Sortable, UUID, String]) : UUID => S[Sortable] = {
-//          val q = queryOp(table, BEGINS_WITH).build(asc)
-//          sameUuid =>
-//        }
         Queries(
           writes(tables: _*),
           Stream.empty,

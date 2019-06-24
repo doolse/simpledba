@@ -43,17 +43,13 @@ abstract class SortedQueryProperties[S[_], F[_]: Monad]
 
   val queries: (Queries, Queries)
 
-  val uuidTextSort = new Ordering[UUID] {
-    def compare(x: UUID, y: UUID): Int = x.toString.compareTo(y.toString)
-  }
-
-  val genSimple : Gen[Sortable] = for {
-    id     <- arbitrary[UUID]
-    intField <- arbitrary[Int]
-    shortField <- arbitrary[Short]
+  val genSimple: Gen[Sortable] = for {
+    id          <- arbitrary[UUID]
+    intField    <- arbitrary[Int]
+    shortField  <- arbitrary[Short]
     stringField <- Gen.alphaNumStr
-    longField <- arbitrary[Long]
-    floatField <- arbitrary[Float]
+    longField   <- arbitrary[Long]
+    floatField  <- arbitrary[Float]
   } yield Sortable(id, id, intField, SafeString(stringField), shortField, longField, floatField, id)
 
   implicit val shrinkSortable = Shrink[Sortable](_ => scala.Stream.empty)
@@ -62,8 +58,8 @@ abstract class SortedQueryProperties[S[_], F[_]: Monad]
       implicit val o: Ordering[A])
 
   def checkOrder[A](same: UUID, v: Seq[Sortable], sortQ: Seq[(String, OrderQuery[_])]) = {
-    val vSame = uniqueify[Sortable](v.map(_.copy(same = same)), _.pk1).toVector
-    val S = streamable
+    val vSame       = uniqueify[Sortable](v.map(_.copy(same = same)), _.pk1).toVector
+    val S           = streamable
     implicit val SM = S.SM
     for {
       _ <- flushed(S.append(queries._1.truncate, queries._1.writes.insertAll(S.emits(vSame))))
@@ -101,13 +97,19 @@ abstract class SortedQueryProperties[S[_], F[_]: Monad]
                ))
   }
 
+  val uuidTextSort = new Ordering[UUID] {
+    def compare(x: UUID, y: UUID): Int = x.toString.compareTo(y.toString)
+  }
+
   property("Sorted by short") = forAll(Gen.listOf(genSimple)) { l: List[Sortable] =>
     checkOrder(UUID.randomUUID,
                l,
                Seq(
-                 "short only"       -> OrderQuery(_.shortField, _.short1),
-                 "short and uuid" -> OrderQuery(s => (s.shortField, s.uuidField), _.short2)
-               ))
+                 "short only"     -> OrderQuery(_.shortField, _.short1),
+                 "short and uuid" -> OrderQuery(s => (s.shortField, s.uuidField), _.short2)(
+                   Ordering.Tuple2(implicitly[Ordering[Short]], uuidTextSort))
+               )
+               )
   }
 
   property("Sorted by long") = forAll(Gen.listOf(genSimple)) { l: List[Sortable] =>
@@ -139,6 +141,5 @@ abstract class SortedQueryProperties[S[_], F[_]: Monad]
       )
     )
   }
-
 
 }
