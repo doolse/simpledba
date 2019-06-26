@@ -24,8 +24,6 @@ object JDBCSortedProperties extends SimpleDBAProperties("JDBC") {
 
       def makeQueries(asc: Boolean) = {
         Queries(
-          sortWrites,
-          truncate,
           sameQuery.orderBy('intField, asc).build,
           sameQuery.orderWith(('intField ->> asc) :: ('stringField ->> asc) :: HNil).build,
           sameQuery.orderBy('stringField, asc).build,
@@ -37,7 +35,9 @@ object JDBCSortedProperties extends SimpleDBAProperties("JDBC") {
           sameQuery.orderBy('floatField, asc).build,
           sameQuery.orderWith(('floatField ->> asc) :: ('uuidField ->> asc) :: HNil).build,
           sameQuery.orderBy('uuidField, asc).build,
-          sameQuery.orderWith(('uuidField ->> asc) :: ('longField ->> asc) :: HNil).build
+          sameQuery.orderWith(('uuidField ->> asc) :: ('longField ->> asc) :: HNil).build,
+          sortWrites,
+          truncate
         )
       }
       (makeQueries(true), makeQueries(false))

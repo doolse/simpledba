@@ -26,9 +26,7 @@ case class Sortable(pk1: UUID,
 abstract class SortedQueryProperties[S[_], F[_]: Monad]
     extends AbstractRelationsProperties[S, F]("Sorting") {
 
-  case class Queries(writes: WriteQueries[S, F, Sortable],
-                     truncate: S[WriteOp],
-                     int1: UUID => S[Sortable],
+  case class Queries(int1: UUID => S[Sortable],
                      int2: UUID => S[Sortable],
                      string1: UUID => S[Sortable],
                      string2: UUID => S[Sortable],
@@ -39,7 +37,10 @@ abstract class SortedQueryProperties[S[_], F[_]: Monad]
                      float1: UUID => S[Sortable],
                      float2: UUID => S[Sortable],
                      uuid1: UUID => S[Sortable],
-                     uuid2: UUID => S[Sortable])
+                     uuid2: UUID => S[Sortable],
+                     writes: WriteQueries[S, F, Sortable],
+                     truncate: S[WriteOp],
+                    )
 
   val queries: (Queries, Queries)
 
@@ -79,7 +80,9 @@ abstract class SortedQueryProperties[S[_], F[_]: Monad]
     } yield Prop.all(p: _*)
   }
 
-  property("Sorted by int") = forAll(Gen.listOf(genSimple)) { l: List[Sortable] =>
+  val genSortables = Gen.listOfN(10, genSimple)
+
+  property("Sorted by int") = forAll(genSortables) { l: List[Sortable] =>
     checkOrder(UUID.randomUUID,
                l,
                Seq(
@@ -88,7 +91,7 @@ abstract class SortedQueryProperties[S[_], F[_]: Monad]
                ))
   }
 
-  property("Sorted by string") = forAll(Gen.listOf(genSimple)) { l: List[Sortable] =>
+  property("Sorted by string") = forAll(genSortables) { l: List[Sortable] =>
     checkOrder(UUID.randomUUID,
                l,
                Seq(
@@ -101,7 +104,7 @@ abstract class SortedQueryProperties[S[_], F[_]: Monad]
     def compare(x: UUID, y: UUID): Int = x.toString.compareTo(y.toString)
   }
 
-  property("Sorted by short") = forAll(Gen.listOf(genSimple)) { l: List[Sortable] =>
+  property("Sorted by short") = forAll(genSortables) { l: List[Sortable] =>
     checkOrder(UUID.randomUUID,
                l,
                Seq(
@@ -112,7 +115,7 @@ abstract class SortedQueryProperties[S[_], F[_]: Monad]
                )
   }
 
-  property("Sorted by long") = forAll(Gen.listOf(genSimple)) { l: List[Sortable] =>
+  property("Sorted by long") = forAll(genSortables) { l: List[Sortable] =>
     checkOrder(UUID.randomUUID,
                l,
                Seq(
@@ -121,7 +124,7 @@ abstract class SortedQueryProperties[S[_], F[_]: Monad]
                ))
   }
 
-  property("Sorted by float") = forAll(Gen.listOf(genSimple)) { l: List[Sortable] =>
+  property("Sorted by float") = forAll(genSortables) { l: List[Sortable] =>
     checkOrder(UUID.randomUUID,
                l,
                Seq(
@@ -130,7 +133,7 @@ abstract class SortedQueryProperties[S[_], F[_]: Monad]
                ))
   }
 
-  property("Sorted by uuid") = forAll(Gen.listOf(genSimple)) { l: List[Sortable] =>
+  property("Sorted by uuid") = forAll(genSortables) { l: List[Sortable] =>
     checkOrder(
       UUID.randomUUID,
       l,

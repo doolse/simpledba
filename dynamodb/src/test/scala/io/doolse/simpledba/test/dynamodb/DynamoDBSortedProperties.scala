@@ -2,20 +2,19 @@ package io.doolse.simpledba.test.dynamodb
 
 import java.util.UUID
 
-import io.doolse.simpledba.Cols
-import io.doolse.simpledba.dynamodb.{BEGINS_WITH, CompositeKeyBuilder, DynamoDBEffect, DynamoDBSortTable, DynamoDBTable, FullKeyTable}
+import cats.instances.vector._
+import cats.syntax.foldable._
+import io.doolse.simpledba.dynamodb.{BinaryKey, DynamoDBEffect, DynamoDBSortTable, DynamoDBTable, FullKeyTable}
 import io.doolse.simpledba.test.zio.ZIOProperties
 import io.doolse.simpledba.test.{SafeString, SimpleDBAProperties, Sortable, SortedQueryProperties}
-import zio.{Task, ZIO}
-import zio.stream._
-import org.scalacheck.Shapeless._
 import io.doolse.simpledba.zio._
 import shapeless._
-import cats.syntax.foldable._
-import cats.instances.vector._
+import software.amazon.awssdk.core.SdkBytes
+import zio.interop.catz._
+import zio.stream._
+import zio.{Task, ZIO}
 
 import scala.collection.mutable
-import zio.interop.catz._
 
 //case class Sortable(pk1: UUID,
 //                    same: UUID,
@@ -41,59 +40,50 @@ object DynamoDBSortedProperties extends SimpleDBAProperties("DynamoDB") {
 
       val tables = mutable.Buffer[DynamoDBTable.SameT[Sortable]]()
 
-      def table[A](t: A)(implicit ev: A <:< FullKeyTable[Sortable, _ <: HList, _, _, _]): A = {
-        val newt = t.copy(name = "sort_" + tables.size)
+      def table(f: Sortable => SdkBytes) = {
+        val newt = baseTable.derivedSortKey(f).copy(name = "sort_" + tables.size)
         tables += newt
-        newt.asInstanceOf[A]
+        newt
       }
 
-      implicit val safeStringComposite = CompositeKeyBuilder.stringComposite.cmap[SafeString](_.s)
+      implicit val safeStringKey = BinaryKey.stringBinaryKey.cmap[SafeString](_.s)
 
-      val int1Table = table(baseTable.derivedSortKey(s => CompositeKeyBuilder.toSdkBytes(s.intField -> s.pk1)))
-      val int2Table = table(baseTable.derivedSortKey {
-        s =>
-          val b = CompositeKeyBuilder.toSdkBytes((s.intField, s.stringField, s.pk1))
-//          println(s"$b ${s.intField} ${s.stringField} ${s.pk1}")
-          b
-      })
-
+      val int1 = table(s => BinaryKey(s.intField -> s.pk1))
+      val int2 = table(s => BinaryKey((s.intField, s.stringField, s.pk1)))
+      val string1 = table(s => BinaryKey(s.stringField -> s.pk1))
+      val string2 = table(s => BinaryKey((s.stringField, s.shortField, s.pk1)))
+      val short1 = table(s => BinaryKey(s.shortField -> s.pk1))
+      val short2 = table(s => BinaryKey((s.shortField, s.uuidField, s.pk1)))
+      val long1 = table(s => BinaryKey(s.longField -> s.pk1))
+      val long2 = table(s => BinaryKey((s.longField, s.floatField, s.pk1)))
+      val float1 = table(s => BinaryKey(s.floatField -> s.pk1))
+      val float2 = table(s => BinaryKey((s.floatField, s.uuidField, s.pk1)))
+      val uuid1 = table(s => BinaryKey(s.uuidField -> s.pk1))
+      val uuid2 = table(s => BinaryKey((s.uuidField, s.uuidField, s.pk1)))
 
       def mkQueries(asc: Boolean): Queries = {
         val q = mapper.queries
-        import q._
+
+        def query(t: DynamoDBSortTable.Aux[Sortable, UUID, _]) =
+          q.query(t).build[UUID](asc)
+
         Queries(
-          writes(tables: _*),
-          Stream.empty,
-          query(int1Table).build[UUID](asc),
-          query(int2Table).build[UUID](asc),
-          _ => ???,
-          _ => ???,
-          _ => ???,
-          _ => ???,
-          _ => ???,
-          _ => ???,
-          _ => ???,
-          _ => ???,
-          _ => ???,
-          _ => ???
+          query(int1),
+          query(int2),
+          query(string1),
+          query(string2),
+          query(short1),
+          query(short2),
+          query(long1),
+          query(long2),
+          query(float1),
+          query(float2),
+          query(uuid1),
+          query(uuid2),
+          q.writes(tables: _*),
+          Stream.empty
         )
       }
-//    case class Queries(writes: WriteQueries[S, F, Sortable],
-//                       truncate: S[WriteOp],
-//                       int1: UUID => S[Sortable],
-//                       int2: UUID => S[Sortable],
-//                       string1: UUID => S[Sortable],
-//                       string2: UUID => S[Sortable],
-//                       short1: UUID => S[Sortable],
-//                       short2: UUID => S[Sortable],
-//                       long1: UUID => S[Sortable],
-//                       long2: UUID => S[Sortable],
-//                       float1: UUID => S[Sortable],
-//                       float2: UUID => S[Sortable],
-//                       double1: UUID => S[Sortable],
-//                       double2: UUID => S[Sortable],
-//                       uuid1: UUID => S[Sortable],
-//                       uuid2: UUID => S[Sortable])
 
       override val queries: (Queries, Queries) = {
         run(tables.toVector.traverse_(delAndCreate))
