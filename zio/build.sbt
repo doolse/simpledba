@@ -1,7 +1,13 @@
-val ZioVersion = "1.0.0-RC8-12"
+val ZioVersion = "1.0.0-RC9"
+val ZioJava = "1.1.0-RC1"
+val ZioCats = "1.3.1.0-RC2"
 val ZioGroup = "dev.zio"
 
 libraryDependencies ++= Seq("zio",
                             "zio-streams",
-                            "zio-interop-cats",
-                            "zio-interop-java").map(ZioGroup %% _ % ZioVersion)
+                            ).map(ZioGroup %% _ % ZioVersion)
+
+libraryDependencies ++= Seq(
+  ZioGroup %% "zio-interop-cats" % ZioCats,
+  ZioGroup %% "zio-interop-java" % ZioJava
+)

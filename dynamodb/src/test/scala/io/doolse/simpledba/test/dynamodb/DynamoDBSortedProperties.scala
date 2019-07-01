@@ -7,7 +7,6 @@ import cats.syntax.foldable._
 import io.doolse.simpledba.dynamodb.{BinaryKey, DynamoDBEffect, DynamoDBSortTable, DynamoDBTable, FullKeyTable}
 import io.doolse.simpledba.test.zio.ZIOProperties
 import io.doolse.simpledba.test.{SafeString, SimpleDBAProperties, Sortable, SortedQueryProperties}
-import io.doolse.simpledba.zio._
 import shapeless._
 import software.amazon.awssdk.core.SdkBytes
 import zio.interop.catz._
@@ -15,16 +14,8 @@ import zio.stream._
 import zio.{Task, ZIO}
 
 import scala.collection.mutable
+import io.doolse.simpledba.interop.zio._
 
-//case class Sortable(pk1: UUID,
-//                    same: UUID,
-//                    intField: Int,
-//                    stringField: SafeString,
-//                    shortField: Short,
-//                    longField: Long,
-//                    floatField: Float,
-//                    doubleField: Double,
-//                    uuidField: UUID)
 object DynamoDBSortedProperties extends SimpleDBAProperties("DynamoDB") {
 
   type S[A] = Stream[Throwable, A]

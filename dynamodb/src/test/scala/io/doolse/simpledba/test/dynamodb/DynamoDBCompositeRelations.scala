@@ -7,10 +7,10 @@ import io.doolse.simpledba.dynamodb.DynamoDBEffect
 import io.doolse.simpledba.test.CompositeRelations
 import io.doolse.simpledba.test.CompositeRelations.{Composite2, Composite3, Queries2, Queries3}
 import io.doolse.simpledba.test.zio.ZIOProperties
-import io.doolse.simpledba.zio._
 import zio.stream._
 import zio.{Task, ZIO}
 import zio.interop.catz._
+import io.doolse.simpledba.interop.zio._
 
 object DynamoDBCompositeRelations extends CompositeRelations[Stream[Throwable, ?], Task]("DynamoDB Composite")
   with ZIOProperties with DynamoDBTestHelper[Stream[Throwable, ?], Task] {

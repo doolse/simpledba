@@ -5,7 +5,7 @@ import io.doolse.simpledba.test.zio.ZIOProperties
 import zio.console._
 import zio.{App, Task, ZIO}
 import zio.stream.{Stream, ZSink}
-import io.doolse.simpledba.zio._
+import io.doolse.simpledba.interop.zio._
 
 object DynamoDBZIOTest extends App with DynamoDBTest[Stream[Throwable, ?], Task] with ZIOProperties {
   override def effect = DynamoDBEffect[Stream[Throwable, ?], Task](ZIO.succeed(localClient))

@@ -1,4 +1,4 @@
-package io.doolse.simpledba
+package io.doolse.simpledba.interop
 
 import java.util.concurrent.CompletableFuture
 
@@ -7,6 +7,7 @@ import _root_.zio.interop.javaconcurrent._
 import _root_.zio.stream._
 import _root_.zio.{Task, TaskR, ZIO}
 import cats.Monad
+import io.doolse.simpledba.{JavaEffects, Streamable}
 
 package object zio {
 

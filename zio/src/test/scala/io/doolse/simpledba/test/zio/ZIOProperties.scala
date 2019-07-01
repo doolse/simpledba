@@ -4,8 +4,8 @@ import cats.effect.Sync
 import io.doolse.simpledba.{JavaEffects, Streamable}
 import zio.stream._
 import zio.{DefaultRuntime, Task}
-import io.doolse.simpledba.zio._
 import zio.interop.catz._
+import io.doolse.simpledba.interop.zio._
 
 trait ZIOProperties {
   type S[A] = Stream[Throwable, A]

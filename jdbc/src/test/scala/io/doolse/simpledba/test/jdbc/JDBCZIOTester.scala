@@ -5,12 +5,12 @@ import java.sql.Connection
 import io.doolse.simpledba.Cols
 import io.doolse.simpledba.jdbc._
 import io.doolse.simpledba.test.Test
-import io.doolse.simpledba.zio._
 import zio.interop.catz._
 import zio.stream.ZStream
 import zio.{Task, ZIO}
 import shapeless.HList
 import shapeless.syntax.singleton._
+import io.doolse.simpledba.interop.zio._
 
 trait JDBCZIOTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[ZStream[Any, Throwable, ?], Task] {
 
