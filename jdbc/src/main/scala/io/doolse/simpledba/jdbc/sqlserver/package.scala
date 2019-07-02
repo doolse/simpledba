@@ -105,7 +105,7 @@ package object sqlserver {
         val fullRec   = table.allColumns.iso.to(f(sampleValue.v))
         val sscols    = table.allColumns.subset(withoutKeys)
         val keyCols   = table.keyColumns.columns
-        val colValues = sscols.mapRecord(sscols.from(fullRec), BindValues)
+        val colValues = sscols.mapRecord(sscols.from(fullRec), BindNamedValues)
         val colBindings = colValues.map { bc =>
           bc.name -> Parameter(bc.column.columnType)
         }

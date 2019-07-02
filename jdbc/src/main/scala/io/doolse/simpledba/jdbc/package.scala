@@ -12,8 +12,6 @@ package object jdbc {
 
   type ParamBinder = (Int, Connection, PreparedStatement) => Unit
 
-  type JDBCIO[A] = StateT[IO, Connection, A]
-
   def connectionFromConfig(config: Config = ConfigFactory.load()): Connection = {
     val jdbcConfig = config.getConfig("simpledba.jdbc")
     val jdbcUrl    = jdbcConfig.getString("url")

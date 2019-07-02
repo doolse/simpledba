@@ -66,7 +66,7 @@ trait ColumnRetrieve[C[_], A] {
 sealed trait ColumnRecord[C[_], A, R <: HList] {
   def columns: Seq[(A, C[_])]
 
-  def mapRecord[C2[_], B](r: R, f: ColumnMapper[C2, A, B])(implicit ev: C[_] <:< C2[_]): Seq[B] = {
+  def mapRecord[C2[_], A2, B](r: R, f: ColumnMapper[C2, A2, B])(implicit ev: C[_] <:< C2[_], ev2: A <:< A2): Seq[B] = {
     val out = mutable.Buffer[B]()
 
     @tailrec

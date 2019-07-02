@@ -94,7 +94,7 @@ package object postgres {
         val sscols    = table.allColumns.subset(withoutKeys)
         val keyCols   = table.keyColumns.columns
         val seqExpr   = FunctionCall("nextval", Seq(SQLString(sequence.name)))
-        val colValues = sscols.mapRecord(sscols.from(fullRec), BindValues)
+        val colValues = sscols.mapRecord(sscols.from(fullRec), BindNamedValues)
         val colBindings = Seq(keyCols.head._1 -> seqExpr) ++ colValues.map { bc =>
           bc.name -> Parameter(bc.column.columnType)
         }

@@ -35,7 +35,7 @@ trait JDBCZIOTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[ZStre
   def makeQueries = {
 
     val b = builder
-    val S = b.S
+    val S = streamable
     import b._
 
     val schemaSQL = mapper.dialect

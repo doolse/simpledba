@@ -38,7 +38,7 @@ trait Streamable[S[_], F[_]] {
 }
 
 object JavaEffects {
-  implicit val javaEffects: JavaEffects[IO] = new JavaEffects[IO] {
+  implicit val catsIOJavaEffects: JavaEffects[IO] = new JavaEffects[IO] {
 
     case object EmptyValue extends Throwable
 

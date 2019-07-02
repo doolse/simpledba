@@ -51,9 +51,15 @@ case class BoundColumn(name: String, column: JDBCColumn[_], binder: BoundValue) 
   def namedColumn: NamedColumn = NamedColumn(name, column.columnType)
 }
 
-object BindValues extends ColumnMapper[JDBCColumn, String, BoundColumn] {
-  override def apply[V](column: JDBCColumn[V], value: V, a: String): BoundColumn =
-    BoundColumn(a, column, column.bindValue(value))
+object BindValues extends ColumnMapper[JDBCColumn, Any, BoundValue]
+{
+    override def apply[V](column: JDBCColumn[V], value: V, a: Any): BoundValue =
+      column.bindValue(value)
+}
+
+object BindNamedValues extends ColumnMapper[JDBCColumn, String, BoundColumn] {
+    override def apply[V](column: JDBCColumn[V], value: V, a: String): BoundColumn =
+      BoundColumn(a, column, column.bindValue(value))
 }
 
 object BindUpdate extends ColumnCompare[JDBCColumn, String, BoundColumn] {
@@ -65,30 +71,25 @@ object BindUpdate extends ColumnCompare[JDBCColumn, String, BoundColumn] {
   }
 }
 
-case class JDBCQueries[C[A] <: JDBCColumn[A], S[_], F[_]](E: JDBCEffect[S, F],
+case class JDBCQueries[C[A] <: JDBCColumn[A], S[_], F[_]](effect: JDBCEffect[S, F],
                                                           dialect: SQLDialect) {
-  val S  = E.S
-  val SM = S.SM
+  private val S  = effect.S
+  private val SM = S.SM
 
   def flushable: Flushable[S] =
     new Flushable[S] {
-      def flush =
-        writes =>
-          S.eval(S.drain(SM.flatMap(writes) {
-            case JDBCWriteOp(sql, binder) =>
-              E.executePreparedQuery(sql, binder)
-          }))
+      def flush = writes => S.eval(effect.flush(writes))
     }
 
   def writes(table: JDBCTable[C]): WriteQueries[S, F, table.Data] =
     new WriteQueries[S, F, table.Data] {
-      def S = E.S
+      def S = effect.S
 
       override def insertAll =
         st =>
           SM.map(st) { t =>
             val allColumns    = table.allColumns
-            val columnBinders = allColumns.mapRecord(allColumns.iso.to(t), BindValues)
+            val columnBinders = allColumns.mapRecord(allColumns.iso.to(t), BindNamedValues)
             val insertQuery =
               dialect.querySQL(JDBCInsert(table.name, columnBinders.map(columnExpression)))
             JDBCWriteOp(
@@ -143,7 +144,7 @@ case class JDBCQueries[C[A] <: JDBCColumn[A], S[_], F[_]](E: JDBCEffect[S, F],
     new QueryBuilder[S, F, C, table.DataRec, HNil, HNil, HNil](
       table,
       dialect,
-      E,
+      effect,
       ColumnRecord.empty,
       identity,
       _ => S.emit((Seq.empty, Seq.empty)),
@@ -151,7 +152,7 @@ case class JDBCQueries[C[A] <: JDBCColumn[A], S[_], F[_]](E: JDBCEffect[S, F],
     )
 
   def deleteFrom(table: JDBCTable[C]) =
-    new DeleteBuilder[S, F, C, table.DataRec, HNil](E.S,
+    new DeleteBuilder[S, F, C, table.DataRec, HNil](effect.S,
                                                     table,
                                                     dialect,
                                                     _ => S.emit((Seq.empty, Seq.empty)))
@@ -160,7 +161,7 @@ case class JDBCQueries[C[A] <: JDBCColumn[A], S[_], F[_]](E: JDBCEffect[S, F],
     new QueryBuilder[S, F, C, table.DataRec, HNil, table.DataRec, table.Data](
       table,
       dialect,
-      E,
+      effect,
       toProjection(table.allColumns),
       table.allColumns.iso.from,
       _ => S.emit((Seq.empty, Seq.empty)),
@@ -180,13 +181,13 @@ case class JDBCQueries[C[A] <: JDBCColumn[A], S[_], F[_]](E: JDBCEffect[S, F],
 
   def queryRawSQL[Params <: HList, OutRec <: HList](
       sql: String,
-      cr: ColumnRecord[JDBCColumn, String, Params],
-      outRec: ColumnRecord[JDBCColumn, Any, OutRec]
+      cr: ColumnRecord[C, _, Params],
+      outRec: ColumnRecord[C, _, OutRec]
   ): Params => S[OutRec] =
     params => {
-      val bindFunc = bindParameters(cr.mapRecord(params, BindValues).map(_.binder))
-      S.evalMap(E.executeResultSet(sql, bindFunc)) { rs =>
-        E.resultSetRecord(outRec, 1, rs)
+      val bindFunc = bindParameters(cr.mapRecord(params, BindValues))
+      S.evalMap(effect.executeResultSet(sql, bindFunc)) { rs =>
+        effect.resultSetRecord(outRec, 1, rs)
       }
     }
 
@@ -208,7 +209,7 @@ object JDBCQueries {
       op: BinOp,
       where: ColumnSubset[C, R, K]
   ): K => Seq[(JDBCWhereClause, BoundValue)] = k => {
-    where.mapRecord(k, BindValues).map { bv =>
+    where.mapRecord(k, BindNamedValues).map { bv =>
       (BinClause(ColumnReference(bv.namedColumn), op, Parameter(bv.column.columnType)), bv.binder)
     }
   }

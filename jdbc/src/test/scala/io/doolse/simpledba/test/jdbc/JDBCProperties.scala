@@ -44,11 +44,11 @@ trait JDBCProperties[S[_], F[_]] {
 
   def setup(bq: JDBCTable[HSQLColumn]*): Unit = {
     implicit val SM = streamable.SM
-    run(S.drain {
+    run(streamable.drain {
       for {
-        t <- S.emits(Seq(bq: _*)).map(_.definition)
+        t <- streamable.emits(Seq(bq: _*)).map(_.definition)
         _ <- flushable.flush(
-          rawSQLStream(S.emits(Seq(dialect.dropTable(t), dialect.createTable(t)))))
+          rawSQLStream(streamable.emits(Seq(dialect.dropTable(t), dialect.createTable(t)))))
       } yield ()
     })
   }
