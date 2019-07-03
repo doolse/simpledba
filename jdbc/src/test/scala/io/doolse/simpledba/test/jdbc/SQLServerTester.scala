@@ -17,11 +17,11 @@ object SQLServerTester extends App with JDBCTester[SQLServerColumn] with StdSQLS
 
   val q = makeQueries
   val prog = for {
-    t <- Stream.eval(q.initDB)
+    t <- q.initDB
     r <- doTest(q, (o, n) => n.copy(o.uniqueid))
   } yield r
 
-  println(prog.compile.last.unsafeRunSync())
+  println(prog.unsafeRunSync())
 
   override def insertInst = sqlServerQueries.insertIdentity(instTable)
 }

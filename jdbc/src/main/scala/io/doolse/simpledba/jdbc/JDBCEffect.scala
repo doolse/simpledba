@@ -7,8 +7,7 @@ import io.doolse.simpledba.{
   ColumnRecord,
   ColumnRetrieve,
   JavaEffects,
-  Streamable,
-  WriteOp
+  Streamable
 }
 import shapeless.HList
 
@@ -90,7 +89,7 @@ case class JDBCEffect[S[_], F[_]](
     }
   }
 
-  def flush(writes: S[WriteOp]): F[Unit] =
+  def flush(writes: S[JDBCWriteOp]): F[Unit] =
     S.drain(SM.flatMap(writes) {
       case JDBCWriteOp(sql, binder) => executePreparedQuery(sql, binder)
     })

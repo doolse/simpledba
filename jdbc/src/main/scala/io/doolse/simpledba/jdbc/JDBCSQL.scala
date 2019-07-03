@@ -2,7 +2,6 @@ package io.doolse.simpledba.jdbc
 
 import java.sql.{Connection, PreparedStatement}
 
-import io.doolse.simpledba.WriteOp
 import io.doolse.simpledba.jdbc.AggregateOp.AggregateOp
 import io.doolse.simpledba.jdbc.BinOp.BinOp
 
@@ -68,4 +67,3 @@ sealed trait JDBCWhereClause
 case class BinClause(left: SQLExpression, op: BinOp, right: SQLExpression) extends JDBCWhereClause
 
 case class JDBCWriteOp(sql: String, binder: (Connection, PreparedStatement) => Seq[Any])
-    extends WriteOp

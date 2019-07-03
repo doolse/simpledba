@@ -4,23 +4,24 @@ import java.sql.Connection
 
 import cats.effect.IO
 import fs2.Stream
-import io.doolse.simpledba.jdbc._
-import io.doolse.simpledba.{Cols, Flushable, Streamable}
-import shapeless.{::, HList, HNil}
-import shapeless.syntax.singleton._
+import io.doolse.simpledba.Cols
 import io.doolse.simpledba.fs2._
+import io.doolse.simpledba.jdbc._
 import io.doolse.simpledba.test.Test
+import shapeless.HList
+import shapeless.syntax.singleton._
 
-trait JDBCTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[fs2.Stream[IO, ?], IO] {
+trait JDBCTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[fs2.Stream[IO, ?], IO, JDBCWriteOp]
+  with FS2Properties {
 
   type F[A] = IO[A]
 
   def connection: Connection
   def effect: JDBCEffect[fs2.Stream[IO, ?], F] = JDBCEffect(IO.pure(connection), _ => IO.pure(), ConsoleLogger())
-  def streamable = effect.S
   def mapper: JDBCMapper[C]
   def builder = mapper.queries(effect)
-  implicit def flusher : Flushable[fs2.Stream[IO, ?]] = builder.flushable
+
+  override def flush(s: Stream[IO, JDBCWriteOp]): IO[Unit] = builder.flush(s)
 
   implicit def cols = mapper.mapped[EmbeddedFields].embedded
 
@@ -28,21 +29,21 @@ trait JDBCTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[fs2.Stre
   val userTable = mapper.mapped[User].table("user").keys(Cols('firstName, 'lastName))
 
 
-  def insertInst: (Long => Inst) => Stream[F, Inst]
+  def insertInst: (Long => Inst) => F[Inst]
 
   def makeQueries = {
 
     val b = builder
-    import b._
+    import b.{flush => _, _}
 
     val schemaSQL = mapper.dialect
     Queries(
-      flusher.flush {
+      flush {
         Stream(instTable, userTable).flatMap { t =>
           val d = t.definition
           rawSQLStream(Stream(schemaSQL.dropTable(d), schemaSQL.createTable(d)))
         }
-      }.compile.drain,
+      },
       writes(instTable),
       writes(userTable),
       insertInst,

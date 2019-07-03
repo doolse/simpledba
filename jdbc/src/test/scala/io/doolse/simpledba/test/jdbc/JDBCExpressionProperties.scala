@@ -22,6 +22,9 @@ object JDBCExpressionProperties
   val simpleTable = mapper.mapped[SimpleTable].table("simpleTable").key('id)
 
   val writer = sqlQueries.writes(simpleTable)
+
+  import sqlQueries.flush
+
   setup(simpleTable)
 
   val genSimple: Gen[SimpleTable] = for {
@@ -47,11 +50,9 @@ object JDBCExpressionProperties
 
   def insertData(rows: Seq[SimpleTable]): Task[Seq[SimpleTable]] = {
     val dupesRemoved = uniqueify[SimpleTable](rows, _.id)
-    flushable
-      .flush(streamable
+    flush(streamable
         .emit(sqlQueries.rawSQL(sqlQueries.dialect.truncateTable(simpleTable.definition))) ++ writer
         .insertAll(ZStream(dupesRemoved: _*)))
-      .runDrain
       .map(_ => dupesRemoved)
   }
 
@@ -107,14 +108,12 @@ object JDBCExpressionProperties
         run {
           for {
             rows <- insertData(rawRows)
-            _ <- flushable
-              .flush(
+            _ <- flush(
                 sqlQueries
                   .deleteFrom(simpleTable)
                   .where('value1, op)
                   .build[Int]
                   .apply(compareInt))
-              .runDrain
             fromDB <- sqlQueries.allRows(simpleTable).runCollect
           } yield {
             compareResults(fromDB, rows.filterNot(filterOp(_.value1, op, compareInt)))
@@ -132,15 +131,13 @@ object JDBCExpressionProperties
       run {
         for {
           rows <- insertData(rawRows)
-          _ <- flushable
-            .flush(
+          _ <- flush(
               sqlQueries
                 .deleteFrom(simpleTable)
                 .where('value1, op1)
                 .where('value2, op2)
                 .build[(Int, String)]
                 .apply((compareInt, compareString)))
-            .runDrain
           fromDB <- sqlQueries.allRows(simpleTable).runCollect
         } yield {
           compareResults(fromDB, rows.filterNot { r =>

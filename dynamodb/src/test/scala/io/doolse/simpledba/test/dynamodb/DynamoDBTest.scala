@@ -1,13 +1,12 @@
 package io.doolse.simpledba.test.dynamodb
 
-import cats.syntax.flatMap._
-import cats.syntax.functor._
+import cats.syntax.all._
+import io.doolse.simpledba.dynamodb.DynamoDBWriteOp
 import io.doolse.simpledba.test.Test
-import io.doolse.simpledba.{Cols, Flushable}
 
 case class MyTest(name: String, frogs: Int)
 
-trait DynamoDBTest[S[_], F[_]] extends Test[S, F] with DynamoDBTestHelper[S, F] {
+trait DynamoDBTest[S[_], F[_]] extends Test[S, F, DynamoDBWriteOp] with DynamoDBTestHelper[S, F] {
 
   val userLNTable       = mapper.mapped[User].table("userLN")
     .partKey('lastName).sortKey('firstName)
@@ -20,22 +19,20 @@ trait DynamoDBTest[S[_], F[_]] extends Test[S, F] with DynamoDBTestHelper[S, F] 
   implicit val embedded = mapper.mapped[EmbeddedFields].embedded
   val instTable = mapper.mapped[Inst].table("inst").partKey('uniqueid)
 
-  override def flusher: Flushable[S] = mapper.flusher
-
   val q = mapper.queries
   import q._
 
   val tables = streamable.emits(Seq(userTable, userLNTable, instTable))
   val writeInst = writes(instTable)
+  implicit def M = effect.S.M
   val queries = {
-    implicit def M = effect.S.M
     Queries(
       streamable.drain(streamable.evalMap(tables)(delAndCreate)),
       writeInst,
       writes(userTable, userLNTable),
       f => {
         val inst = f(1L)
-        flusher.flush(writeInst.insert(inst)).map(_ => inst)
+        flush(writeInst.insert(inst)).map(_ => inst)
       },
       ???, ???, ???, ???, ???, ???
 //        get(instTable).build[Long],
@@ -48,7 +45,7 @@ trait DynamoDBTest[S[_], F[_]] extends Test[S, F] with DynamoDBTestHelper[S, F] 
   }
 
   val prog = for {
-    _   <- streamable.eval(queries.initDB)
+    _   <- queries.initDB
     res <- doTest(queries)
   } yield res
 

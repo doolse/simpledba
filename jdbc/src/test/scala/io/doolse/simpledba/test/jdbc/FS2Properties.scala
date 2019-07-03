@@ -9,4 +9,9 @@ trait FS2Properties {
   def JE : JavaEffects[IO] = implicitly[JavaEffects[IO]]
   def Sync : Sync[IO] = implicitly[Sync[IO]]
   def run[A](prog: IO[A]): A = prog.unsafeRunSync()
+
+  def toVector[A](s: fs2.Stream[IO, A]): IO[Vector[A]] = s.compile.toVector
+
+  def last[A](s: fs2.Stream[IO, A]): IO[Option[A]] = s.compile.last
+
 }

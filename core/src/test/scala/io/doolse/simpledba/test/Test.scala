@@ -1,17 +1,16 @@
 package io.doolse.simpledba.test
 
 import cats.instances.option._
-import cats.syntax.flatMap._
-import cats.syntax.functor._
-import cats.syntax.traverse._
-import io.doolse.simpledba.{Flushable, Streamable, WriteOp, WriteQueries}
+import cats.syntax.all._
+import io.doolse.simpledba.{Streamable, WriteQueries}
 
-trait Test[S[_], F[_]] {
+trait Test[S[_], F[_], W] {
 
   def streamable: Streamable[S, F]
-  def flusher: Flushable[S]
+  def last[A](s: S[A]): F[Option[A]]
+  def toVector[A](s: S[A]): F[Vector[A]]
+  def flush(s: S[W]): F[Unit]
 
-  def flush(s: S[WriteOp]) = flusher.flush(s)
   implicit def SM             = streamable.SM
 
   case class EmbeddedFields(adminpassword: String, enabled: Boolean)
@@ -23,9 +22,9 @@ trait Test[S[_], F[_]] {
   case class User(firstName: String, lastName: String, year: Int)
 
   case class Queries(initDB: F[Unit],
-                     writeInst: WriteQueries[S, F, Inst],
-                     writeUsers: WriteQueries[S, F, User],
-                     insertNewInst: (Long => Inst) => S[Inst],
+                     writeInst: WriteQueries[S, F, W, Inst],
+                     writeUsers: WriteQueries[S, F, W, User],
+                     insertNewInst: (Long => Inst) => F[Inst],
                      instByPK: Long => S[Inst],
                      querybyFirstNameAsc: String => S[User],
                      queryByLastNameDesc: String => S[User],
@@ -33,7 +32,7 @@ trait Test[S[_], F[_]] {
                      justYear: Username => S[Int],
                      usersWithLastName: String => S[Int])
 
-  def insertData(writeInst: WriteQueries[S, F, Inst], writeUsers: WriteQueries[S, F, User]) = {
+  def insertData(writeInst: WriteQueries[S, F, W, Inst], writeUsers: WriteQueries[S, F, W, User]) = {
     writeUsers.insertAll(
       streamable.emits(
         Seq(
@@ -44,11 +43,9 @@ trait Test[S[_], F[_]] {
     )
   }
 
-  def last[A](s: S[A]): S[Option[A]] = streamable.last(s)
-  def toVector[A](s: S[A]): S[Vector[A]] = streamable.eval(streamable.toVector(s))
-
-  def doTest(q: Queries, updateId: (Inst, Inst) => Inst = (o, n) => n) = {
+  def doTest(q: Queries, updateId: (Inst, Inst) => Inst = (o, n) => n) : F[String] = {
     import q._
+    implicit val M = streamable.M
     for {
       _    <- flush(insertData(q.writeInst, q.writeUsers))
       orig <- q.insertNewInst(id => Inst(id, EmbeddedFields("pass", enabled = true)))

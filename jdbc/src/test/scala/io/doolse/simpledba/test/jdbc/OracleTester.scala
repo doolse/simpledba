@@ -19,11 +19,12 @@ object OracleTester extends App with JDBCTester[OracleColumn] with StdOracleColu
   val q = makeQueries
 
   val prog = for {
-    t <- Stream.eval(q.initDB)
+    t <- q.initDB
     r <- doTest(q)
   } yield r
 
-  println(prog.compile.last.unsafeRunSync())
+  println(prog.unsafeRunSync())
 
-  override def insertInst = oracleQueries.insertWith(instTable, seq)
+  override def insertInst =
+    oracleQueries.insertWith(instTable, seq)
 }

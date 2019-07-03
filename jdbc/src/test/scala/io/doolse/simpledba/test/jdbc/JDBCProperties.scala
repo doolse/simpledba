@@ -28,6 +28,8 @@ trait JDBCProperties[S[_], F[_]] {
 
   implicit def streamable: Streamable[S, F]
 
+  def flush(w: S[JDBCWriteOp]): F[Unit] = sqlQueries.flush(w)
+
   implicit def JE: JavaEffects[F]
 
   implicit def Sync: Sync[F]
@@ -38,19 +40,17 @@ trait JDBCProperties[S[_], F[_]] {
 
   lazy val sqlQueries = mapper.queries(effect)
 
-  implicit def flushable = sqlQueries.flushable
-
-  import sqlQueries._
 
   def setup(bq: JDBCTable[HSQLColumn]*): Unit = {
     implicit val SM = streamable.SM
-    run(streamable.drain {
-      for {
-        t <- streamable.emits(Seq(bq: _*)).map(_.definition)
-        _ <- flushable.flush(
-          rawSQLStream(streamable.emits(Seq(dialect.dropTable(t), dialect.createTable(t)))))
-      } yield ()
-    })
+    import sqlQueries.{flush => _, _}
+    run(
+      flush(
+        rawSQLStream(
+          streamable.emits(Seq(bq: _*)
+            .map(_.definition)
+            .flatMap(t => Seq(dialect.dropTable(t), dialect.createTable(t))))
+        )))
   }
 
   def run[A](fa: F[A]): A

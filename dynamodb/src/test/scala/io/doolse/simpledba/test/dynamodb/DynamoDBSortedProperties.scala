@@ -4,7 +4,7 @@ import java.util.UUID
 
 import cats.instances.vector._
 import cats.syntax.foldable._
-import io.doolse.simpledba.dynamodb.{BinaryKey, DynamoDBEffect, DynamoDBSortTable, DynamoDBTable, FullKeyTable}
+import io.doolse.simpledba.dynamodb.{BinaryKey, DynamoDBEffect, DynamoDBSortTable, DynamoDBTable, DynamoDBWriteOp, FullKeyTable}
 import io.doolse.simpledba.test.zio.ZIOProperties
 import io.doolse.simpledba.test.{SafeString, SimpleDBAProperties, Sortable, SortedQueryProperties}
 import shapeless._
@@ -22,7 +22,7 @@ object DynamoDBSortedProperties extends SimpleDBAProperties("DynamoDB") {
   type F[A] = Task[A]
 
   include(
-    new SortedQueryProperties[S, F]() with ZIOProperties
+    new SortedQueryProperties[S, F, DynamoDBWriteOp]() with ZIOProperties
     with DynamoDBTestHelper[S, F] {
 
       override def effect = DynamoDBEffect[S, Task](ZIO.succeed(localClient))

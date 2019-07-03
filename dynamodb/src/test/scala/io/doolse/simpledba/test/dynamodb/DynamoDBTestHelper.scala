@@ -5,18 +5,9 @@ import java.util.UUID
 
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import io.doolse.simpledba.dynamodb.{
-  DynamoDBEffect,
-  DynamoDBMapper,
-  DynamoDBPKColumn,
-  DynamoDBTable
-}
-import io.doolse.simpledba.{Flushable, Iso}
-import software.amazon.awssdk.auth.credentials.{
-  AwsBasicCredentials,
-  AwsCredentialsProvider,
-  StaticCredentialsProvider
-}
+import io.doolse.simpledba.dynamodb.{DynamoDBEffect, DynamoDBMapper, DynamoDBPKColumn, DynamoDBTable, DynamoDBWriteOp}
+import io.doolse.simpledba.Iso
+import software.amazon.awssdk.auth.credentials.{AwsBasicCredentials, AwsCredentialsProvider, StaticCredentialsProvider}
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient
 import software.amazon.awssdk.services.dynamodb.model.DeleteTableRequest
@@ -41,7 +32,7 @@ trait DynamoDBTestHelper[S[_], F[_]] {
 
   lazy val mapper = new DynamoDBMapper(effect)
 
-  def flushable: Flushable[S] = mapper.flusher
+  def flush(w: S[DynamoDBWriteOp]): F[Unit] = mapper.flush(w)
 
   def delAndCreate(table: DynamoDBTable): F[Unit] = {
     implicit val M = effect.S.M

@@ -98,32 +98,34 @@ package object sqlserver {
         withoutKeys: ColumnSubsetBuilder[R, JustKeys],
         sampleValue: SampleValue[A],
         conv: AutoConvert[Res, S[A => T]]
-    ): Res => S[T] = { res =>
+    ): Res => F[T] = { res =>
       val S  = E.S
       val SM = S.SM
-      SM.flatMap(conv(res)) { f =>
-        val fullRec   = table.allColumns.iso.to(f(sampleValue.v))
-        val sscols    = table.allColumns.subset(withoutKeys)
-        val keyCols   = table.keyColumns.columns
-        val colValues = sscols.mapRecord(sscols.from(fullRec), BindNamedValues)
-        val colBindings = colValues.map { bc =>
-          bc.name -> Parameter(bc.column.columnType)
-        }
-        import StdSQLDialect._
-        import dialect._
-        val insertSQL =
-          s"INSERT INTO ${escapeTableName(table.name)} " +
-            s"${brackets(colBindings.map(v => escapeColumnName(v._1)))} " +
-            s"OUTPUT ${keyCols.map(k => s"INSERTED.${escapeColumnName(k._1)}").mkString(",")} " +
-            s"VALUES ${brackets(colBindings.map(v => expressionSQL(v._2)))}"
+      S.read1 {
+        SM.flatMap(conv(res)) { f =>
+          val fullRec   = table.allColumns.iso.to(f(sampleValue.v))
+          val sscols    = table.allColumns.subset(withoutKeys)
+          val keyCols   = table.keyColumns.columns
+          val colValues = sscols.mapRecord(sscols.from(fullRec), BindNamedValues)
+          val colBindings = colValues.map { bc =>
+            bc.name -> Parameter(bc.column.columnType)
+          }
+          import StdSQLDialect._
+          import dialect._
+          val insertSQL =
+            s"INSERT INTO ${escapeTableName(table.name)} " +
+              s"${brackets(colBindings.map(v => escapeColumnName(v._1)))} " +
+              s"OUTPUT ${keyCols.map(k => s"INSERTED.${escapeColumnName(k._1)}").mkString(",")} " +
+              s"VALUES ${brackets(colBindings.map(v => expressionSQL(v._2)))}"
 
-        SM.map(
-          E.streamForQuery(
-            insertSQL,
-            JDBCQueries.bindParameters(colValues.map(_.binder)),
-            Columns(keyCols, Iso.id[A :: HNil])
-          )) { a =>
-          f(a.head)
+          SM.map(
+            E.streamForQuery(
+              insertSQL,
+              JDBCQueries.bindParameters(colValues.map(_.binder)),
+              Columns(keyCols, Iso.id[A :: HNil])
+            )) { a =>
+            f(a.head)
+          }
         }
       }
     }

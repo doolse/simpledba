@@ -3,13 +3,13 @@ package io.doolse.simpledba.test.jdbc
 import cats.effect.IO
 import fs2.Stream
 import org.scalacheck.Shapeless._
-import io.doolse.simpledba.jdbc.BinOp
+import io.doolse.simpledba.jdbc.{BinOp, JDBCWriteOp}
 import io.doolse.simpledba.test.{SimpleDBAProperties, Sortable, SortedQueryProperties}
 import shapeless._
 import syntax.singleton._
 
 object JDBCSortedProperties extends SimpleDBAProperties("JDBC") {
-  include(new SortedQueryProperties[fs2.Stream[IO, ?], IO] with JDBCProperties[fs2.Stream[IO, ?], IO] with FS2Properties {
+  include(new SortedQueryProperties[fs2.Stream[IO, ?], IO, JDBCWriteOp] with JDBCProperties[fs2.Stream[IO, ?], IO] with FS2Properties {
 
     override val queries = {
 

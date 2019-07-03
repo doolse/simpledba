@@ -187,24 +187,19 @@ class DynamoDBMapper[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
 
   def mapped[T] = new RelationBuilder[T]
 
-  def flusher: Flushable[S] = new Flushable[S] {
-    override def flush =
-      writes => {
-        val S = effect.S
-        val M = S.SM
-        S.eval {
-          S.drain {
-            M.flatMap(S.eval(effect.asyncClient)) { client =>
-              S.evalMap(writes) {
-                case PutItem(request) =>
-                  effect.void(effect.fromFuture(client.putItem(request)))
-                case DeleteItem(request) =>
-                  effect.void(effect.fromFuture(client.deleteItem(request)))
-              }
-            }
-          }
+  def flush(writes: S[DynamoDBWriteOp]): F[Unit] = {
+    val S = effect.S
+    val M = S.SM
+    S.drain {
+      M.flatMap(S.eval(effect.asyncClient)) { client =>
+        S.evalMap(writes) {
+          case PutItem(request) =>
+            effect.void(effect.fromFuture(client.putItem(request)))
+          case DeleteItem(request) =>
+            effect.void(effect.fromFuture(client.deleteItem(request)))
         }
       }
+    }
   }
 
   val queries: DynamoDBQueries[S, F] = new DynamoDBQueries[S, F](effect)

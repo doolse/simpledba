@@ -23,8 +23,8 @@ case class Sortable(pk1: UUID,
                     floatField: Float,
                     uuidField: UUID)
 
-abstract class SortedQueryProperties[S[_], F[_]: Monad]
-    extends AbstractRelationsProperties[S, F]("Sorting") {
+abstract class SortedQueryProperties[S[_], F[_]: Monad, W]
+    extends AbstractRelationsProperties[S, F, W]("Sorting") {
 
   case class Queries(int1: UUID => S[Sortable],
                      int2: UUID => S[Sortable],
@@ -38,8 +38,8 @@ abstract class SortedQueryProperties[S[_], F[_]: Monad]
                      float2: UUID => S[Sortable],
                      uuid1: UUID => S[Sortable],
                      uuid2: UUID => S[Sortable],
-                     writes: WriteQueries[S, F, Sortable],
-                     truncate: S[WriteOp],
+                     writes: WriteQueries[S, F, W, Sortable],
+                     truncate: S[W],
                     )
 
   val queries: (Queries, Queries)
@@ -63,12 +63,12 @@ abstract class SortedQueryProperties[S[_], F[_]: Monad]
     val S           = streamable
     implicit val SM = S.SM
     for {
-      _ <- flushed(S.append(queries._1.truncate, queries._1.writes.insertAll(S.emits(vSame))))
+      _ <- flush(S.append(queries._1.truncate, queries._1.writes.insertAll(S.emits(vSame))))
       p = sortQ.map {
         case (name, oq @ OrderQuery(lens, q)) =>
           run(for {
-            ascend  <- S.toVector(q(queries._1)(same).map(lens))
-            descend <- S.toVector(q(queries._2)(same).map(lens))
+            ascend  <- toVector(q(queries._1)(same).map(lens))
+            descend <- toVector(q(queries._2)(same).map(lens))
           } yield {
             val ord          = oq.o
             val ascExpected  = vSame.map(lens).sorted(ord)

@@ -11,18 +11,19 @@ import zio.{Task, ZIO}
 import shapeless.HList
 import shapeless.syntax.singleton._
 import io.doolse.simpledba.interop.zio._
+import io.doolse.simpledba.test.zio.ZIOProperties
 
-trait JDBCZIOTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[ZStream[Any, Throwable, ?], Task] {
+trait JDBCZIOTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[ZStream[Any, Throwable, ?], Task, JDBCWriteOp]
+  with ZIOProperties {
 
   type F[A] = Task[A]
-  type S[A] = ZStream[Any, Throwable, A]
 
   def connection: Connection
   def effect = JDBCEffect[S, F](ZIO.succeed(connection), _ => ZIO(), ConsoleLogger())
-  def streamable = effect.S
   def mapper: JDBCMapper[C]
   def builder = mapper.queries(effect)
-  implicit def flusher = builder.flushable
+
+  override def flush(s: ZStream[Any, Throwable, JDBCWriteOp]): Task[Unit] = builder.flush(s)
 
   implicit def cols = mapper.mapped[EmbeddedFields].embedded
 
@@ -30,22 +31,22 @@ trait JDBCZIOTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[ZStre
   val userTable = mapper.mapped[User].table("user").keys(Cols('firstName, 'lastName))
 
 
-  def insertInst: (Long => Inst) => ZStream[Any, Throwable, Inst]
+  def insertInst: (Long => Inst) => Task[Inst]
 
   def makeQueries = {
 
     val b = builder
     val S = streamable
-    import b._
+    import b.{flush => _, _}
 
     val schemaSQL = mapper.dialect
     Queries(
-      S.drain { flusher.flush {
+      flush {
         S.emits(Seq(instTable, userTable)).flatMap { t =>
           val d = t.definition
           rawSQLStream(S.emits(Seq(schemaSQL.dropTable(d), schemaSQL.createTable(d))))
         }
-      }},
+      },
       writes(instTable),
       writes(userTable),
       insertInst,

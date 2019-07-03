@@ -62,12 +62,6 @@ package object zio {
     override def append[A](a: ZStream[Any, Throwable, A],
                            b: ZStream[Any, Throwable, A]): ZStream[Any, Throwable, A] = a ++ b
 
-    override def toVector[A](s: ZStream[Any, Throwable, A]): ZIO[Any, Throwable, Vector[A]] =
-      s.run(ZSink.collectAll[A]).map(_.toVector)
-
-    override def last[A](s: ZStream[Any, Throwable, A]): ZStream[Any, Throwable, Option[A]] =
-      ZStream.fromEffect(s.run(ZSink.identity[A].?))
-
     override def drain(s: ZStream[Any, Throwable, _]): ZIO[Any, Throwable, Unit] =
       s.run(ZSink.drain)
 
@@ -77,5 +71,8 @@ package object zio {
 
     override def maxMapped[A, B](n: Int, s: ZStream[Any, Throwable, A])(f: Seq[A] => B): ZStream[Any, Throwable, B]
       = s.transduce(ZSink.identity[A].collectAllN(n).mapError(_ => throw new Throwable("How?")) ).map(f)
+
+    override def read1[A](s: ZStream[Any, Throwable, A]): ZIO[Any, Throwable, A] =
+      s.run(ZSink.read1[Throwable, A](_ => new Throwable("Expected one value"))(_ => true))
   }
 }

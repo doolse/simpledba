@@ -6,10 +6,10 @@ import cats.effect.Sync
 
 package object fs2 {
 
-  implicit def fs2Stream[F[_]: Sync]: Streamable[Stream[F, ?], F] =
+  implicit def fs2Stream[F[_]](implicit FS: Sync[F]): Streamable[Stream[F, ?], F] =
     new Streamable[Stream[F, ?], F] {
 
-      override def M: Monad[F] = implicitly[Sync[F]]
+      override def M: Monad[F] = FS
 
       override def SM: Monad[Stream[F, ?]] = implicitly[Monad[Stream[F, ?]]]
 
@@ -25,8 +25,6 @@ package object fs2 {
         s.fold(z)(f)
 
       override def append[A](a: Stream[F, A], b: Stream[F, A]): Stream[F, A] = a ++ b
-
-      override def toVector[A](s: Stream[F, A]): F[Vector[A]] = s.compile.toVector
 
       override def drain(s: Stream[F, _]): F[Unit] = s.compile.drain
 
@@ -44,11 +42,13 @@ package object fs2 {
 
       override def evalMap[A, B](sa: Stream[F, A])(f: A => F[B]): Stream[F, B] = sa.evalMap(f)
 
-      override def last[A](s: Stream[F, A]): Stream[F, Option[A]] = s.last
 
       override def bracket[A](acquire: F[A])(release: A => F[Unit]): Stream[F, A] =
         Stream.bracket(acquire)(release)
 
       override def maxMapped[A, B](n: Int, s: Stream[F, A])(f: Seq[A] => B): Stream[F, B] = s.chunkN(n).map(c => f(c.toVector))
+
+      override def read1[A](s: Stream[F, A]): F[A] = M.flatMap(s.compile.toList)(
+        _.headOption.fold[F[A]](FS.raiseError(new Throwable("Expected a single result")))(FS.pure[A]))
     }
 }

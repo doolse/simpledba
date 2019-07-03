@@ -26,11 +26,11 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
   private val S  = effect.S
   private val SM = S.SM
 
-  def writes[T](tables: DynamoDBTable.SameT[T]*): WriteQueries[S, F, T] =
-    new WriteQueries[S, F, T] {
+  def writes[T](tables: DynamoDBTable.SameT[T]*): WriteQueries[S, F, DynamoDBWriteOp, T] =
+    new WriteQueries[S, F, DynamoDBWriteOp, T] {
       def S = effect.S
 
-      def putItem(table: DynamoDBTable)(t: table.T): WriteOp = {
+      def putItem(table: DynamoDBTable)(t: table.T): DynamoDBWriteOp = {
         val b = PutItemRequest.builder()
         b.tableName(table.name)
         val itemRec = table.columns.iso.to(t)
@@ -52,7 +52,7 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
         in =>
           SM.flatMap(in) {
             case (o, n) =>
-              tables.foldLeft(S.empty[WriteOp])((ops, table) => {
+              tables.foldLeft(S.empty[DynamoDBWriteOp])((ops, table) => {
                 val b          = UpdateItemRequest.builder()
                 val allColumns = table.columns
                 val oldKey     = table.keyValue(o)
@@ -60,13 +60,13 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
                 val nextWrites = if (oldKey != keyVal) {
                   S.emits(Seq(deleteItem(table)(oldKey), putItem(table)(n)))
                 } else {
-                  S.empty[WriteOp]
+                  S.empty[DynamoDBWriteOp]
                 }
                 S.append(ops, nextWrites)
               })
         }
 
-      def deleteItem(table: DynamoDBTable)(keys: table.FullKey): WriteOp = {
+      def deleteItem(table: DynamoDBTable)(keys: table.FullKey): DynamoDBWriteOp = {
         val b = DeleteItemRequest.builder()
         b.tableName(table.name)
         b.key(table.keyAttributes(keys).toMap.asJava)

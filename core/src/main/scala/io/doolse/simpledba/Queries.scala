@@ -1,25 +1,19 @@
 package io.doolse.simpledba
 
-trait WriteOp
-
-trait Flushable[S[_]] {
-  def flush: S[WriteOp] => S[Unit]
-}
-
-trait WriteQueries[S[_], F[_], T] {
+trait WriteQueries[S[_], F[_], W, T] {
   self =>
 
   protected def S: Streamable[S, F]
 
-  def insertAll: S[T] => S[WriteOp]
+  def insertAll: S[T] => S[W]
 
-  def updateAll: S[(T, T)] => S[WriteOp]
+  def updateAll: S[(T, T)] => S[W]
 
-  def insert(t: T): S[WriteOp] = insertAll(S.emit(t))
+  def insert(t: T): S[W] = insertAll(S.emit(t))
 
-  def update(old: T, next: T): S[WriteOp] = updateAll(S.emit((old, next)))
+  def update(old: T, next: T): S[W] = updateAll(S.emit((old, next)))
 
-  def replaceAll[K](f: T => K): (S[T], S[T]) => S[WriteOp] =
+  def replaceAll[K](f: T => K): (S[T], S[T]) => S[W] =
     (exstream, newstream) => {
       val M = S.SM
 
@@ -27,7 +21,7 @@ trait WriteQueries[S[_], F[_], T] {
         S.foldLeft(exstream, Map.empty[K, T])((m, t) => m.updated(f(t), t))
       } { exmap =>
         M.flatMap {
-          S.foldLeft(newstream, (S.empty[WriteOp], exmap)) { (m, t) =>
+          S.foldLeft(newstream, (S.empty[W], exmap)) { (m, t) =>
             val k  = f(t)
             val ex = exmap.get(k)
             ex match {
@@ -39,7 +33,7 @@ trait WriteQueries[S[_], F[_], T] {
       }
     }
 
-  def insertUpdateOrDelete(existing: Option[T], newvalue: Option[T]): S[WriteOp] =
+  def insertUpdateOrDelete(existing: Option[T], newvalue: Option[T]): S[W] =
     (existing, newvalue) match {
       case (None, Some(v))      => insert(v)
       case (Some(ex), Some(nv)) => update(ex, nv)
@@ -47,7 +41,7 @@ trait WriteQueries[S[_], F[_], T] {
       case _                    => S.empty
     }
 
-  def deleteAll: S[T] => S[WriteOp]
+  def deleteAll: S[T] => S[W]
 
   def delete(t: T) = deleteAll(S.emit(t))
 }

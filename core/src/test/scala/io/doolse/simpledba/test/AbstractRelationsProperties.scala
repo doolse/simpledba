@@ -7,10 +7,12 @@ import org.scalacheck.{Arbitrary, Gen, Prop}
 /**
   * Created by jolz on 16/06/16.
   */
-abstract class AbstractRelationsProperties[S[_], F[_]: Monad](name: String)
-    extends SimpleDBAProperties(name) with CrudProperties[S, F] {
+abstract class AbstractRelationsProperties[S[_], F[_]: Monad, W](name: String)
+    extends SimpleDBAProperties(name) with CrudProperties[S, F, W] {
 
   implicit def runProp(fa: F[Prop]): Prop = run(fa)
+
+  def toVector[A](s: S[A]): F[Vector[A]]
 
   def genUpdate[A: Arbitrary](copyKey: (A, A) => A) =
     for {

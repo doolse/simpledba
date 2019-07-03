@@ -17,12 +17,12 @@ object PostgresTester extends App with JDBCZIOTester[PostgresColumn] with StdPos
 
   val q = makeQueries
   val prog = for {
-    t <- streamable.eval(q.initDB)
+    t <- q.initDB
     r <- doTest(q)
   } yield r
 
   override def run(args: List[String]): ZIO[PostgresTester.Environment, Nothing, Int] = {
-    prog.run(ZSink.identity[String].?).fold(_ => 1, v => {println(v); 0})
+    prog.fold(_ => 1, v => {println(v); 0})
   }
 
 

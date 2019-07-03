@@ -32,8 +32,8 @@ trait Streamable[S[_], F[_]] {
   }
   def maxMapped[A, B](n: Int, s: S[A])(f: Seq[A] => B): S[B]
 
-  def toVector[A](s: S[A]): F[Vector[A]]
-  def last[A](s: S[A]): S[Option[A]]
+  def read1[A](s: S[A]): F[A]
+
   def drain(s: S[_]): F[Unit]
 }
 

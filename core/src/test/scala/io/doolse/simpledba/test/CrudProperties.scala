@@ -1,26 +1,25 @@
 package io.doolse.simpledba.test
 
+import cats.Monad
 import cats.syntax.all._
-import cats.{Id, Monad, ~>}
-import io.doolse.simpledba.{Flushable, Streamable, WriteOp, WriteQueries}
+import io.doolse.simpledba.{Streamable, WriteQueries}
 import org.scalacheck.Prop._
 import org.scalacheck.{Arbitrary, Gen, Prop, Properties}
-import io.doolse.simpledba.syntax._
 
 /**
   * Created by jolz on 16/06/16.
   */
-trait CrudProperties[S[_], F[_]] {
+trait CrudProperties[S[_], F[_], W] {
 
   def streamable: Streamable[S, F]
   def SM = streamable.SM
   def M: Monad[F] = streamable.M
-  def flushable: Flushable[S]
   def run[A](f: F[A]): A
-  def flushed(s: S[WriteOp]): F[Unit] = streamable.drain(flushable.flush(s))
+  def flush(s: S[W]): F[Unit]
+  def toVector[A](s: S[A]): F[Vector[A]]
 
-  def crudProps[A: Arbitrary, K](writes: WriteQueries[S, F, A],
-                                 truncate: S[WriteOp],
+  def crudProps[A: Arbitrary, K](writes: WriteQueries[S, F, W, A],
+                                 truncate: S[W],
                                  findAll: A => S[A],
                                  expected: Int,
                                  genUpdate: Gen[(A, A)]) = {
@@ -29,13 +28,13 @@ trait CrudProperties[S[_], F[_]] {
     implicit val MV = M
     implicit val SMV = SM
     new Properties("CRUD ops") {
-      val countAll = (a: A) => streamable.toVector(findAll(a)).map(_.count(a.==))
+      val countAll = (a: A) => toVector(findAll(a)).map(_.count(a.==))
 
       property("createReadDelete") = forAll { (a: A) =>
         for {
-          _        <- flushed(streamable.append(truncate, writes.insert(a)))
+          _        <- flush(streamable.append(truncate, writes.insert(a)))
           count    <- countAll(a)
-          _        <- flushed(writes.delete(a))
+          _        <- flush(writes.delete(a))
           afterDel <- countAll(a)
         } yield {
           all(s"Expected to find $expected" |: (count ?= expected),
@@ -46,8 +45,8 @@ trait CrudProperties[S[_], F[_]] {
       property("update") = forAll(genUpdate) {
         case (a1, a2) =>
           for {
-            _         <- flushed(streamable.append(truncate, writes.insert(a1)))
-            _         <- flushed(writes.update(a1, a2))
+            _         <- flush(streamable.append(truncate, writes.insert(a1)))
+            _         <- flush(writes.update(a1, a2))
             countOrig <- countAll(a1)
             countNew  <- countAll(a2)
           } yield {

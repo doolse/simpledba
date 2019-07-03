@@ -76,13 +76,10 @@ case class JDBCQueries[C[A] <: JDBCColumn[A], S[_], F[_]](effect: JDBCEffect[S, 
   private val S  = effect.S
   private val SM = S.SM
 
-  def flushable: Flushable[S] =
-    new Flushable[S] {
-      def flush = writes => S.eval(effect.flush(writes))
-    }
+  def flush(writes: S[JDBCWriteOp]) = effect.flush(writes)
 
-  def writes(table: JDBCTable[C]): WriteQueries[S, F, table.Data] =
-    new WriteQueries[S, F, table.Data] {
+  def writes(table: JDBCTable[C]): WriteQueries[S, F, JDBCWriteOp, table.Data] =
+    new WriteQueries[S, F, JDBCWriteOp, table.Data] {
       def S = effect.S
 
       override def insertAll =
@@ -191,13 +188,13 @@ case class JDBCQueries[C[A] <: JDBCColumn[A], S[_], F[_]](effect: JDBCEffect[S, 
       }
     }
 
-  def rawSQL(sql: String): WriteOp = {
+  def rawSQL(sql: String): JDBCWriteOp = {
     JDBCWriteOp(sql, (con, ps) => Seq.empty[Any])
   }
 
   def rawSQLStream(
       sql: S[String]
-  ): S[WriteOp] = {
+  ): S[JDBCWriteOp] = {
     SM.map(sql)(rawSQL)
   }
 
@@ -223,7 +220,7 @@ object JDBCQueries {
     type WhereOut[NewIn <: HList] = DeleteBuilder[S, F, C, DataRec, NewIn]
     def build[W2](
         implicit
-        c: AutoConvert[W2, InRec]): W2 => S[WriteOp] = w => {
+        c: AutoConvert[W2, InRec]): W2 => S[JDBCWriteOp] = w => {
       S.SM.map(toWhere(c(w))) {
         case (where, values) =>
           val deleteSQL = dialect.querySQL(JDBCDelete(table.name, where))

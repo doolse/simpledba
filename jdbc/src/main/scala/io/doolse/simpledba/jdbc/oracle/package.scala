@@ -96,9 +96,10 @@ package object oracle {
         withoutKeys: ColumnSubsetBuilder[R, JustKeys],
         sampleValue: SampleValue[A],
         conv: AutoConvert[Res, S[A => T]]
-    ): Res => S[T] = { res =>
+    ): Res => F[T] = { res =>
       val S  = E.S
       val SM = S.SM
+      S.read1 {
       SM.flatMap(conv(res)) { f =>
         val fullRec   = table.allColumns.iso.to(f(sampleValue.v))
         val sscols    = table.allColumns.subset(withoutKeys)
@@ -116,12 +117,17 @@ package object oracle {
         val binder =
           JDBCQueries.bindParameters(colValues.map(_.binder))
 
-        SM.map(
-          S.evalMap(E.executeStream[PreparedStatement, ResultSet](
-            E.logAndPrepare(insertSQL,
-                            _.prepareStatement(insertSQL, keyCols.map(_._1).toArray[String])),
-            E.logAndBind(insertSQL, binder, ps => { ps.executeUpdate; ps.getGeneratedKeys })
-          ))(rs => E.resultSetRecord(Columns(keyCols, Iso.id[A :: HNil]), 1, rs)))(a => f(a.head))
+          SM.map(
+            S.evalMap(E.executeStream[PreparedStatement, ResultSet](
+              E.logAndPrepare(insertSQL,
+                              _.prepareStatement(insertSQL, keyCols.map(_._1).toArray[String])),
+              E.logAndBind(insertSQL, binder, ps => {
+                ps.executeUpdate; ps.getGeneratedKeys
+              })
+            )) { rs =>
+              E.resultSetRecord(Columns(keyCols, Iso.id[A :: HNil]), 1, rs)
+            })(a => f(a.head))
+        }
       }
     }
   }
