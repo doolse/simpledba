@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+
+<head>
+<title>simpledba - Simple Database Access for Scala</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="description" content='simpledba'/>
+<link rel="canonical" href="https://github.com/doolse/simpledbaindex.html"/>
+<link href="https://fonts.googleapis.com/css?family=Roboto:100normal,100italic,300normal,300italic,400normal,400italic,500normal,500italic,700normal,700italic,900normal,900italicc" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="lib/jquery/jquery.min.js"></script>
+<script type="text/javascript" src="js/page.js"></script>
+<script type="text/javascript" src="js/warnOldVersion.js"></script>
+<script type="text/javascript" src="js/groups.js"></script>
+<link rel="stylesheet" type="text/css" href="lib/normalize.css/normalize.css"/>
+<link rel="stylesheet" type="text/css" href="lib/foundation/dist/foundation.min.css"/>
+<link rel="stylesheet" type="text/css" href="css/page.css"/>
+
+<!--
+<link rel="shortcut icon" href="images/favicon.ico" />
+-->
+</head>
+
+<body>
+<div class="off-canvas-wrapper">
+<div class="off-canvas-wrapper-inner" data-off-canvas-wrapper>
+
+<div class="off-canvas position-left" id="off-canvas-menu" data-off-canvas>
+<nav class="off-canvas-nav">
+<div class="nav-home">
+<a href="index.html" class="active">
+<span class="home-icon">⌂</span>simpledba - Simple Database Access for Scala
+</a>
+<div class="version-number">
+0.1.11*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="off-canvas-content" data-off-canvas-content>
+
+<header class="site-header expanded row">
+<div class="small-12 column">
+<a href="#" class="off-canvas-toggle hide-for-medium" data-toggle="off-canvas-menu"><svg class="svg-icon svg-icon-menu" version="1.1" id="Menu" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 20 20" enable-background="new 0 0 20 20" xml:space="preserve"> <path class="svg-icon-menu-path" fill="#53CDEC" d="M16.4,9H3.6C3.048,9,3,9.447,3,10c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,9.447,16.952,9,16.4,9z M16.4,13
+H3.6C3.048,13,3,13.447,3,14c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,13.447,16.952,13,16.4,13z M3.6,7H16.4
+C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.048,7,3.6,7z"/></svg>
+</a>
+<div class="title"><a href="index.html" class="active">simpledba - Simple Database Access for Scala</a></div>
+
+<!--
+<a href="https://www.example.com" class="logo show-for-medium">logo</a>
+-->
+</div>
+</header>
+
+<div class="expanded row">
+
+<div class="medium-3 large-2 show-for-medium column">
+<nav class="site-nav">
+<div class="nav-home">
+<a href="index.html" class="active">
+<span class="home-icon">⌂</span>simpledba - Simple Database Access for Scala
+</a>
+<div class="version-number">
+0.1.11*
+</div>
+</div>
+<div class="nav-toc">
+<ul>
+</ul>
+</div>
+
+</nav>
+</div>
+
+<div class="small-12 medium-9 large-10 column">
+<section class="site-content">
+
+<span id="version-warning"></span>
+
+<div class="page-header row">
+<div class="medium-12 show-for-medium column">
+</div>
+</div>
+
+<div class="page-content row">
+<div class="small-12 large-9 column" id="docs">
+<h1><a href="#simpledba-simple-database-access-for-scala" name="simpledba-simple-database-access-for-scala" class="anchor"><span class="anchor-link"></span></a>simpledba - Simple Database Access for Scala</h1>
+<p><a href="https://travis-ci.org/doolse/simpledba"><img src="https://api.travis-ci.org/doolse/simpledba.svg" alt="Build Status" /></a> <a href="https://coveralls.io/github/doolse/simpledba?branch=master"><img src="https://coveralls.io/repos/github/doolse/simpledba/badge.svg?branch=master" alt="Coverage Status" /></a></p>
+<p>AKA principled column family access for Scala (highly inspired by <a href="https://github.com/tpolecat/doobie">Doobie</a>)</p>
+<p>A database access library designed for easy access to Column Family based databases such as:</p>
+<ul>
+  <li>Apache Cassandra</li>
+  <li>Amazon DynamoDB</li>
+  <li>Apache HBase</li>
+</ul>
+<p>All of which are heavily inspired by Google&rsquo;s BigTable. </p>
+<h2><a href="#quickstart" name="quickstart" class="anchor"><span class="anchor-link"></span></a>Quickstart</h2>
+<pre class="prettyprint"><code class="language-scala">val simpledbaVersion = &quot;0.1.11-SNAPSHOT&quot;
+
+libraryDependencies ++= Seq(
+  &quot;io.doolse&quot; %% &quot;simpledba-cassandra&quot;,
+  &quot;io.doolse&quot; %% &quot;simpledba-circe&quot;
+).map(_ % simpledbaVersion)
+</code></pre>
+<pre class="prettyprint"><code class="language-scala">import java.util.UUID
+
+import io.doolse.simpledba._
+import io.doolse.simpledba.cassandra._
+
+object QuickstartExample extends App {
+  case class User(userId: UUID, firstName: String, lastName: String, yearOfBirth: Int)
+
+  case class Car(id: UUID, make: String, model: String, ownerId: UUID)
+
+  case class Queries[F[_]](users: WriteQueries[F, User],
+                           cars: WriteQueries[F, Car],
+                           userByKey: UniqueQuery[F, User, UUID],
+                           usersByFirstName: SortableQuery[F, User, String],
+                           carsForUser: RangeQuery[F, Car, UUID, String]
+                          )
+
+  val userRel = relation[User](&#39;user).key(&#39;userId)
+  val carRel = relation[Car](&#39;car).key(&#39;id)
+  val model = RelationModel(userRel, carRel
+  ).queries[Queries](
+    writes(userRel),
+    writes(carRel),
+    queryByPK(userRel),
+    query(userRel).multipleByColumns(&#39;firstName),
+    query(carRel).multipleByColumns(&#39;ownerId).sortBy(&#39;make)
+  )
+
+  val mapper = new CassandraMapper()
+  val built = mapper.buildModel(model)
+  val queries = built.queries
+  val sessionConfig = CassandraSession(CassandraIO.simpleSession(&quot;localhost&quot;), c =&gt; Console.println(c()))
+  CassandraUtils.initKeyspaceAndSchema(sessionConfig, &quot;test&quot;, built.ddl, dropKeyspace = true).unsafeRunSync()
+
+  private val magId = UUID.randomUUID()
+  private val mahId = UUID.randomUUID()
+  println {
+    (for {
+      _ &lt;- queries.users.insert(User(magId, &quot;Jolse&quot;, &quot;Maginnis&quot;, 1980))
+      _ &lt;- queries.users.insert(User(mahId, &quot;Jolse&quot;, &quot;Mahinnis&quot;, 1999))
+      _ &lt;- queries.cars.insert(Car(UUID.randomUUID(), &quot;Honda&quot;, &quot;Accord Euro&quot;, magId))
+      _ &lt;- queries.cars.insert(Car(UUID.randomUUID(), &quot;Honda&quot;, &quot;Civic&quot;, magId))
+      _ &lt;- queries.cars.insert(Car(UUID.randomUUID(), &quot;Ford&quot;, &quot;Laser&quot;, magId))
+      _ &lt;- queries.cars.insert(Car(UUID.randomUUID(), &quot;Hyundai&quot;, &quot;Accent&quot;, magId))
+      cars &lt;- queries.carsForUser(magId, lower = Exclusive(&quot;Honda&quot;)).runLog
+      users &lt;- queries.usersByFirstName(&quot;Jolse&quot;).runLog
+    } yield (cars ++ users).mkString(&quot;\n&quot;)).run(sessionConfig).unsafeRunSync()
+  }
+}
+</code></pre>
+<p>Which will produce CQL like:</p>
+<pre><code>	CREATE TABLE car(
+		ownerId uuid, make text,
+		id uuid, model text,
+		PRIMARY KEY(ownerId, make, id))
+
+	CREATE TABLE user(
+		firstName text, userId uuid,
+		lastName text, yearOfBirth int,
+		PRIMARY KEY(firstName, userId))
+
+	CREATE TABLE user_2(
+		userId uuid, firstName text,
+		lastName text, yearOfBirth int,
+		PRIMARY KEY(userId))
+		
+INSERT INTO user_2 (userId,firstName,lastName,yearOfBirth) VALUES (6b59b1cd-a266-4b1d-a9ba-8228c5dec668,&#39;Jolse&#39;,&#39;Maginnis&#39;,1980);
+INSERT INTO user (userId,firstName,lastName,yearOfBirth) VALUES (6b59b1cd-a266-4b1d-a9ba-8228c5dec668,&#39;Jolse&#39;,&#39;Maginnis&#39;,1980);
+INSERT INTO car (id,make,model,ownerId) VALUES (74cf528b-2e1c-4e7b-8fba-cb2945170fb5,&#39;Honda&#39;,&#39;Accord Euro&#39;,6b59b1cd-a266-4b1d-a9ba-8228c5dec668);
+SELECT * FROM car WHERE ownerId=6b59b1cd-a266-4b1d-a9ba-8228c5dec668;
+SELECT * FROM user WHERE firstName=&#39;Jolse&#39;;
+</code></pre>
+<h2><a href="#simple-scalable" name="simple-scalable" class="anchor"><span class="anchor-link"></span></a>Simple == Scalable</h2>
+<p>If you&rsquo;re already sold on column family databases just skip ahead to the <a href="#Features">Features</a>.</p>
+<p>For those only used to the flexibility of SQL databases, don&rsquo;t be fooled by any ridiculous attempts to dress these types of databases up as if they are SQL-like (looking at you CQL!), you&rsquo;re best to think of them being the equivalent of an SQL database in which you can:</p>
+<ul>
+  <li>Find a row by primary key</li>
+  <li>Find multiple rows by part of the primary key and filtered/ordered by the rest of it.</li>
+</ul>
+<p>That&rsquo;s a bit of a simplification but still that&rsquo;s a ridiculously limited subset of functionality right? What happens if I want to query by another column in the table, do I have to duplicate the data? Yep. Ouch! Painful. In essence your data model is dictated by the queries you need to do.</p>
+<p>Why would anyone want to submit themselves to such limitations? Scalability, that&rsquo;s it. It becomes easy to spread your data out over a large cluster if you restrict to simple access like this. Don&rsquo;t take my word for it : <a href="https://www.quora.com/Which-companies-use-Cassandra">https://www.quora.com/Which-companies-use-Cassandra</a></p>
+<h2><a href="#a-name-features-a-features" name="a-name-features-a-features" class="anchor"><span class="anchor-link"></span></a><a name="#Features"></a>Features</h2>
+<ul>
+  <li>Define your data model as case classes, define which queries you need, let simpledba do the rest</li>
+  <li>Same model can be used for all supported database types (easy to seamlessly change between them)</li>
+  <li>Easy to define your own custom column types</li>
+  <li>Integration with circe for easy custom JSON columns</li>
+  <li>Multiple results are returned as functional streams (fs2)</li>
+  <li>Optimised collection update operations when supported by backend DB</li>
+</ul>
+<h3><a href="#dependencies" name="dependencies" class="anchor"><span class="anchor-link"></span></a>Dependencies</h3>
+<table>
+  <thead>
+    <tr>
+      <th>cats </th>
+      <th>shapeless </th>
+      <th>circe </th>
+      <th>fs2 </th>
+      <th>cassandra-driver</th>
+      <th>dynamodb-driver</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1.0.0-MF</td>
+      <td>2.3.2 </td>
+      <td>0.5.0-M1</td>
+      <td>0.10.0-M6</td>
+      <td>3.0.0 </td>
+      <td>1.10.75</td>
+    </tr>
+  </tbody>
+</table>
+<div class="source-github">
+The source code for this page can be found <a href="https://github.com/doolse/simpledba/tree/master/docs/index.md">here</a>.
+</div>
+
+</div>
+<div class="large-3 show-for-large column" data-sticky-container>
+<nav class="sidebar sticky" data-sticky data-anchor="docs" data-sticky-on="large">
+<div class="page-nav">
+<div class="nav-title">On this page:</div>
+<div class="nav-toc">
+<ul>
+  <li><a href="index.html#simpledba-simple-database-access-for-scala" class="header">simpledba - Simple Database Access for Scala</a>
+  <ul>
+    <li><a href="index.html#quickstart" class="header">Quickstart</a></li>
+    <li><a href="index.html#simple-scalable" class="header">Simple == Scalable</a></li>
+    <li><a href="index.html#a-name-features-a-features" class="header"><a name="#Features"></a>Features</a></li>
+  </ul></li>
+</ul>
+</div>
+</div>
+</nav>
+</div>
+</div>
+
+</section>
+</div>
+
+</div>
+
+<footer class="site-footer">
+
+<section class="site-footer-nav">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 medium-4 large-3 text-center column">
+<div class="nav-links">
+<ul>
+<!-- <li><a href="https://www.example.com/products/">Products</a> -->
+</ul>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+</section>
+
+<section class="site-footer-base">
+<div class="expanded row">
+<div class="small-12 large-offset-2 large-10 column">
+<div class="row site-footer-content">
+
+<div class="small-12 text-center large-9 column">
+
+<!--
+<div class="copyright">
+<span class="text">&copy; 2019</span>
+<a href="https://www.example.com" class="logo">logo</a>
+</div>
+-->
+</div>
+
+</div>
+</div>
+</div>
+</section>
+</footer>
+
+</div>
+</div>
+</div>
+</body>
+
+<script type="text/javascript" src="lib/foundation/dist/foundation.min.js"></script>
+<script type="text/javascript">jQuery(document).foundation();</script>
+<script type="text/javascript" src="js/magellan.js"></script>
+
+<style type="text/css">@import "lib/prettify/prettify.css";</style>
+<script type="text/javascript" src="lib/prettify/prettify.js"></script>
+<script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
+<script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
+<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.1.11-SNAPSHOT', 'https://github.com/doolse/simpledba')});</script>
+
+
+</html>
