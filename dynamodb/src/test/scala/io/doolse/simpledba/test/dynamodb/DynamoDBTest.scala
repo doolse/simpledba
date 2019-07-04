@@ -1,6 +1,7 @@
 package io.doolse.simpledba.test.dynamodb
 
 import cats.syntax.all._
+import io.doolse.simpledba.Cols
 import io.doolse.simpledba.dynamodb.DynamoDBWriteOp
 import io.doolse.simpledba.test.Test
 
@@ -34,13 +35,12 @@ trait DynamoDBTest[S[_], F[_]] extends Test[S, F, DynamoDBWriteOp] with DynamoDB
         val inst = f(1L)
         flush(writeInst.insert(inst)).map(_ => inst)
       },
-      ???, ???, ???, ???, ???, ???
-//        get(instTable).build[Long],
-//      queryIndex(userTable, 'yearIndex).build[String](true),
-//      query(userLNTable).build(false),
-//      get(userTable).build,
-//      getAttr(userTable, Cols('year)).buildAs[Username, Int],
-//      query(userLNTable).count
+        get(instTable).build[Long],
+      queryIndex(userTable, 'yearIndex).build[String](false),
+      query(userLNTable).build[String](true),
+      get(userTable).build[Username],
+      getAttr(userTable, Cols('year)).buildAs[Username, Int],
+      query(userLNTable).count[String]
     )
   }
 

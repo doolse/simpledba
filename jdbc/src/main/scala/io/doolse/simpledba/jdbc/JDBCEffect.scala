@@ -3,12 +3,7 @@ package io.doolse.simpledba.jdbc
 import java.sql.{Connection, PreparedStatement, ResultSet}
 
 import cats.Monad
-import io.doolse.simpledba.{
-  ColumnRecord,
-  ColumnRetrieve,
-  JavaEffects,
-  Streamable
-}
+import io.doolse.simpledba.{ColumnRecord, ColumnRetrieve, JavaEffects, Streamable}
 import shapeless.HList
 
 case class JDBCEffect[S[_], F[_]](

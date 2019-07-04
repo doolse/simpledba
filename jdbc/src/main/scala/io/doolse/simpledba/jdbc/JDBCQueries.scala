@@ -2,15 +2,15 @@ package io.doolse.simpledba.jdbc
 
 import java.sql.{Connection, PreparedStatement}
 
-import cats.data.{Kleisli, NonEmptyList, State}
+import cats.data.NonEmptyList
 import io.doolse.simpledba._
 import io.doolse.simpledba.jdbc.BinOp.BinOp
 import io.doolse.simpledba.jdbc.JDBCQueries._
 import io.doolse.simpledba.jdbc.JDBCTable.TableRecord
 import shapeless.labelled._
-import shapeless.ops.hlist.{Length, Prepend, Split, Take}
+import shapeless.ops.hlist.{Length, Prepend, Split}
 import shapeless.ops.record.{Keys, Selector, ToMap}
-import shapeless.{::, DepFn2, HList, HNil, LabelledGeneric, Nat, Witness, _0}
+import shapeless.{::, HList, HNil, LabelledGeneric, Nat, Witness}
 
 import scala.annotation.tailrec
 

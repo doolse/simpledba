@@ -5,7 +5,8 @@ import sbt.{Resolver, addCompilerPlugin}
 name := "simpledba"
 
 lazy val prjDir = file("project")
-lazy val config = ConfigFactory.parseFile(prjDir / "application.conf")
+lazy val config = ConfigFactory
+  .parseFile(prjDir / "application.conf")
   .withFallback(ConfigFactory.parseFile(prjDir / "reference.conf"))
 
 val commonSettings = Seq(
@@ -13,9 +14,7 @@ val commonSettings = Seq(
   version := "0.1.11-SNAPSHOT",
   scalaVersion := "2.12.8",
   resolvers += Resolver.sonatypeRepo("snapshots"),
-
   licenses := Seq("BSD-style" -> url("http://www.opensource.org/licenses/bsd-license.php")),
-
   homepage := Some(url("https://github.com/doolse/simpledba")),
   scmInfo := Some(
     ScmInfo(
@@ -49,20 +48,33 @@ val subSettings = Seq(
   scalacOptions += "-Ypartial-unification",
   scalacOptions ++= Seq("-P:splain:implicits:true", "-P:splain:color:false"),
   addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.10.3"),
-  addCompilerPlugin("io.tryp" % "splain" % "0.4.1" cross CrossVersion.patch)
+  addCompilerPlugin("io.tryp"       % "splain"          % "0.4.1" cross CrossVersion.patch)
 ) ++ commonSettings
 
-lazy val core = project.settings(subSettings: _*)
-lazy val coreDep = core % "test->test;compile->compile"
-lazy val fs2 = project.settings(subSettings: _*).dependsOn(coreDep)
-lazy val fs2Test = fs2 % "test->test"
-lazy val zio = project.settings(subSettings: _*).dependsOn(coreDep)
-lazy val zioTest = zio % "test->test"
-lazy val dynamodb = project.settings(subSettings: _*).dependsOn(coreDep,fs2Test, zioTest)
+lazy val core     = project.settings(subSettings: _*)
+lazy val coreDep  = core % "test->test;compile->compile"
+lazy val fs2      = project.settings(subSettings: _*).dependsOn(coreDep)
+lazy val fs2Test  = fs2 % "test->test"
+lazy val zio      = project.settings(subSettings: _*).dependsOn(coreDep)
+lazy val zioTest  = zio % "test->test"
+lazy val dynamodb = project.settings(subSettings: _*).dependsOn(coreDep, fs2Test, zioTest)
 //lazy val cassandra = project.settings(subSettings: _*).dependsOn(coreDep)
-lazy val jdbc = project.settings(subSettings: _*).dependsOn(coreDep, fs2Test, zioTest)
+lazy val jdbc  = project.settings(subSettings: _*).dependsOn(coreDep, fs2Test, zioTest)
 lazy val circe = project.settings(subSettings: _*).dependsOn(coreDep)
 
-lazy val parent = (project in file(".")).aggregate(core, fs2, jdbc, dynamodb, circe, zio)
+lazy val parent = (project in file("."))
+  .aggregate(core, fs2, jdbc, dynamodb, circe, zio)
 
 commonSettings
+
+makeSite / aggregate := false
+
+previewSite / aggregate := false
+
+previewAuto / aggregate := false
+
+paradox / sourceDirectory in Compile := baseDirectory.value / "docs"
+
+paradoxTheme := Some(builtinParadoxTheme("generic"))
+
+git.remoteRepo := "git@github.com:doolse/simpledba.git"

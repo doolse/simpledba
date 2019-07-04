@@ -2,8 +2,7 @@ package io.doolse.simpledba
 
 import java.sql.{Connection, DriverManager, PreparedStatement}
 
-import cats.data.{Kleisli, State, StateT}
-import cats.effect.IO
+import cats.data.{Kleisli, State}
 import com.typesafe.config.{Config, ConfigFactory}
 
 package object jdbc {

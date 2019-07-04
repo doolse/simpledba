@@ -6,6 +6,7 @@ import zio.console._
 import zio.{App, Task, ZIO}
 import zio.stream.{Stream, ZSink}
 import io.doolse.simpledba.interop.zio._
+import zio.console._
 
 object DynamoDBZIOTest
     extends App
@@ -14,7 +15,7 @@ object DynamoDBZIOTest
   override def effect = DynamoDBEffect[Stream[Throwable, ?], Task](ZIO.succeed(localClient))
 
   override def run(args: List[String]): ZIO[DynamoDBZIOTest.Environment, Nothing, Int] = {
-    prog.fold(t => {
+    prog.tap(putStrLn) fold (t => {
       t.printStackTrace()
       1
     }, _ => 0)
