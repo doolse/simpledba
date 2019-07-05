@@ -80,7 +80,8 @@ lazy val docs = project
     micrositeGithubRepo := "simpledba",
     mdocVariables := Map(
       "VERSION" -> version.value
-    )
+    ),
+    micrositeBaseUrl := "simpledba/"
   ).settings(commonSettings)
   .enablePlugins(MicrositesPlugin)
 

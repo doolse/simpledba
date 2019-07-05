@@ -5,4 +5,5 @@
 
 Map case classes into columns for your DB, create typesafe queries that run with your favourite effect and streaming library.
 
-See [Documentaton](https://doolse.github.io/simpledba/)
+For full information see the [Documentaton](https://doolse.github.io/simpledba/) microsite.
+
