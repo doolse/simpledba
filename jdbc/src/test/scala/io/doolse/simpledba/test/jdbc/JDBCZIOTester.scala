@@ -19,7 +19,7 @@ trait JDBCZIOTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[ZStre
   type F[A] = Task[A]
 
   def connection: Connection
-  def effect = JDBCEffect[S, F](ZIO.succeed(connection), _ => ZIO(), ConsoleLogger())
+  def effect = JDBCEffect[S, F](ZIO.succeed(connection), _ => ZIO(), PrintLnLogger())
   def mapper: JDBCMapper[C]
   def builder = mapper.queries(effect)
 
@@ -39,13 +39,9 @@ trait JDBCZIOTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[ZStre
     val S = streamable
     import b.{flush => _, _}
 
-    val schemaSQL = mapper.dialect
     Queries(
       flush {
-        S.emits(Seq(instTable, userTable)).flatMap { t =>
-          val d = t.definition
-          rawSQLStream(S.emits(Seq(schemaSQL.dropTable(d), schemaSQL.createTable(d))))
-        }
+        S.emits(Seq(instTable, userTable)).flatMap(dropAndCreate)
       },
       writes(instTable),
       writes(userTable),

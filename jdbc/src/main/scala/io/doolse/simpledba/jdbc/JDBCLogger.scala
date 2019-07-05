@@ -7,18 +7,18 @@ trait JDBCLogger[F[_]] {
   def logBind(sql: String, values: Seq[Any]): F[Unit]
 }
 
-class NothingLogger[F[_]](implicit A: Sync[F]) extends JDBCLogger[F] {
+case class NothingLogger[F[_]](implicit A: Sync[F]) extends JDBCLogger[F] {
   override def logPrepare(sql: String): F[Unit] = A.pure()
 
   override def logBind(sql: String, values: Seq[Any]): F[Unit] = A.pure()
 }
 
-case class ConsoleLogger[F[_]](logPrepares: Boolean = false, logBinds: Boolean = true)(
+case class PrintLnLogger[F[_]](logPrepares: Boolean = false, logBinds: Boolean = true)(
     implicit S: Sync[F])
     extends JDBCLogger[F] {
   override def logPrepare(sql: String): F[Unit] =
     if (logPrepares) S.delay(println(sql)) else S.delay()
 
   override def logBind(sql: String, values: Seq[Any]): F[Unit] =
-    if (logBinds) S.delay(println(s"$sql - $values")) else S.delay()
+    if (logBinds) S.delay(println(s"$sql -- Values: $values")) else S.delay()
 }

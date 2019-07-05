@@ -15,7 +15,7 @@ object JDBCProperties {
 
   def mkLogger[F[_]: Sync]: JDBCLogger[F] = {
     val testConfig = config.getConfig("simpledba.test")
-    if (testConfig.getBoolean("log")) new ConsoleLogger()
+    if (testConfig.getBoolean("log")) new PrintLnLogger()
     else new NothingLogger()
   }
 }
@@ -40,17 +40,14 @@ trait JDBCProperties[S[_], F[_]] {
 
   lazy val sqlQueries = mapper.queries(effect)
 
-
   def setup(bq: JDBCTable[HSQLColumn]*): Unit = {
     implicit val SM = streamable.SM
     import sqlQueries.{flush => _, _}
-    run(
-      flush(
-        rawSQLStream(
-          streamable.emits(Seq(bq: _*)
-            .map(_.definition)
-            .flatMap(t => Seq(dialect.dropTable(t), dialect.createTable(t))))
-        )))
+    run {
+      flush {
+        SM.flatMap(streamable.emits(Seq(bq: _*)))(dropAndCreate)
+      }
+    }
   }
 
   def run[A](fa: F[A]): A

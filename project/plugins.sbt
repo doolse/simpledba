@@ -11,6 +11,4 @@ addSbtPlugin("com.jsuereth" % "sbt-pgp" % "1.1.0")
 
 addSbtPlugin("com.geirsson" % "sbt-scalafmt" % "1.5.1")
 
-addSbtPlugin("com.typesafe.sbt" % "sbt-site" % "1.4.0")
-
-addSbtPlugin("com.typesafe.sbt" % "sbt-ghpages" % "0.6.3")
+addSbtPlugin("com.47deg"  % "sbt-microsites" % "0.9.2")

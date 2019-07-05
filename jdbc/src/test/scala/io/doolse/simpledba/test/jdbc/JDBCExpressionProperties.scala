@@ -51,7 +51,7 @@ object JDBCExpressionProperties
   def insertData(rows: Seq[SimpleTable]): Task[Seq[SimpleTable]] = {
     val dupesRemoved = uniqueify[SimpleTable](rows, _.id)
     flush(streamable
-        .emit(sqlQueries.rawSQL(sqlQueries.dialect.truncateTable(simpleTable.definition))) ++ writer
+        .emit(sqlQueries.sql(sqlQueries.dialect.truncateTable(simpleTable.definition))) ++ writer
         .insertAll(ZStream(dupesRemoved: _*)))
       .map(_ => dupesRemoved)
   }

@@ -63,18 +63,25 @@ lazy val jdbc  = project.settings(subSettings: _*).dependsOn(coreDep, fs2Test, z
 lazy val circe = project.settings(subSettings: _*).dependsOn(coreDep)
 
 lazy val parent = (project in file("."))
+  .settings(commonSettings)
   .aggregate(core, fs2, jdbc, dynamodb, circe, zio)
 
-commonSettings
+lazy val docs = project
+  .in(file("docs-project"))
+  .dependsOn(fs2, jdbc, dynamodb, circe, zio)
+  .settings(
+    libraryDependencies += "org.hsqldb" % "hsqldb" % "2.4.0",
+    micrositeCompilingDocsTool := WithMdoc,
+    micrositeName := "simpledba",
+    micrositeDescription := "Simple Database Access for Scala",
+    micrositeHomepage := "https://doolse.github.io/simpledba",
+    micrositeGithubOwner := "doolse",
+    micrositeHighlightTheme := "pojoaque",
+    micrositeGithubRepo := "simpledba",
+    mdocVariables := Map(
+      "VERSION" -> version.value
+    ),
+    micrositeBaseUrl := "/docs"
+  ).settings(commonSettings)
+  .enablePlugins(MicrositesPlugin)
 
-makeSite / aggregate := false
-
-previewSite / aggregate := false
-
-previewAuto / aggregate := false
-
-paradox / sourceDirectory in Compile := baseDirectory.value / "docs"
-
-paradoxTheme := Some(builtinParadoxTheme("generic"))
-
-git.remoteRepo := "git@github.com:doolse/simpledba.git"

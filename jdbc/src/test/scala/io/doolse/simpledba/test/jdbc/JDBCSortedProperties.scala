@@ -20,7 +20,7 @@ object JDBCSortedProperties extends SimpleDBAProperties("JDBC") {
 
       val sameQuery  = query(sortedTable).where('same, BinOp.EQ)
       val sortWrites = writes(sortedTable)
-      val truncate   = rawSQLStream(Stream.emit(dialect.truncateTable(sortedTable.definition)))
+      val truncate   = Stream.emit(sql(dialect.truncateTable(sortedTable.definition)))
 
       def makeQueries(asc: Boolean) = {
         Queries(

@@ -51,15 +51,14 @@ case class BoundColumn(name: String, column: JDBCColumn[_], binder: BoundValue) 
   def namedColumn: NamedColumn = NamedColumn(name, column.columnType)
 }
 
-object BindValues extends ColumnMapper[JDBCColumn, Any, BoundValue]
-{
-    override def apply[V](column: JDBCColumn[V], value: V, a: Any): BoundValue =
-      column.bindValue(value)
+object BindValues extends ColumnMapper[JDBCColumn, Any, BoundValue] {
+  override def apply[V](column: JDBCColumn[V], value: V, a: Any): BoundValue =
+    column.bindValue(value)
 }
 
 object BindNamedValues extends ColumnMapper[JDBCColumn, String, BoundColumn] {
-    override def apply[V](column: JDBCColumn[V], value: V, a: String): BoundColumn =
-      BoundColumn(a, column, column.bindValue(value))
+  override def apply[V](column: JDBCColumn[V], value: V, a: String): BoundColumn =
+    BoundColumn(a, column, column.bindValue(value))
 }
 
 object BindUpdate extends ColumnCompare[JDBCColumn, String, BoundColumn] {
@@ -176,7 +175,7 @@ case class JDBCQueries[C[A] <: JDBCColumn[A], S[_], F[_]](effect: JDBCEffect[S, 
   def allRows(table: JDBCTable[C]): S[table.Data] =
     query(table).build[Unit].apply()
 
-  def queryRawSQL[Params <: HList, OutRec <: HList](
+  def sqlRecord[Params <: HList, OutRec <: HList](
       sql: String,
       cr: ColumnRecord[C, _, Params],
       outRec: ColumnRecord[C, _, OutRec]
@@ -188,16 +187,14 @@ case class JDBCQueries[C[A] <: JDBCColumn[A], S[_], F[_]](effect: JDBCEffect[S, 
       }
     }
 
-  def rawSQL(sql: String): JDBCWriteOp = {
+  def sql(sql: String): JDBCWriteOp = {
     JDBCWriteOp(sql, (con, ps) => Seq.empty[Any])
   }
 
-  def rawSQLStream(
-      sql: S[String]
-  ): S[JDBCWriteOp] = {
-    SM.map(sql)(rawSQL)
+  def dropAndCreate(t: JDBCTable[C]): S[JDBCWriteOp] = {
+    val definition = t.definition
+    SM.map(S.emits(Seq(dialect.dropTable(definition), dialect.createTable(definition))))(sql)
   }
-
 }
 
 object JDBCQueries {

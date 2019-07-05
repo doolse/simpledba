@@ -6,6 +6,7 @@ import _root_.zio.interop.catz._
 import _root_.zio.interop.javaconcurrent._
 import _root_.zio.stream._
 import _root_.zio.{Task, TaskR, ZIO}
+import _root_.zio.console._
 import cats.Monad
 import io.doolse.simpledba.{JavaEffects, Streamable}
 
@@ -19,15 +20,6 @@ package object zio {
   }
 
   implicit def zioStreamable = new Streamable[ZStream[Any, Throwable, ?], ZIO[Any, Throwable, ?]] {
-
-    def onceOnly[A, R, E]: A => ZIO[R, E, Option[A]] = {
-      var first = true
-      a =>
-        if (first) {
-          first = false
-          ZIO.succeed(Some(a))
-        } else ZIO.succeed(None)
-    }
 
     override def M: Monad[ZIO[Any, Throwable, ?]] = Monad[ZIO[Any, Throwable, ?]]
 

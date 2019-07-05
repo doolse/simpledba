@@ -1,139 +1,165 @@
+---
+layout: home
+title: "Home"
+section: "home"
+---
+
 # simpledba - Simple Database Access for Scala
 
 [![Build Status](https://api.travis-ci.org/doolse/simpledba.svg)](https://travis-ci.org/doolse/simpledba)
 [![Coverage Status](https://coveralls.io/repos/github/doolse/simpledba/badge.svg?branch=master)](https://coveralls.io/github/doolse/simpledba?branch=master)
 
-AKA principled column family access for Scala (highly inspired by [Doobie](https://github.com/tpolecat/doobie))
-  
-A database access library designed for easy access to Column Family based 
-databases such as:
+## TL;DR
 
-* Apache Cassandra
-* Amazon DynamoDB
-* Apache HBase
+Map case classes into columns for your DB, create typesafe queries that run with your favourite effect and streaming library.
 
-All of which are heavily inspired by Google's BigTable. 
+# Goals
+
+- Prevent you from writing queries which the database won't allow you to run, using types.
+- Support as many column family style DB's as possible. (DynamoDB, Cassandra, Google Cloud Datastore)
+- Support JDBC with full typed support for non joined queries. Joined queries can be created with un-typechecked SQL.
+- Facilitate writing DB agnostic query layers. Switching between AWS and Google Cloud? No Problem.
+- Be a library, not a framework. No magic, just principles.
 
 ## Quickstart
 
-@@@vars
 ```scala
-val simpledbaVersion = "$project.version$"
+val simpledbaVersion = "@VERSION@"
 
 libraryDependencies ++= Seq(
-  "io.doolse" %% "simpledba-cassandra",
+  "io.doolse" %% "simpledba-jdbc",
+  "io.doolse" %% "simpledba-dynamodb",
   "io.doolse" %% "simpledba-circe"
 ).map(_ % simpledbaVersion)
 ```
-@@@
 
-```scala
+Define your domain model case classes and a database agnostic query trait.
+In this example we will be using ZIO with it's stream library for the effects.
+
+```scala mdoc
 import java.util.UUID
 
 import io.doolse.simpledba._
-import io.doolse.simpledba.cassandra._
+import zio._
+import zio.stream._
 
-object QuickstartExample extends App {
-  case class User(userId: UUID, firstName: String, lastName: String, yearOfBirth: Int)
+case class User(userId: UUID, firstName: String, lastName: String, yearOfBirth: Int)
 
-  case class Car(id: UUID, make: String, model: String, ownerId: UUID)
+case class Car(id: UUID, make: String, model: String, ownerId: UUID)
 
-  case class Queries[F[_]](users: WriteQueries[F, User],
-                           cars: WriteQueries[F, Car],
-                           userByKey: UniqueQuery[F, User, UUID],
-                           usersByFirstName: SortableQuery[F, User, String],
-                           carsForUser: RangeQuery[F, Car, UUID, String]
-                          )
+// Support multiple DB types by parameterizing on the write operation type
+trait Queries[W] {
+  type S[A] = Stream[Throwable, A]
+  type F[A] = Task[A]
+  type Writes[A] = WriteQueries[S, F, W, A]
+  def users: Writes[User]
+  def cars: Writes[Car]
+  def usersByFirstName: String => S[User]
+  def carsForUser: UUID => S[Car]
+  def flush: S[W] => F[Unit]
+}
+```
 
-  val userRel = relation[User]('user).key('userId)
-  val carRel = relation[Car]('car).key('id)
-  val model = RelationModel(userRel, carRel
-  ).queries[Queries](
-    writes(userRel),
-    writes(carRel),
-    queryByPK(userRel),
-    query(userRel).multipleByColumns('firstName),
-    query(carRel).multipleByColumns('ownerId).sortBy('make)
-  )
+Write your app:
 
-  val mapper = new CassandraMapper()
-  val built = mapper.buildModel(model)
-  val queries = built.queries
-  val sessionConfig = CassandraSession(CassandraIO.simpleSession("localhost"), c => Console.println(c()))
-  CassandraUtils.initKeyspaceAndSchema(sessionConfig, "test", built.ddl, dropKeyspace = true).unsafeRunSync()
+```scala mdoc
 
-  private val magId = UUID.randomUUID()
-  private val mahId = UUID.randomUUID()
-  println {
+trait ExampleApp[W] {
+
+  type S[A] = Stream[Throwable, A]
+  type F[A] = Task[A]
+
+  def queries: Queries[W]
+  def initSchema: F[Unit]
+
+  def initData: F[Unit] = {
+    val magId = UUID.randomUUID()
+    val mahId = UUID.randomUUID()
+    queries.flush {
+      queries.users.insertAll(
+        Stream(User(magId, "Jolse", "Maginnis", 1980), User(mahId, "Jolse", "Mahinnis", 1999))) ++
+        queries.cars.insertAll(
+          Stream(
+            Car(UUID.randomUUID(), "Honda", "Accord Euro", magId),
+            Car(UUID.randomUUID(), "Honda", "Civic", mahId),
+            Car(UUID.randomUUID(), "Ford", "Laser", magId),
+            Car(UUID.randomUUID(), "Hyundai", "Accent", magId)
+          ))
+    }
+  }
+
+  import zio.console._
+
+  def querySomeData: TaskR[Console, Unit] =
     (for {
-      _ <- queries.users.insert(User(magId, "Jolse", "Maginnis", 1980))
-      _ <- queries.users.insert(User(mahId, "Jolse", "Mahinnis", 1999))
-      _ <- queries.cars.insert(Car(UUID.randomUUID(), "Honda", "Accord Euro", magId))
-      _ <- queries.cars.insert(Car(UUID.randomUUID(), "Honda", "Civic", magId))
-      _ <- queries.cars.insert(Car(UUID.randomUUID(), "Ford", "Laser", magId))
-      _ <- queries.cars.insert(Car(UUID.randomUUID(), "Hyundai", "Accent", magId))
-      cars <- queries.carsForUser(magId, lower = Exclusive("Honda")).runLog
-      users <- queries.usersByFirstName("Jolse").runLog
-    } yield (cars ++ users).mkString("\n")).run(sessionConfig).unsafeRunSync()
+      user <- queries.usersByFirstName("Jolse")
+      _ <- Stream.fromEffect {
+        queries.carsForUser(user.userId).runCollect.tap { cars =>
+          putStrLn(s"${user.firstName} ${user.lastName} owns ${cars}")
+        }
+      }
+    } yield ()).runDrain
+
+  def run() = {
+    val runtime = new DefaultRuntime {}
+    runtime.unsafeRun(initSchema *> initData *> querySomeData)
   }
 }
 ```
-Which will produce CQL like:
+
+Now we can create a DB specific implementation of the app, let's start with JDBC (using embedded HSQL).
+
+```scala mdoc
+import io.doolse.simpledba.jdbc._
+import io.doolse.simpledba.interop.zio._
+import zio.interop.catz._
+
+class JDBCApp(logger: JDBCLogger[Task]) extends ExampleApp[JDBCWriteOp] {
+
+  import java.sql.DriverManager
+  import io.doolse.simpledba.jdbc.hsql._
+
+  // Use HSQL driver, single connection
+  val mapper           = hsqldbMapper
+  val singleConnection = DriverManager.getConnection("jdbc:hsqldb:mem:example")
+
+  val jdbcQueries = mapper.queries(
+    new JDBCEffect[S, F](ZIO.succeed(singleConnection), _ => ZIO.unit, logger))
+
+  val carTable  = mapper.mapped[Car].table("cars").key('id)
+  val userTable = mapper.mapped[User].table("users").key('userId)
+
+  import jdbcQueries._
+
+  override val queries: Queries[JDBCWriteOp] = new Queries[JDBCWriteOp] {
+    val users: Writes[User]                 = writes(userTable)
+    val cars: Writes[Car]                   = writes(carTable)
+    val usersByFirstName: String => S[User] = query(userTable).where('firstName, BinOp.EQ).build
+    val carsForUser: UUID => S[Car]         = query(carTable).where('ownerId, BinOp.EQ).build
+    val flush: S[JDBCWriteOp] => F[Unit]    = jdbcQueries.flush
+  }
+  override val initSchema: F[Unit] = jdbcQueries.flush {
+    Stream(carTable, userTable).flatMap(dropAndCreate)
+  }
+}
 ```
-	CREATE TABLE car(
-		ownerId uuid, make text,
-		id uuid, model text,
-		PRIMARY KEY(ownerId, make, id))
 
-	CREATE TABLE user(
-		firstName text, userId uuid,
-		lastName text, yearOfBirth int,
-		PRIMARY KEY(firstName, userId))
+Running this gives you the expected result:
 
-	CREATE TABLE user_2(
-		userId uuid, firstName text,
-		lastName text, yearOfBirth int,
-		PRIMARY KEY(userId))
-		
-INSERT INTO user_2 (userId,firstName,lastName,yearOfBirth) VALUES (6b59b1cd-a266-4b1d-a9ba-8228c5dec668,'Jolse','Maginnis',1980);
-INSERT INTO user (userId,firstName,lastName,yearOfBirth) VALUES (6b59b1cd-a266-4b1d-a9ba-8228c5dec668,'Jolse','Maginnis',1980);
-INSERT INTO car (id,make,model,ownerId) VALUES (74cf528b-2e1c-4e7b-8fba-cb2945170fb5,'Honda','Accord Euro',6b59b1cd-a266-4b1d-a9ba-8228c5dec668);
-SELECT * FROM car WHERE ownerId=6b59b1cd-a266-4b1d-a9ba-8228c5dec668;
-SELECT * FROM user WHERE firstName='Jolse';
+```scala
+new JDBCApp(NothingLogger()).run()
 ```
 
-## Simple == Scalable
+````scala mdoc:passthrough
+println("```")
+new JDBCApp(NothingLogger()).run()
+println("```")
+````
 
-If you're already sold on column family databases just skip ahead to the [Features](#Features).
+To see what's going on with SQL being executed, you can log the queries:
 
-For those only used to the flexibility of SQL databases, don't be fooled by any ridiculous attempts to dress
-these types of databases up as if they are SQL-like (looking at you CQL!), you're best 
-to think of them being the equivalent of an SQL database in which you can:
-
-* Find a row by primary key
-* Find multiple rows by part of the primary key and filtered/ordered by the rest of it.
-
-That's a bit of a simplification but still that's a ridiculously limited subset of functionality right? 
-What happens if I want to query by another column in the table, do I have to duplicate the data? 
-Yep. Ouch! Painful. In essence your data model is dictated by the queries you need to do.
- 
-Why would anyone want to submit themselves to such limitations? Scalability, that's it. 
-It becomes easy to spread your data out over a large cluster if you restrict to simple access like this.
-Don't take my word for it : 
-[https://www.quora.com/Which-companies-use-Cassandra](https://www.quora.com/Which-companies-use-Cassandra)
-
-## <a name="#Features"></a>Features
-
-* Define your data model as case classes, define which queries you need, let simpledba do the rest
-* Same model can be used for all supported database types (easy to seamlessly change between them)
-* Easy to define your own custom column types
-* Integration with circe for easy custom JSON columns
-* Multiple results are returned as functional streams (fs2)
-* Optimised collection update operations when supported by backend DB
-
-### Dependencies
-
-| cats   | shapeless | circe  | fs2     |cassandra-driver|dynamodb-driver|
-| ---    | ---       | ---    | ---     | ---            | ---    |
-|1.0.0-MF|2.3.2      |0.5.0-M1|0.10.0-M6|3.0.0           | 1.10.75|
-
+````scala mdoc:passthrough
+println("```sql")
+new JDBCApp(PrintLnLogger()).run()
+println("```")
+````

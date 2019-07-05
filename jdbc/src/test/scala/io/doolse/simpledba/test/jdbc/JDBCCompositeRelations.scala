@@ -23,13 +23,13 @@ object JDBCCompositeRelations
     setup(compTable)
     Queries2(writes(compTable),
              byPK(compTable).build,
-             rawSQLStream(streamable.emit(dialect.truncateTable(compTable.definition))))
+             streamable.emit(sql(dialect.truncateTable(compTable.definition))))
   }
 
   lazy val queries3 = {
     setup(compRel3)
     Queries3(writes(compRel3),
              byPK(compRel3).build,
-             rawSQLStream(streamable.emit(dialect.truncateTable(compRel3.definition))))
+             streamable.emit(sql(dialect.truncateTable(compRel3.definition))))
   }
 }

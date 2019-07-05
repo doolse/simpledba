@@ -17,7 +17,7 @@ trait JDBCTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[fs2.Stre
   type F[A] = IO[A]
 
   def connection: Connection
-  def effect: JDBCEffect[fs2.Stream[IO, ?], F] = JDBCEffect(IO.pure(connection), _ => IO.pure(), ConsoleLogger())
+  def effect: JDBCEffect[fs2.Stream[IO, ?], F] = JDBCEffect(IO.pure(connection), _ => IO.pure(), PrintLnLogger())
   def mapper: JDBCMapper[C]
   def builder = mapper.queries(effect)
 
@@ -36,13 +36,9 @@ trait JDBCTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[fs2.Stre
     val b = builder
     import b.{flush => _, _}
 
-    val schemaSQL = mapper.dialect
     Queries(
       flush {
-        Stream(instTable, userTable).flatMap { t =>
-          val d = t.definition
-          rawSQLStream(Stream(schemaSQL.dropTable(d), schemaSQL.createTable(d)))
-        }
+        Stream(instTable, userTable).flatMap(dropAndCreate)
       },
       writes(instTable),
       writes(userTable),
