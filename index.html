@@ -1,311 +1,167 @@
-<!DOCTYPE html>
-<html class="no-js" lang="en">
+<html><head><title>simpledba: Home</title><meta charset="utf-8" /><meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="io.github.doolse" /><meta name="description" content="Simple Database Access for Scala" /><meta name="og:image" content="/img/poster.png" /><meta name="image" property="og:image" content="/img/poster.png" /><meta name="og:title" content="simpledba: Home" /><meta name="title" property="og:title" content="simpledba: Home" /><meta name="og:site_name" content="simpledba" /><meta name="og:url" content="https://doolse.github.io/simpledba" /><meta name="og:type" content="website" /><meta name="og:description" content="Simple Database Access for Scala" /><link rel="icon" type="image/png" href="/img/favicon.png" /><meta name="twitter:title" content="simpledba: Home" /><meta name="twitter:image" content="/img/poster.png" /><meta name="twitter:description" content="Simple Database Access for Scala" /><meta name="twitter:card" content="summary_large_image" /><link rel="icon" type="image/png" sizes="16x16" href="/img/favicon16x16.png" /><link rel="icon" type="image/png" sizes="24x24" href="/img/favicon24x24.png" /><link rel="icon" type="image/png" sizes="32x32" href="/img/favicon32x32.png" /><link rel="icon" type="image/png" sizes="48x48" href="/img/favicon48x48.png" /><link rel="icon" type="image/png" sizes="57x57" href="/img/favicon57x57.png" /><link rel="icon" type="image/png" sizes="60x60" href="/img/favicon60x60.png" /><link rel="icon" type="image/png" sizes="64x64" href="/img/favicon64x64.png" /><link rel="icon" type="image/png" sizes="70x70" href="/img/favicon70x70.png" /><link rel="icon" type="image/png" sizes="72x72" href="/img/favicon72x72.png" /><link rel="icon" type="image/png" sizes="76x76" href="/img/favicon76x76.png" /><link rel="icon" type="image/png" sizes="96x96" href="/img/favicon96x96.png" /><link rel="icon" type="image/png" sizes="114x114" href="/img/favicon114x114.png" /><link rel="icon" type="image/png" sizes="120x120" href="/img/favicon120x120.png" /><link rel="icon" type="image/png" sizes="128x128" href="/img/favicon128x128.png" /><link rel="icon" type="image/png" sizes="144x144" href="/img/favicon144x144.png" /><link rel="icon" type="image/png" sizes="150x150" href="/img/favicon150x150.png" /><link rel="icon" type="image/png" sizes="152x152" href="/img/favicon152x152.png" /><link rel="icon" type="image/png" sizes="196x196" href="/img/favicon196x196.png" /><link rel="icon" type="image/png" sizes="310x310" href="/img/favicon310x310.png" /><link rel="icon" type="image/png" sizes="310x150" href="/img/favicon310x150.png" /><link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" /><link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css" /><link rel="stylesheet" href="/highlight/styles/pojoaque.css" /><link rel="stylesheet" href="/css/style.css" /><link rel="stylesheet" href="/css/palette.css" /><link rel="stylesheet" href="/css/codemirror.css" /></head><body><header id="site-header"><div class="navbar-wrapper"><div class="container"><div class="row"><div class="col-xs-6"><a href="/" class="brand"><div class="icon-wrapper"><span>simpledba</span></div></a></div><div class="col-xs-6"><nav class="text-right"><ul class=""><li><a href="https://github.com/doolse/simpledba"><i class="fa fa-github"></i><span class="hidden-xs">GitHub</span></a></li></ul></nav></div></div></div></div><div class="jumbotron"><div class="container"><h1 class="text-center">Simple Database Access for Scala</h1><h2></h2><p class="text-center"><a href="https://github.com/doolse/simpledba" class="btn btn-outline-inverse">View on GitHub</a></p></div></div><div><ul class="horizontalNav">      </ul></div></header><main id="site-main"><section class="use"><div class="container"><div id="content"><h1 id="simpledba---simple-database-access-for-scala">simpledba - Simple Database Access for Scala</h1>
 
-<head>
-<title>simpledba - Simple Database Access for Scala</title>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<meta name="description" content='simpledba'/>
-<link rel="canonical" href="https://github.com/doolse/simpledbaindex.html"/>
-<link href="https://fonts.googleapis.com/css?family=Roboto:100normal,100italic,300normal,300italic,400normal,400italic,500normal,500italic,700normal,700italic,900normal,900italicc" rel="stylesheet" type="text/css"/>
-<script type="text/javascript" src="lib/jquery/jquery.min.js"></script>
-<script type="text/javascript" src="js/page.js"></script>
-<script type="text/javascript" src="js/warnOldVersion.js"></script>
-<script type="text/javascript" src="js/groups.js"></script>
-<link rel="stylesheet" type="text/css" href="lib/normalize.css/normalize.css"/>
-<link rel="stylesheet" type="text/css" href="lib/foundation/dist/foundation.min.css"/>
-<link rel="stylesheet" type="text/css" href="css/page.css"/>
+<p><a href="https://travis-ci.org/doolse/simpledba"><img src="https://api.travis-ci.org/doolse/simpledba.svg" alt="Build Status" /></a>
+<a href="https://coveralls.io/github/doolse/simpledba?branch=master"><img src="https://coveralls.io/repos/github/doolse/simpledba/badge.svg?branch=master" alt="Coverage Status" /></a></p>
 
-<!--
-<link rel="shortcut icon" href="images/favicon.ico" />
--->
-</head>
+<h2 id="tldr">TL;DR</h2>
 
-<body>
-<div class="off-canvas-wrapper">
-<div class="off-canvas-wrapper-inner" data-off-canvas-wrapper>
+<p>Map case classes into columns for your DB, create typesafe queries that run with your favourite effect and streaming library.</p>
 
-<div class="off-canvas position-left" id="off-canvas-menu" data-off-canvas>
-<nav class="off-canvas-nav">
-<div class="nav-home">
-<a href="index.html" class="active">
-<span class="home-icon">⌂</span>simpledba - Simple Database Access for Scala
-</a>
-<div class="version-number">
-0.1.11*
-</div>
-</div>
-<div class="nav-toc">
+<h1 id="goals">Goals</h1>
+
 <ul>
+  <li>Prevent you from writing queries which the database won’t allow you to run, using types.</li>
+  <li>Support as many column family style DB’s as possible. (DynamoDB, Cassandra, Google Cloud Datastore)</li>
+  <li>Support JDBC with full typed support for non joined queries. Joined queries can be created with un-typechecked SQL.</li>
+  <li>Facilitate writing DB agnostic query layers. Switching between AWS and Google Cloud? No Problem.</li>
+  <li>Be a library, not a framework. No magic, just principles.</li>
 </ul>
-</div>
 
-</nav>
-</div>
+<h2 id="quickstart">Quickstart</h2>
 
-<div class="off-canvas-content" data-off-canvas-content>
+<div class="language-scala highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">val</span> <span class="n">simpledbaVersion</span> <span class="k">=</span> <span class="s">"0.1.11-SNAPSHOT"</span>
 
-<header class="site-header expanded row">
-<div class="small-12 column">
-<a href="#" class="off-canvas-toggle hide-for-medium" data-toggle="off-canvas-menu"><svg class="svg-icon svg-icon-menu" version="1.1" id="Menu" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 20 20" enable-background="new 0 0 20 20" xml:space="preserve"> <path class="svg-icon-menu-path" fill="#53CDEC" d="M16.4,9H3.6C3.048,9,3,9.447,3,10c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,9.447,16.952,9,16.4,9z M16.4,13
-H3.6C3.048,13,3,13.447,3,14c0,0.553,0.048,1,0.6,1H16.4c0.552,0,0.6-0.447,0.6-1C17,13.447,16.952,13,16.4,13z M3.6,7H16.4
-C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.048,7,3.6,7z"/></svg>
-</a>
-<div class="title"><a href="index.html" class="active">simpledba - Simple Database Access for Scala</a></div>
+<span class="n">libraryDependencies</span> <span class="o">++=</span> <span class="nc">Seq</span><span class="o">(</span>
+  <span class="s">"io.doolse"</span> <span class="o">%%</span> <span class="s">"simpledba-jdbc"</span><span class="o">,</span>
+  <span class="s">"io.doolse"</span> <span class="o">%%</span> <span class="s">"simpledba-dynamodb"</span><span class="o">,</span>
+  <span class="s">"io.doolse"</span> <span class="o">%%</span> <span class="s">"simpledba-circe"</span>
+<span class="o">).</span><span class="n">map</span><span class="o">(</span><span class="k">_</span> <span class="o">%</span> <span class="n">simpledbaVersion</span><span class="o">)</span>
+</code></pre></div></div>
 
-<!--
-<a href="https://www.example.com" class="logo show-for-medium">logo</a>
--->
-</div>
-</header>
+<p>Define your domain model case classes and a database agnostic query trait.
+In this example we will be using ZIO with it’s stream library for the effects.</p>
 
-<div class="expanded row">
+<div class="language-scala highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">import</span> <span class="nn">java.util.UUID</span>
 
-<div class="medium-3 large-2 show-for-medium column">
-<nav class="site-nav">
-<div class="nav-home">
-<a href="index.html" class="active">
-<span class="home-icon">⌂</span>simpledba - Simple Database Access for Scala
-</a>
-<div class="version-number">
-0.1.11*
-</div>
-</div>
-<div class="nav-toc">
-<ul>
-</ul>
-</div>
+<span class="k">import</span> <span class="nn">io.doolse.simpledba._</span>
+<span class="k">import</span> <span class="nn">zio._</span>
+<span class="k">import</span> <span class="nn">zio.stream._</span>
 
-</nav>
-</div>
+<span class="k">case</span> <span class="k">class</span> <span class="nc">User</span><span class="o">(</span><span class="n">userId</span><span class="k">:</span> <span class="kt">UUID</span><span class="o">,</span> <span class="n">firstName</span><span class="k">:</span> <span class="kt">String</span><span class="o">,</span> <span class="n">lastName</span><span class="k">:</span> <span class="kt">String</span><span class="o">,</span> <span class="n">yearOfBirth</span><span class="k">:</span> <span class="kt">Int</span><span class="o">)</span>
 
-<div class="small-12 medium-9 large-10 column">
-<section class="site-content">
+<span class="k">case</span> <span class="k">class</span> <span class="nc">Car</span><span class="o">(</span><span class="n">id</span><span class="k">:</span> <span class="kt">UUID</span><span class="o">,</span> <span class="n">make</span><span class="k">:</span> <span class="kt">String</span><span class="o">,</span> <span class="n">model</span><span class="k">:</span> <span class="kt">String</span><span class="o">,</span> <span class="n">ownerId</span><span class="k">:</span> <span class="kt">UUID</span><span class="o">)</span>
 
-<span id="version-warning"></span>
+<span class="c1">// Support multiple DB types by parameterizing on the write operation type
+</span><span class="k">trait</span> <span class="nc">Queries</span><span class="o">[</span><span class="kt">W</span><span class="o">]</span> <span class="o">{</span>
+  <span class="k">type</span> <span class="kt">S</span><span class="o">[</span><span class="kt">A</span><span class="o">]</span> <span class="k">=</span> <span class="nc">Stream</span><span class="o">[</span><span class="kt">Throwable</span>, <span class="kt">A</span><span class="o">]</span>
+  <span class="k">type</span> <span class="kt">F</span><span class="o">[</span><span class="kt">A</span><span class="o">]</span> <span class="k">=</span> <span class="nc">Task</span><span class="o">[</span><span class="kt">A</span><span class="o">]</span>
+  <span class="k">type</span> <span class="kt">Writes</span><span class="o">[</span><span class="kt">A</span><span class="o">]</span> <span class="k">=</span> <span class="nc">WriteQueries</span><span class="o">[</span><span class="kt">S</span>, <span class="kt">F</span>, <span class="kt">W</span>, <span class="kt">A</span><span class="o">]</span>
+  <span class="k">def</span> <span class="n">users</span><span class="k">:</span> <span class="kt">Writes</span><span class="o">[</span><span class="kt">User</span><span class="o">]</span>
+  <span class="k">def</span> <span class="n">cars</span><span class="k">:</span> <span class="kt">Writes</span><span class="o">[</span><span class="kt">Car</span><span class="o">]</span>
+  <span class="k">def</span> <span class="n">usersByFirstName</span><span class="k">:</span> <span class="kt">String</span> <span class="o">=&gt;</span> <span class="n">S</span><span class="o">[</span><span class="kt">User</span><span class="o">]</span>
+  <span class="k">def</span> <span class="n">carsForUser</span><span class="k">:</span> <span class="kt">UUID</span> <span class="o">=&gt;</span> <span class="n">S</span><span class="o">[</span><span class="kt">Car</span><span class="o">]</span>
+  <span class="k">def</span> <span class="n">flush</span><span class="k">:</span> <span class="kt">S</span><span class="o">[</span><span class="kt">W</span><span class="o">]</span> <span class="k">=&gt;</span> <span class="n">F</span><span class="o">[</span><span class="kt">Unit</span><span class="o">]</span>
+<span class="o">}</span>
+</code></pre></div></div>
 
-<div class="page-header row">
-<div class="medium-12 show-for-medium column">
-</div>
-</div>
+<p>Write your app:</p>
 
-<div class="page-content row">
-<div class="small-12 large-9 column" id="docs">
-<h1><a href="#simpledba-simple-database-access-for-scala" name="simpledba-simple-database-access-for-scala" class="anchor"><span class="anchor-link"></span></a>simpledba - Simple Database Access for Scala</h1>
-<p><a href="https://travis-ci.org/doolse/simpledba"><img src="https://api.travis-ci.org/doolse/simpledba.svg" alt="Build Status" /></a> <a href="https://coveralls.io/github/doolse/simpledba?branch=master"><img src="https://coveralls.io/repos/github/doolse/simpledba/badge.svg?branch=master" alt="Coverage Status" /></a></p>
-<p>AKA principled column family access for Scala (highly inspired by <a href="https://github.com/tpolecat/doobie">Doobie</a>)</p>
-<p>A database access library designed for easy access to Column Family based databases such as:</p>
-<ul>
-  <li>Apache Cassandra</li>
-  <li>Amazon DynamoDB</li>
-  <li>Apache HBase</li>
-</ul>
-<p>All of which are heavily inspired by Google&rsquo;s BigTable. </p>
-<h2><a href="#quickstart" name="quickstart" class="anchor"><span class="anchor-link"></span></a>Quickstart</h2>
-<pre class="prettyprint"><code class="language-scala">val simpledbaVersion = &quot;0.1.11-SNAPSHOT&quot;
+<div class="language-scala highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">trait</span> <span class="nc">ExampleApp</span><span class="o">[</span><span class="kt">W</span><span class="o">]</span> <span class="o">{</span>
 
-libraryDependencies ++= Seq(
-  &quot;io.doolse&quot; %% &quot;simpledba-cassandra&quot;,
-  &quot;io.doolse&quot; %% &quot;simpledba-circe&quot;
-).map(_ % simpledbaVersion)
-</code></pre>
-<pre class="prettyprint"><code class="language-scala">import java.util.UUID
+  <span class="k">type</span> <span class="kt">S</span><span class="o">[</span><span class="kt">A</span><span class="o">]</span> <span class="k">=</span> <span class="nc">Stream</span><span class="o">[</span><span class="kt">Throwable</span>, <span class="kt">A</span><span class="o">]</span>
+  <span class="k">type</span> <span class="kt">F</span><span class="o">[</span><span class="kt">A</span><span class="o">]</span> <span class="k">=</span> <span class="nc">Task</span><span class="o">[</span><span class="kt">A</span><span class="o">]</span>
 
-import io.doolse.simpledba._
-import io.doolse.simpledba.cassandra._
+  <span class="k">def</span> <span class="n">queries</span><span class="k">:</span> <span class="kt">Queries</span><span class="o">[</span><span class="kt">W</span><span class="o">]</span>
+  <span class="k">def</span> <span class="n">initSchema</span><span class="k">:</span> <span class="kt">F</span><span class="o">[</span><span class="kt">Unit</span><span class="o">]</span>
 
-object QuickstartExample extends App {
-  case class User(userId: UUID, firstName: String, lastName: String, yearOfBirth: Int)
+  <span class="k">def</span> <span class="n">initData</span><span class="k">:</span> <span class="kt">F</span><span class="o">[</span><span class="kt">Unit</span><span class="o">]</span> <span class="k">=</span> <span class="o">{</span>
+    <span class="k">val</span> <span class="n">magId</span> <span class="k">=</span> <span class="nc">UUID</span><span class="o">.</span><span class="n">randomUUID</span><span class="o">()</span>
+    <span class="k">val</span> <span class="n">mahId</span> <span class="k">=</span> <span class="nc">UUID</span><span class="o">.</span><span class="n">randomUUID</span><span class="o">()</span>
+    <span class="n">queries</span><span class="o">.</span><span class="n">flush</span> <span class="o">{</span>
+      <span class="n">queries</span><span class="o">.</span><span class="n">users</span><span class="o">.</span><span class="n">insertAll</span><span class="o">(</span>
+        <span class="nc">Stream</span><span class="o">(</span><span class="nc">User</span><span class="o">(</span><span class="n">magId</span><span class="o">,</span> <span class="s">"Jolse"</span><span class="o">,</span> <span class="s">"Maginnis"</span><span class="o">,</span> <span class="mi">1980</span><span class="o">),</span> <span class="nc">User</span><span class="o">(</span><span class="n">mahId</span><span class="o">,</span> <span class="s">"Jolse"</span><span class="o">,</span> <span class="s">"Mahinnis"</span><span class="o">,</span> <span class="mi">1999</span><span class="o">)))</span> <span class="o">++</span>
+        <span class="n">queries</span><span class="o">.</span><span class="n">cars</span><span class="o">.</span><span class="n">insertAll</span><span class="o">(</span>
+          <span class="nc">Stream</span><span class="o">(</span>
+            <span class="nc">Car</span><span class="o">(</span><span class="nc">UUID</span><span class="o">.</span><span class="n">randomUUID</span><span class="o">(),</span> <span class="s">"Honda"</span><span class="o">,</span> <span class="s">"Accord Euro"</span><span class="o">,</span> <span class="n">magId</span><span class="o">),</span>
+            <span class="nc">Car</span><span class="o">(</span><span class="nc">UUID</span><span class="o">.</span><span class="n">randomUUID</span><span class="o">(),</span> <span class="s">"Honda"</span><span class="o">,</span> <span class="s">"Civic"</span><span class="o">,</span> <span class="n">mahId</span><span class="o">),</span>
+            <span class="nc">Car</span><span class="o">(</span><span class="nc">UUID</span><span class="o">.</span><span class="n">randomUUID</span><span class="o">(),</span> <span class="s">"Ford"</span><span class="o">,</span> <span class="s">"Laser"</span><span class="o">,</span> <span class="n">magId</span><span class="o">),</span>
+            <span class="nc">Car</span><span class="o">(</span><span class="nc">UUID</span><span class="o">.</span><span class="n">randomUUID</span><span class="o">(),</span> <span class="s">"Hyundai"</span><span class="o">,</span> <span class="s">"Accent"</span><span class="o">,</span> <span class="n">magId</span><span class="o">)</span>
+          <span class="o">))</span>
+    <span class="o">}</span>
+  <span class="o">}</span>
 
-  case class Car(id: UUID, make: String, model: String, ownerId: UUID)
+  <span class="k">import</span> <span class="nn">zio.console._</span>
 
-  case class Queries[F[_]](users: WriteQueries[F, User],
-                           cars: WriteQueries[F, Car],
-                           userByKey: UniqueQuery[F, User, UUID],
-                           usersByFirstName: SortableQuery[F, User, String],
-                           carsForUser: RangeQuery[F, Car, UUID, String]
-                          )
+  <span class="k">def</span> <span class="n">querySomeData</span><span class="k">:</span> <span class="kt">TaskR</span><span class="o">[</span><span class="kt">Console</span>, <span class="kt">Unit</span><span class="o">]</span> <span class="k">=</span>
+    <span class="o">(</span><span class="k">for</span> <span class="o">{</span>
+      <span class="n">user</span> <span class="k">&lt;-</span> <span class="n">queries</span><span class="o">.</span><span class="n">usersByFirstName</span><span class="o">(</span><span class="s">"Jolse"</span><span class="o">)</span>
+      <span class="k">_</span> <span class="k">&lt;-</span> <span class="nc">Stream</span><span class="o">.</span><span class="n">fromEffect</span> <span class="o">{</span>
+        <span class="n">queries</span><span class="o">.</span><span class="n">carsForUser</span><span class="o">(</span><span class="n">user</span><span class="o">.</span><span class="n">userId</span><span class="o">).</span><span class="n">runCollect</span><span class="o">.</span><span class="n">tap</span> <span class="o">{</span> <span class="n">cars</span> <span class="k">=&gt;</span>
+          <span class="n">putStrLn</span><span class="o">(</span><span class="n">s</span><span class="s">"${user.firstName} ${user.lastName} owns ${cars}"</span><span class="o">)</span>
+        <span class="o">}</span>
+      <span class="o">}</span>
+    <span class="o">}</span> <span class="k">yield</span> <span class="o">()).</span><span class="n">runDrain</span>
 
-  val userRel = relation[User](&#39;user).key(&#39;userId)
-  val carRel = relation[Car](&#39;car).key(&#39;id)
-  val model = RelationModel(userRel, carRel
-  ).queries[Queries](
-    writes(userRel),
-    writes(carRel),
-    queryByPK(userRel),
-    query(userRel).multipleByColumns(&#39;firstName),
-    query(carRel).multipleByColumns(&#39;ownerId).sortBy(&#39;make)
-  )
+  <span class="k">def</span> <span class="n">run</span><span class="o">()</span> <span class="k">=</span> <span class="o">{</span>
+    <span class="k">val</span> <span class="n">runtime</span> <span class="k">=</span> <span class="k">new</span> <span class="nc">DefaultRuntime</span> <span class="o">{}</span>
+    <span class="n">runtime</span><span class="o">.</span><span class="n">unsafeRun</span><span class="o">(</span><span class="n">initSchema</span> <span class="o">*&gt;</span> <span class="n">initData</span> <span class="o">*&gt;</span> <span class="n">querySomeData</span><span class="o">)</span>
+  <span class="o">}</span>
+<span class="o">}</span>
+</code></pre></div></div>
 
-  val mapper = new CassandraMapper()
-  val built = mapper.buildModel(model)
-  val queries = built.queries
-  val sessionConfig = CassandraSession(CassandraIO.simpleSession(&quot;localhost&quot;), c =&gt; Console.println(c()))
-  CassandraUtils.initKeyspaceAndSchema(sessionConfig, &quot;test&quot;, built.ddl, dropKeyspace = true).unsafeRunSync()
+<p>Now we can create a DB specific implementation of the app, let’s start with JDBC (using embedded HSQL).</p>
 
-  private val magId = UUID.randomUUID()
-  private val mahId = UUID.randomUUID()
-  println {
-    (for {
-      _ &lt;- queries.users.insert(User(magId, &quot;Jolse&quot;, &quot;Maginnis&quot;, 1980))
-      _ &lt;- queries.users.insert(User(mahId, &quot;Jolse&quot;, &quot;Mahinnis&quot;, 1999))
-      _ &lt;- queries.cars.insert(Car(UUID.randomUUID(), &quot;Honda&quot;, &quot;Accord Euro&quot;, magId))
-      _ &lt;- queries.cars.insert(Car(UUID.randomUUID(), &quot;Honda&quot;, &quot;Civic&quot;, magId))
-      _ &lt;- queries.cars.insert(Car(UUID.randomUUID(), &quot;Ford&quot;, &quot;Laser&quot;, magId))
-      _ &lt;- queries.cars.insert(Car(UUID.randomUUID(), &quot;Hyundai&quot;, &quot;Accent&quot;, magId))
-      cars &lt;- queries.carsForUser(magId, lower = Exclusive(&quot;Honda&quot;)).runLog
-      users &lt;- queries.usersByFirstName(&quot;Jolse&quot;).runLog
-    } yield (cars ++ users).mkString(&quot;\n&quot;)).run(sessionConfig).unsafeRunSync()
-  }
-}
-</code></pre>
-<p>Which will produce CQL like:</p>
-<pre><code>	CREATE TABLE car(
-		ownerId uuid, make text,
-		id uuid, model text,
-		PRIMARY KEY(ownerId, make, id))
+<div class="language-scala highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">import</span> <span class="nn">io.doolse.simpledba.jdbc._</span>
+<span class="k">import</span> <span class="nn">io.doolse.simpledba.interop.zio._</span>
+<span class="k">import</span> <span class="nn">zio.interop.catz._</span>
 
-	CREATE TABLE user(
-		firstName text, userId uuid,
-		lastName text, yearOfBirth int,
-		PRIMARY KEY(firstName, userId))
+<span class="k">class</span> <span class="nc">JDBCApp</span><span class="o">(</span><span class="n">logger</span><span class="k">:</span> <span class="kt">JDBCLogger</span><span class="o">[</span><span class="kt">Task</span><span class="o">])</span> <span class="k">extends</span> <span class="nc">ExampleApp</span><span class="o">[</span><span class="kt">JDBCWriteOp</span><span class="o">]</span> <span class="o">{</span>
 
-	CREATE TABLE user_2(
-		userId uuid, firstName text,
-		lastName text, yearOfBirth int,
-		PRIMARY KEY(userId))
-		
-INSERT INTO user_2 (userId,firstName,lastName,yearOfBirth) VALUES (6b59b1cd-a266-4b1d-a9ba-8228c5dec668,&#39;Jolse&#39;,&#39;Maginnis&#39;,1980);
-INSERT INTO user (userId,firstName,lastName,yearOfBirth) VALUES (6b59b1cd-a266-4b1d-a9ba-8228c5dec668,&#39;Jolse&#39;,&#39;Maginnis&#39;,1980);
-INSERT INTO car (id,make,model,ownerId) VALUES (74cf528b-2e1c-4e7b-8fba-cb2945170fb5,&#39;Honda&#39;,&#39;Accord Euro&#39;,6b59b1cd-a266-4b1d-a9ba-8228c5dec668);
-SELECT * FROM car WHERE ownerId=6b59b1cd-a266-4b1d-a9ba-8228c5dec668;
-SELECT * FROM user WHERE firstName=&#39;Jolse&#39;;
-</code></pre>
-<h2><a href="#simple-scalable" name="simple-scalable" class="anchor"><span class="anchor-link"></span></a>Simple == Scalable</h2>
-<p>If you&rsquo;re already sold on column family databases just skip ahead to the <a href="#Features">Features</a>.</p>
-<p>For those only used to the flexibility of SQL databases, don&rsquo;t be fooled by any ridiculous attempts to dress these types of databases up as if they are SQL-like (looking at you CQL!), you&rsquo;re best to think of them being the equivalent of an SQL database in which you can:</p>
-<ul>
-  <li>Find a row by primary key</li>
-  <li>Find multiple rows by part of the primary key and filtered/ordered by the rest of it.</li>
-</ul>
-<p>That&rsquo;s a bit of a simplification but still that&rsquo;s a ridiculously limited subset of functionality right? What happens if I want to query by another column in the table, do I have to duplicate the data? Yep. Ouch! Painful. In essence your data model is dictated by the queries you need to do.</p>
-<p>Why would anyone want to submit themselves to such limitations? Scalability, that&rsquo;s it. It becomes easy to spread your data out over a large cluster if you restrict to simple access like this. Don&rsquo;t take my word for it : <a href="https://www.quora.com/Which-companies-use-Cassandra">https://www.quora.com/Which-companies-use-Cassandra</a></p>
-<h2><a href="#a-name-features-a-features" name="a-name-features-a-features" class="anchor"><span class="anchor-link"></span></a><a name="#Features"></a>Features</h2>
-<ul>
-  <li>Define your data model as case classes, define which queries you need, let simpledba do the rest</li>
-  <li>Same model can be used for all supported database types (easy to seamlessly change between them)</li>
-  <li>Easy to define your own custom column types</li>
-  <li>Integration with circe for easy custom JSON columns</li>
-  <li>Multiple results are returned as functional streams (fs2)</li>
-  <li>Optimised collection update operations when supported by backend DB</li>
-</ul>
-<h3><a href="#dependencies" name="dependencies" class="anchor"><span class="anchor-link"></span></a>Dependencies</h3>
-<table>
-  <thead>
-    <tr>
-      <th>cats </th>
-      <th>shapeless </th>
-      <th>circe </th>
-      <th>fs2 </th>
-      <th>cassandra-driver</th>
-      <th>dynamodb-driver</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>1.0.0-MF</td>
-      <td>2.3.2 </td>
-      <td>0.5.0-M1</td>
-      <td>0.10.0-M6</td>
-      <td>3.0.0 </td>
-      <td>1.10.75</td>
-    </tr>
-  </tbody>
-</table>
-<div class="source-github">
-The source code for this page can be found <a href="https://github.com/doolse/simpledba/tree/master/docs/index.md">here</a>.
-</div>
+  <span class="k">import</span> <span class="nn">java.sql.DriverManager</span>
+  <span class="k">import</span> <span class="nn">io.doolse.simpledba.jdbc.hsql._</span>
 
-</div>
-<div class="large-3 show-for-large column" data-sticky-container>
-<nav class="sidebar sticky" data-sticky data-anchor="docs" data-sticky-on="large">
-<div class="page-nav">
-<div class="nav-title">On this page:</div>
-<div class="nav-toc">
-<ul>
-  <li><a href="index.html#simpledba-simple-database-access-for-scala" class="header">simpledba - Simple Database Access for Scala</a>
-  <ul>
-    <li><a href="index.html#quickstart" class="header">Quickstart</a></li>
-    <li><a href="index.html#simple-scalable" class="header">Simple == Scalable</a></li>
-    <li><a href="index.html#a-name-features-a-features" class="header"><a name="#Features"></a>Features</a></li>
-  </ul></li>
-</ul>
-</div>
-</div>
-</nav>
-</div>
-</div>
+  <span class="c1">// Use HSQL driver, single connection
+</span>  <span class="k">val</span> <span class="n">mapper</span>           <span class="k">=</span> <span class="n">hsqldbMapper</span>
+  <span class="k">val</span> <span class="n">singleConnection</span> <span class="k">=</span> <span class="nc">DriverManager</span><span class="o">.</span><span class="n">getConnection</span><span class="o">(</span><span class="s">"jdbc:hsqldb:mem:example"</span><span class="o">)</span>
 
-</section>
-</div>
+  <span class="k">val</span> <span class="n">jdbcQueries</span> <span class="k">=</span> <span class="n">mapper</span><span class="o">.</span><span class="n">queries</span><span class="o">(</span>
+    <span class="k">new</span> <span class="nc">JDBCEffect</span><span class="o">[</span><span class="kt">S</span>, <span class="kt">F</span><span class="o">](</span><span class="nc">ZIO</span><span class="o">.</span><span class="n">succeed</span><span class="o">(</span><span class="n">singleConnection</span><span class="o">),</span> <span class="k">_</span> <span class="k">=&gt;</span> <span class="nc">ZIO</span><span class="o">.</span><span class="n">unit</span><span class="o">,</span> <span class="n">logger</span><span class="o">))</span>
 
-</div>
+  <span class="k">val</span> <span class="n">carTable</span>  <span class="k">=</span> <span class="n">mapper</span><span class="o">.</span><span class="n">mapped</span><span class="o">[</span><span class="kt">Car</span><span class="o">].</span><span class="n">table</span><span class="o">(</span><span class="s">"cars"</span><span class="o">).</span><span class="n">key</span><span class="o">(</span><span class="ss">'id)</span>
+  <span class="k">val</span> <span class="n">userTable</span> <span class="k">=</span> <span class="n">mapper</span><span class="o">.</span><span class="n">mapped</span><span class="o">[</span><span class="kt">User</span><span class="o">].</span><span class="n">table</span><span class="o">(</span><span class="s">"users"</span><span class="o">).</span><span class="n">key</span><span class="o">(</span><span class="ss">'userId)</span>
 
-<footer class="site-footer">
+  <span class="k">import</span> <span class="nn">jdbcQueries._</span>
 
-<section class="site-footer-nav">
-<div class="expanded row">
-<div class="small-12 large-offset-2 large-10 column">
-<div class="row site-footer-content">
+  <span class="k">override</span> <span class="k">val</span> <span class="n">queries</span><span class="k">:</span> <span class="kt">Queries</span><span class="o">[</span><span class="kt">JDBCWriteOp</span><span class="o">]</span> <span class="k">=</span> <span class="k">new</span> <span class="nc">Queries</span><span class="o">[</span><span class="kt">JDBCWriteOp</span><span class="o">]</span> <span class="o">{</span>
+    <span class="k">val</span> <span class="n">users</span><span class="k">:</span> <span class="kt">Writes</span><span class="o">[</span><span class="kt">User</span><span class="o">]</span>                 <span class="k">=</span> <span class="n">writes</span><span class="o">(</span><span class="n">userTable</span><span class="o">)</span>
+    <span class="k">val</span> <span class="n">cars</span><span class="k">:</span> <span class="kt">Writes</span><span class="o">[</span><span class="kt">Car</span><span class="o">]</span>                   <span class="k">=</span> <span class="n">writes</span><span class="o">(</span><span class="n">carTable</span><span class="o">)</span>
+    <span class="k">val</span> <span class="n">usersByFirstName</span><span class="k">:</span> <span class="kt">String</span> <span class="o">=&gt;</span> <span class="n">S</span><span class="o">[</span><span class="kt">User</span><span class="o">]</span> <span class="k">=</span> <span class="n">query</span><span class="o">(</span><span class="n">userTable</span><span class="o">).</span><span class="n">where</span><span class="o">(</span><span class="ss">'firstName,</span> <span class="nc">BinOp</span><span class="o">.</span><span class="nc">EQ</span><span class="o">).</span><span class="n">build</span>
+    <span class="k">val</span> <span class="n">carsForUser</span><span class="k">:</span> <span class="kt">UUID</span> <span class="o">=&gt;</span> <span class="n">S</span><span class="o">[</span><span class="kt">Car</span><span class="o">]</span>         <span class="k">=</span> <span class="n">query</span><span class="o">(</span><span class="n">carTable</span><span class="o">).</span><span class="n">where</span><span class="o">(</span><span class="ss">'ownerId,</span> <span class="nc">BinOp</span><span class="o">.</span><span class="nc">EQ</span><span class="o">).</span><span class="n">build</span>
+    <span class="k">val</span> <span class="n">flush</span><span class="k">:</span> <span class="kt">S</span><span class="o">[</span><span class="kt">JDBCWriteOp</span><span class="o">]</span> <span class="k">=&gt;</span> <span class="n">F</span><span class="o">[</span><span class="kt">Unit</span><span class="o">]</span>    <span class="k">=</span> <span class="n">jdbcQueries</span><span class="o">.</span><span class="n">flush</span>
+  <span class="o">}</span>
+  <span class="k">override</span> <span class="k">val</span> <span class="n">initSchema</span><span class="k">:</span> <span class="kt">F</span><span class="o">[</span><span class="kt">Unit</span><span class="o">]</span> <span class="k">=</span> <span class="n">jdbcQueries</span><span class="o">.</span><span class="n">flush</span> <span class="o">{</span>
+    <span class="nc">Stream</span><span class="o">(</span><span class="n">carTable</span><span class="o">,</span> <span class="n">userTable</span><span class="o">).</span><span class="n">flatMap</span><span class="o">(</span><span class="n">dropAndCreate</span><span class="o">)</span>
+  <span class="o">}</span>
+<span class="o">}</span>
+</code></pre></div></div>
 
-<div class="small-12 medium-4 large-3 text-center column">
-<div class="nav-links">
-<ul>
-<!-- <li><a href="https://www.example.com/products/">Products</a> -->
-</ul>
-</div>
-</div>
+<p>Running this gives you the expected result:</p>
 
-</div>
-</div>
-</div>
-</section>
+<div class="language-scala highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">new</span> <span class="nc">JDBCApp</span><span class="o">(</span><span class="nc">NothingLogger</span><span class="o">()).</span><span class="n">run</span><span class="o">()</span>
+</code></pre></div></div>
 
-<section class="site-footer-base">
-<div class="expanded row">
-<div class="small-12 large-offset-2 large-10 column">
-<div class="row site-footer-content">
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Jolse Mahinnis owns List(Car(160caf45-8c81-4649-9d73-fd80a31a345f,Honda,Civic,8af71919-6004-42fb-a733-a30eb241f7d7))
+Jolse Maginnis owns List(Car(251afb45-1682-4318-842f-09976ab4ef0b,Hyundai,Accent,bc838a6d-253a-434b-a574-2e8facc44bba), Car(cdc95363-57a7-446f-b5b6-5e71ae4a78ad,Honda,Accord Euro,bc838a6d-253a-434b-a574-2e8facc44bba), Car(dc49cff4-d05b-4937-b875-024a660e6f9c,Ford,Laser,bc838a6d-253a-434b-a574-2e8facc44bba))
+</code></pre></div></div>
 
-<div class="small-12 text-center large-9 column">
+<p>To see what’s going on with SQL being executed, you can log the queries:</p>
 
-<!--
-<div class="copyright">
-<span class="text">&copy; 2019</span>
-<a href="https://www.example.com" class="logo">logo</a>
-</div>
--->
-</div>
+<div class="language-sql highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">DROP</span> <span class="k">TABLE</span> <span class="n">cars</span> <span class="n">IF</span> <span class="k">EXISTS</span> <span class="c1">-- Values: List()</span>
+<span class="k">CREATE</span> <span class="k">TABLE</span> <span class="n">cars</span> <span class="p">(</span><span class="n">id</span> <span class="n">UUID</span> <span class="k">NOT</span> <span class="k">NULL</span><span class="p">,</span><span class="n">make</span> <span class="n">LONGVARCHAR</span> <span class="k">NOT</span> <span class="k">NULL</span><span class="p">,</span><span class="n">model</span> <span class="n">LONGVARCHAR</span> <span class="k">NOT</span> <span class="k">NULL</span><span class="p">,</span><span class="nv">"ownerId"</span> <span class="n">UUID</span> <span class="k">NOT</span> <span class="k">NULL</span><span class="p">,</span><span class="k">PRIMARY</span> <span class="k">KEY</span><span class="p">(</span><span class="n">id</span><span class="p">))</span> <span class="c1">-- Values: List()</span>
+<span class="k">DROP</span> <span class="k">TABLE</span> <span class="n">users</span> <span class="n">IF</span> <span class="k">EXISTS</span> <span class="c1">-- Values: List()</span>
+<span class="k">CREATE</span> <span class="k">TABLE</span> <span class="n">users</span> <span class="p">(</span><span class="nv">"userId"</span> <span class="n">UUID</span> <span class="k">NOT</span> <span class="k">NULL</span><span class="p">,</span><span class="nv">"firstName"</span> <span class="n">LONGVARCHAR</span> <span class="k">NOT</span> <span class="k">NULL</span><span class="p">,</span><span class="nv">"lastName"</span> <span class="n">LONGVARCHAR</span> <span class="k">NOT</span> <span class="k">NULL</span><span class="p">,</span><span class="nv">"yearOfBirth"</span> <span class="n">INTEGER</span> <span class="k">NOT</span> <span class="k">NULL</span><span class="p">,</span><span class="k">PRIMARY</span> <span class="k">KEY</span><span class="p">(</span><span class="nv">"userId"</span><span class="p">))</span> <span class="c1">-- Values: List()</span>
+<span class="k">INSERT</span> <span class="k">INTO</span> <span class="n">users</span> <span class="p">(</span><span class="nv">"userId"</span><span class="p">,</span><span class="nv">"firstName"</span><span class="p">,</span><span class="nv">"lastName"</span><span class="p">,</span><span class="nv">"yearOfBirth"</span><span class="p">)</span> <span class="k">VALUES</span> <span class="p">(</span><span class="o">?</span><span class="p">,</span><span class="o">?</span><span class="p">,</span><span class="o">?</span><span class="p">,</span><span class="o">?</span><span class="p">)</span> <span class="c1">-- Values: List(1980, Maginnis, Jolse, a8cfbf2e-965f-46cb-971a-6ebd85ac18df)</span>
+<span class="k">INSERT</span> <span class="k">INTO</span> <span class="n">users</span> <span class="p">(</span><span class="nv">"userId"</span><span class="p">,</span><span class="nv">"firstName"</span><span class="p">,</span><span class="nv">"lastName"</span><span class="p">,</span><span class="nv">"yearOfBirth"</span><span class="p">)</span> <span class="k">VALUES</span> <span class="p">(</span><span class="o">?</span><span class="p">,</span><span class="o">?</span><span class="p">,</span><span class="o">?</span><span class="p">,</span><span class="o">?</span><span class="p">)</span> <span class="c1">-- Values: List(1999, Mahinnis, Jolse, 2c3be6dc-d30c-4c3f-84ea-d236fb86668e)</span>
+<span class="k">INSERT</span> <span class="k">INTO</span> <span class="n">cars</span> <span class="p">(</span><span class="n">id</span><span class="p">,</span><span class="n">make</span><span class="p">,</span><span class="n">model</span><span class="p">,</span><span class="nv">"ownerId"</span><span class="p">)</span> <span class="k">VALUES</span> <span class="p">(</span><span class="o">?</span><span class="p">,</span><span class="o">?</span><span class="p">,</span><span class="o">?</span><span class="p">,</span><span class="o">?</span><span class="p">)</span> <span class="c1">-- Values: List(a8cfbf2e-965f-46cb-971a-6ebd85ac18df, Accord Euro, Honda, b09845ad-271a-4a97-822b-ed1a00f3943c)</span>
+<span class="k">INSERT</span> <span class="k">INTO</span> <span class="n">cars</span> <span class="p">(</span><span class="n">id</span><span class="p">,</span><span class="n">make</span><span class="p">,</span><span class="n">model</span><span class="p">,</span><span class="nv">"ownerId"</span><span class="p">)</span> <span class="k">VALUES</span> <span class="p">(</span><span class="o">?</span><span class="p">,</span><span class="o">?</span><span class="p">,</span><span class="o">?</span><span class="p">,</span><span class="o">?</span><span class="p">)</span> <span class="c1">-- Values: List(2c3be6dc-d30c-4c3f-84ea-d236fb86668e, Civic, Honda, a55f151a-1922-4d84-8387-ce0b91be5e48)</span>
+<span class="k">INSERT</span> <span class="k">INTO</span> <span class="n">cars</span> <span class="p">(</span><span class="n">id</span><span class="p">,</span><span class="n">make</span><span class="p">,</span><span class="n">model</span><span class="p">,</span><span class="nv">"ownerId"</span><span class="p">)</span> <span class="k">VALUES</span> <span class="p">(</span><span class="o">?</span><span class="p">,</span><span class="o">?</span><span class="p">,</span><span class="o">?</span><span class="p">,</span><span class="o">?</span><span class="p">)</span> <span class="c1">-- Values: List(a8cfbf2e-965f-46cb-971a-6ebd85ac18df, Laser, Ford, f79a3bcd-fffc-4289-904c-7f7899e71b55)</span>
+<span class="k">INSERT</span> <span class="k">INTO</span> <span class="n">cars</span> <span class="p">(</span><span class="n">id</span><span class="p">,</span><span class="n">make</span><span class="p">,</span><span class="n">model</span><span class="p">,</span><span class="nv">"ownerId"</span><span class="p">)</span> <span class="k">VALUES</span> <span class="p">(</span><span class="o">?</span><span class="p">,</span><span class="o">?</span><span class="p">,</span><span class="o">?</span><span class="p">,</span><span class="o">?</span><span class="p">)</span> <span class="c1">-- Values: List(a8cfbf2e-965f-46cb-971a-6ebd85ac18df, Accent, Hyundai, a7edf112-f195-4827-baa6-9e5c72892277)</span>
+<span class="k">SELECT</span> <span class="nv">"userId"</span><span class="p">,</span><span class="nv">"firstName"</span><span class="p">,</span><span class="nv">"lastName"</span><span class="p">,</span><span class="nv">"yearOfBirth"</span> <span class="k">FROM</span> <span class="n">users</span> <span class="k">WHERE</span> <span class="nv">"firstName"</span> <span class="o">=</span> <span class="o">?</span>  <span class="c1">-- Values: List(Jolse)</span>
+<span class="k">SELECT</span> <span class="n">id</span><span class="p">,</span><span class="n">make</span><span class="p">,</span><span class="n">model</span><span class="p">,</span><span class="nv">"ownerId"</span> <span class="k">FROM</span> <span class="n">cars</span> <span class="k">WHERE</span> <span class="nv">"ownerId"</span> <span class="o">=</span> <span class="o">?</span>  <span class="c1">-- Values: List(2c3be6dc-d30c-4c3f-84ea-d236fb86668e)</span>
+<span class="n">Jolse</span> <span class="n">Mahinnis</span> <span class="n">owns</span> <span class="n">List</span><span class="p">(</span><span class="n">Car</span><span class="p">(</span><span class="n">a55f151a</span><span class="o">-</span><span class="mi">1922</span><span class="o">-</span><span class="mi">4</span><span class="n">d84</span><span class="o">-</span><span class="mi">8387</span><span class="o">-</span><span class="n">ce0b91be5e48</span><span class="p">,</span><span class="n">Honda</span><span class="p">,</span><span class="n">Civic</span><span class="p">,</span><span class="mi">2</span><span class="n">c3be6dc</span><span class="o">-</span><span class="n">d30c</span><span class="o">-</span><span class="mi">4</span><span class="n">c3f</span><span class="o">-</span><span class="mi">84</span><span class="n">ea</span><span class="o">-</span><span class="n">d236fb86668e</span><span class="p">))</span>
+<span class="k">SELECT</span> <span class="n">id</span><span class="p">,</span><span class="n">make</span><span class="p">,</span><span class="n">model</span><span class="p">,</span><span class="nv">"ownerId"</span> <span class="k">FROM</span> <span class="n">cars</span> <span class="k">WHERE</span> <span class="nv">"ownerId"</span> <span class="o">=</span> <span class="o">?</span>  <span class="c1">-- Values: List(a8cfbf2e-965f-46cb-971a-6ebd85ac18df)</span>
+<span class="n">Jolse</span> <span class="n">Maginnis</span> <span class="n">owns</span> <span class="n">List</span><span class="p">(</span><span class="n">Car</span><span class="p">(</span><span class="n">a7edf112</span><span class="o">-</span><span class="n">f195</span><span class="o">-</span><span class="mi">4827</span><span class="o">-</span><span class="n">baa6</span><span class="o">-</span><span class="mi">9</span><span class="n">e5c72892277</span><span class="p">,</span><span class="n">Hyundai</span><span class="p">,</span><span class="n">Accent</span><span class="p">,</span><span class="n">a8cfbf2e</span><span class="o">-</span><span class="mi">965</span><span class="n">f</span><span class="o">-</span><span class="mi">46</span><span class="n">cb</span><span class="o">-</span><span class="mi">971</span><span class="n">a</span><span class="o">-</span><span class="mi">6</span><span class="n">ebd85ac18df</span><span class="p">),</span> <span class="n">Car</span><span class="p">(</span><span class="n">b09845ad</span><span class="o">-</span><span class="mi">271</span><span class="n">a</span><span class="o">-</span><span class="mi">4</span><span class="n">a97</span><span class="o">-</span><span class="mi">822</span><span class="n">b</span><span class="o">-</span><span class="n">ed1a00f3943c</span><span class="p">,</span><span class="n">Honda</span><span class="p">,</span><span class="n">Accord</span> <span class="n">Euro</span><span class="p">,</span><span class="n">a8cfbf2e</span><span class="o">-</span><span class="mi">965</span><span class="n">f</span><span class="o">-</span><span class="mi">46</span><span class="n">cb</span><span class="o">-</span><span class="mi">971</span><span class="n">a</span><span class="o">-</span><span class="mi">6</span><span class="n">ebd85ac18df</span><span class="p">),</span> <span class="n">Car</span><span class="p">(</span><span class="n">f79a3bcd</span><span class="o">-</span><span class="n">fffc</span><span class="o">-</span><span class="mi">4289</span><span class="o">-</span><span class="mi">904</span><span class="k">c</span><span class="o">-</span><span class="mi">7</span><span class="n">f7899e71b55</span><span class="p">,</span><span class="n">Ford</span><span class="p">,</span><span class="n">Laser</span><span class="p">,</span><span class="n">a8cfbf2e</span><span class="o">-</span><span class="mi">965</span><span class="n">f</span><span class="o">-</span><span class="mi">46</span><span class="n">cb</span><span class="o">-</span><span class="mi">971</span><span class="n">a</span><span class="o">-</span><span class="mi">6</span><span class="n">ebd85ac18df</span><span class="p">))</span>
+</code></pre></div></div>
 
-</div>
-</div>
-</div>
-</section>
-</footer>
-
-</div>
-</div>
-</div>
-</body>
-
-<script type="text/javascript" src="lib/foundation/dist/foundation.min.js"></script>
-<script type="text/javascript">jQuery(document).foundation();</script>
-<script type="text/javascript" src="js/magellan.js"></script>
-
-<style type="text/css">@import "lib/prettify/prettify.css";</style>
-<script type="text/javascript" src="lib/prettify/prettify.js"></script>
-<script type="text/javascript" src="lib/prettify/lang-scala.js"></script>
-<script type="text/javascript">jQuery(function(){window.prettyPrint && prettyPrint()});</script>
-<script type="text/javascript">jQuery(function(jq){initOldVersionWarnings(jq, '0.1.11-SNAPSHOT', 'https://github.com/doolse/simpledba')});</script>
-
-
-</html>
+</div></div></section><section class="technologies"><div class="container"><div class="row"></div></div></section></main><footer id="site-footer"><div class="container"><div class="row"><div class="col-xs-6"><p>simpledba is designed and developed by <a href="https://github.com/doolse/simpledba" target="_blank">io.github.doolse</a></p></div><div class="col-xs-6"><p class="text-right"><a href="https://github.com/doolse/simpledba"><span class="fa fa-github"></span>View on GitHub</a></p></div></div><div class="row"><div class="col-xs-6"><p>Website built with <a href="https://47deg.github.io/sbt-microsites/" target="_blank">Sbt-microsites</a> - © 2016 <a href="https://www.47deg.com/" target="_blank">47 Degrees</a></p></div></div><script src="/highlight/highlight.pack.js"></script><script>hljs.initHighlighting();
+              </script></div></footer></body></html>
