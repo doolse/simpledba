@@ -13,6 +13,7 @@ import shapeless.ops.record.{Keys, Selector, ToMap}
 import shapeless.{::, HList, HNil, LabelledGeneric, Nat, Witness}
 
 import scala.annotation.tailrec
+import scala.collection.mutable
 
 case class JDBCMapper[C[A] <: JDBCColumn[A]](dialect: SQLDialect) {
 
@@ -407,15 +408,15 @@ object JDBCQueries {
   def bindParameters(params: Seq[BoundValue]): (Connection, PreparedStatement) => Seq[Any] =
     (con, ps) => {
       @tailrec
-      def loop(i: Int, offs: Int, outvals: List[Any]): List[Any] = {
+      def loop(i: Int, offs: Int, outvals: mutable.Buffer[Any]): mutable.Buffer[Any] = {
         if (i < params.length) {
           val c        = params(i)
           val nextOffs = c.bind(offs, con, ps)
-          loop(i + 1, nextOffs, c.value :: outvals)
+          loop(i + 1, nextOffs,  outvals += c.value)
         } else outvals
       }
 
-      loop(0, 1, Nil)
+      loop(0, 1, mutable.Buffer.empty)
     }
 
   def columnExpression[A](bound: BoundColumn): ColumnExpression =

@@ -20,5 +20,5 @@ case class PrintLnLogger[F[_]](logPrepares: Boolean = false, logBinds: Boolean =
     if (logPrepares) S.delay(println(sql)) else S.delay()
 
   override def logBind(sql: String, values: Seq[Any]): F[Unit] =
-    if (logBinds) S.delay(println(s"$sql -- Values: $values")) else S.delay()
+    if (logBinds) S.delay(println(s"$sql -- Values: ${values.mkString(",")}")) else S.delay()
 }
