@@ -45,6 +45,10 @@ object AutoConvert extends AutoConvertLP {
     def apply(a: A) = gen.to(a)
   }
 
+  implicit def pureConvert[A, F[_]](implicit A: Applicative[F]) = new AutoConvert[A, F[A]] {
+    override def apply(v1: A): F[A] = A.pure(v1)
+  }
+
   implicit def flattened[A, H, T1 <: HList, T2 <: HList, T <: HList, T1Len <: Nat](
       implicit
       len: Length.Aux[T1, T1Len],
