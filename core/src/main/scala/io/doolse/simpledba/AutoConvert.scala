@@ -41,8 +41,12 @@ object AutoConvert extends AutoConvertLP {
     def apply(a: HNil) = ()
   }
 
-  implicit def genConvert[A, Repr](implicit gen: Generic.Aux[A, Repr]) = new AutoConvert[A, Repr] {
+  implicit def genToConvert[A, Repr](implicit gen: Generic.Aux[A, Repr]) = new AutoConvert[A, Repr] {
     def apply(a: A) = gen.to(a)
+  }
+
+  implicit def genFromConvert[Repr, A](implicit gen: Generic.Aux[A, Repr]) = new AutoConvert[Repr, A] {
+    def apply(a: Repr) = gen.from(a)
   }
 
   implicit def pureConvert[A, F[_]](implicit A: Applicative[F]) = new AutoConvert[A, F[A]] {

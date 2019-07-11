@@ -63,6 +63,7 @@ trait StdSQLDialect extends SQLDialect {
           case BinOp.LTE  => "<="
           case BinOp.LIKE => "LIKE"
           case BinOp.IN => "IN"
+          case BinOp.CONTAINS => "@>"
         }
         s"${expressionSQL(left)} $opString ${expressionSQL(right)}"
     }

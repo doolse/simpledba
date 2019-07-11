@@ -26,7 +26,7 @@ object AggregateOp extends Enumeration {
 
 object BinOp extends Enumeration {
   type BinOp = Value
-  val EQ, GT, GTE, LT, LTE, LIKE, IN = Value
+  val EQ, GT, GTE, LT, LTE, LIKE, IN, CONTAINS = Value
 }
 
 sealed trait SQLExpression
