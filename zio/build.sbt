@@ -1,4 +1,4 @@
-val ZioVersion = "1.0.0-RC9"
+val ZioVersion = "1.0.0-RC10-1"
 val ZioJava = "1.1.0-RC1"
 val ZioCats = "1.3.1.0-RC2"
 val ZioGroup = "dev.zio"

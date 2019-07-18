@@ -17,7 +17,7 @@ trait JDBCTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[fs2.Stre
   type F[A] = IO[A]
 
   def connection: Connection
-  def effect: JDBCEffect[fs2.Stream[IO, ?], F] = JDBCEffect(IO.pure(connection), _ => IO.pure(), PrintLnLogger())
+  def effect: JDBCEffect[fs2.Stream[IO, ?], F] = JDBCEffect(SingleJDBCConnection(connection), PrintLnLogger())
   def mapper: JDBCMapper[C]
   def builder = mapper.queries(effect)
 

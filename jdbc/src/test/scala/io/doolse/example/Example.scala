@@ -81,7 +81,7 @@ object Example extends scala.App {
     val mapper           = hsqldbMapper
     val singleConnection = DriverManager.getConnection("jdbc:hsqldb:mem:example")
     val jdbcQueries = mapper.queries(
-      new JDBCEffect[S, F](ZIO.succeed(singleConnection), _ => ZIO.unit, PrintLnLogger()))
+      new JDBCEffect[S, F](SingleJDBCConnection(singleConnection), PrintLnLogger()))
     val carTable  = mapper.mapped[Car].table("cars").key('id)
     val userTable = mapper.mapped[User].table("users").key('userId)
 

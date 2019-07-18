@@ -36,7 +36,7 @@ trait JDBCProperties[S[_], F[_]] {
 
   lazy val mapper = hsqldbMapper
 
-  def effect = JDBCEffect[S, F](streamable.M.pure(connection), _ => streamable.M.pure(), mkLogger)
+  def effect = JDBCEffect[S, F](SingleJDBCConnection(connection), mkLogger)
 
   lazy val sqlQueries = mapper.queries(effect)
 

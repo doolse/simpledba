@@ -6,9 +6,18 @@ import cats.Monad
 import io.doolse.simpledba.{ColumnRecord, ColumnRetrieve, JavaEffects, Streamable}
 import shapeless.HList
 
+trait JDBCConnection[S[_], F[_]]
+{
+  def apply[A](f: Connection => S[A]): S[A]
+}
+
+case class SingleJDBCConnection[S[_], F[_]](con: Connection) extends JDBCConnection[S, F]
+{
+  override def apply[A](f: Connection => S[A]): S[A] = f(con)
+}
+
 case class JDBCEffect[S[_], F[_]](
-    acquire: F[Connection],
-    release: Connection => F[Unit],
+    inConnection: JDBCConnection[S, F],
     logger: JDBCLogger[F])(implicit val S: Streamable[S, F], M: Monad[F], JE: JavaEffects[F]) {
 
   def withLogger(log: JDBCLogger[F]): JDBCEffect[S, F] = copy(logger = log)
@@ -32,7 +41,7 @@ case class JDBCEffect[S[_], F[_]](
 
   def executeStream[PS <: AutoCloseable, A](prepare: Connection => F[PS],
                                             bindAndExecute: (Connection, PS) => F[A]): S[A] = {
-    SM.flatMap(S.bracket(acquire)(release)) { con =>
+    inConnection { con =>
       SM.flatMap(S.bracket(prepare(con))(ps => blockingIO(ps.close()))) { ps =>
         S.eval(bindAndExecute(con, ps))
       }
@@ -61,7 +70,7 @@ case class JDBCEffect[S[_], F[_]](
     }
   }
 
-  def resultSetRecord[C[_] <: JDBCColumn[_], R <: HList, A](
+  def resultSetRecord[C[A0] <: JDBCColumn[A0], R <: HList, A](
       cols: ColumnRecord[C, A, R],
       i: Int,
       rs: ResultSet
@@ -75,7 +84,7 @@ case class JDBCEffect[S[_], F[_]](
     })
   }
 
-  def streamForQuery[C[_] <: JDBCColumn[_], Out <: HList](
+  def streamForQuery[C[A] <: JDBCColumn[A], Out <: HList](
       sql: String,
       bind: (Connection, PreparedStatement) => Seq[Any],
       resultCols: ColumnRecord[C, _, Out]): S[Out] = {
