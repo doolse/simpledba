@@ -124,7 +124,7 @@ class JDBCApp(logger: JDBCLogger[Task]) extends ExampleApp[JDBCWriteOp] {
   val singleConnection = DriverManager.getConnection("jdbc:hsqldb:mem:example")
 
   val jdbcQueries = mapper.queries(
-    new JDBCEffect[S, F](ZIO.succeed(singleConnection), _ => ZIO.unit, logger))
+    new JDBCEffect[S, F](SingleJDBCConnection(singleConnection), logger))
 
   val carTable  = mapper.mapped[Car].table("cars").key('id)
   val userTable = mapper.mapped[User].table("users").key('userId)
