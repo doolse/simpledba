@@ -6,18 +6,18 @@ import cats.Monad
 import io.doolse.simpledba.{ColumnRecord, ColumnRetrieve, JavaEffects, Streamable}
 import shapeless.HList
 
-trait JDBCConnection[S[_], F[_]]
+trait WithJDBCConnection[S[_], F[_]]
 {
   def apply[A](f: Connection => S[A]): S[A]
 }
 
-case class SingleJDBCConnection[S[_], F[_]](con: Connection) extends JDBCConnection[S, F]
+case class SingleJDBCConnection[S[_], F[_]](con: Connection) extends WithJDBCConnection[S, F]
 {
   override def apply[A](f: Connection => S[A]): S[A] = f(con)
 }
 
 case class JDBCEffect[S[_], F[_]](
-    inConnection: JDBCConnection[S, F],
+    inConnection: WithJDBCConnection[S, F],
     logger: JDBCLogger[F])(implicit val S: Streamable[S, F], M: Monad[F], JE: JavaEffects[F]) {
 
   def withLogger(log: JDBCLogger[F]): JDBCEffect[S, F] = copy(logger = log)

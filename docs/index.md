@@ -93,7 +93,7 @@ trait ExampleApp[W] {
   def querySomeData: TaskR[Console, Unit] =
     (for {
       user <- queries.usersByFirstName("Jolse")
-      _ <- Stream.fromEffect {
+      _ <- ZStream.fromEffect {
         queries.carsForUser(user.userId).runCollect.tap { cars =>
           putStrLn(s"${user.firstName} ${user.lastName} owns ${cars}")
         }

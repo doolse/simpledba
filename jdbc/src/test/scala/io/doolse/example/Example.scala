@@ -5,7 +5,7 @@ import java.util.UUID
 
 import io.doolse.simpledba.WriteQueries
 import io.doolse.simpledba.jdbc.{JDBCEffect, JDBCWriteOp}
-import zio.stream.Stream
+import zio.stream.{Stream, ZStream}
 import zio._
 
 object Example extends scala.App {
@@ -59,7 +59,7 @@ object Example extends scala.App {
     def querySomeData: TaskR[Console, Unit] =
       (for {
         user <- queries.usersByFirstName("Jolse")
-        _ <- Stream.fromEffect {
+        _ <- ZStream.fromEffect {
           queries.carsForUser(user.userId).runCollect.tap { cars =>
             putStrLn(s"${user.firstName} ${user.lastName} owns ${cars}")
           }
