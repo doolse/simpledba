@@ -1,7 +1,7 @@
 libraryDependencies ++= Seq(
   "com.chuusai" %% "shapeless" % "2.3.3",
   "org.typelevel" %% "cats-core" % "2.0.0-M1",
-  "org.typelevel" %% "cats-effect" % "1.3.0",
+  "org.typelevel" %% "cats-effect" % "2.0.0-M4",
   "com.typesafe" % "config" % "1.3.0")
 
 libraryDependencies ++= Seq(
