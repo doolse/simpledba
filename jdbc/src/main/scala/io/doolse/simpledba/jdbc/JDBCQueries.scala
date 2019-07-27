@@ -400,6 +400,19 @@ object JDBCQueries {
         }
     }
 
+    def buildLimit[In](limit: Int)(
+                   implicit c: AutoConvert[In, InRec], intCol: C[Int]
+                 ): In => S[Out] = {
+      val baseSel =
+        JDBCSelect(table.name, projections.columns.map(_._1), Seq.empty, orderCols, true)
+      w2: In =>
+        SM.flatMap(toWhere(c(w2))) {
+          case (whereClauses, binds) =>
+            val selSQL = dialect.querySQL(baseSel.copy(where = whereClauses))
+            SM.map(E.streamForQuery(selSQL, bindParameters(binds ++ Seq(intCol.bindValue(limit))), projections))(mapOut)
+        }
+    }
+
     override def withToWhere[NewIn <: HList](f: NewIn => S[(Seq[JDBCWhereClause], Seq[BoundValue])])
       : QueryBuilder[S, F, C, DataRec, NewIn, OutRec, Out] =
       copy(toWhere = f)

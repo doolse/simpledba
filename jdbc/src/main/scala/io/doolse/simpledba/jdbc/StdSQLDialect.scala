@@ -83,8 +83,9 @@ trait StdSQLDialect extends SQLDialect {
     }
     query match {
       case JDBCSelect(t, prj, w, o, l) =>
+        val limit = if (l) " limit ?" else ""
         s"SELECT ${prj.map(p => expressionSQL(p.sql)).mkString(",")} FROM ${escapeTableName(t)} ${whereClause(
-          w)} ${orderBy(o)}"
+          w)} ${orderBy(o)}${limit}"
       case JDBCInsert(t, c) =>
         s"INSERT INTO ${escapeTableName(t)} ${brackets(c.map(v => escapeCol(v.column)))} VALUES ${brackets(
           c.map(v => expressionSQL(v.expression))
