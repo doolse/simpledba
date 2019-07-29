@@ -3,6 +3,7 @@ package io.doolse.simpledba.test.dynamodb
 import java.net.URI
 import java.util.UUID
 
+import cats.Monad
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import io.doolse.simpledba.dynamodb.{DynamoDBEffect, DynamoDBMapper, DynamoDBPKColumn, DynamoDBTable, DynamoDBWriteOp}
@@ -12,8 +13,9 @@ import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient
 import software.amazon.awssdk.services.dynamodb.model.DeleteTableRequest
 
-trait DynamoDBTestHelper[S[_], F[_]] {
-
+trait DynamoDBTestHelper[SR[-_, _], FR[-_, _]] {
+  def SM : Monad[SR[Any, ?]]
+  def M : Monad[FR[Any, ?]]
   implicit def uuidIso = Iso.uuidString
   implicit def uuidKey = new DynamoDBPKColumn[UUID]
 
@@ -26,16 +28,16 @@ trait DynamoDBTestHelper[S[_], F[_]] {
       .build()
   }
 
-  def effect: DynamoDBEffect[S, F]
+  def effect: DynamoDBEffect[SR, FR, Any]
 
-  def attempt[A](f: F[A]): F[Either[Throwable, A]]
+  def attempt[A](f: FR[Any, A]): FR[Any, Either[Throwable, A]]
 
   lazy val mapper = new DynamoDBMapper(effect)
 
-  def flush(w: S[DynamoDBWriteOp]): F[Unit] = mapper.flush(w)
+  def flush(w: SR[Any, DynamoDBWriteOp]): FR[Any, Unit] = mapper.flush(w)
 
-  def delAndCreate(table: DynamoDBTable): F[Unit] = {
-    implicit val M = effect.S.M
+  def delAndCreate(table: DynamoDBTable): FR[Any, Unit] = {
+    implicit val _M = M
     for {
       client <- effect.asyncClient
       _ <- attempt(effect.fromFuture {

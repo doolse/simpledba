@@ -11,21 +11,18 @@ import shapeless._
 import software.amazon.awssdk.core.SdkBytes
 import zio.interop.catz._
 import zio.stream._
-import zio.{Task, ZIO}
+import zio.{Task, TaskR, ZIO}
 
 import scala.collection.mutable
 import io.doolse.simpledba.interop.zio._
 
 object DynamoDBSortedProperties extends SimpleDBAProperties("DynamoDB") {
 
-  type S[A] = Stream[Throwable, A]
-  type F[A] = Task[A]
-
   include(
-    new SortedQueryProperties[S, F, DynamoDBWriteOp]() with ZIOProperties
-    with DynamoDBTestHelper[S, F] {
+    new SortedQueryProperties[ZStreamR, TaskR, DynamoDBWriteOp]() with ZIOProperties
+    with DynamoDBTestHelper[ZStreamR, TaskR] {
 
-      override def effect = DynamoDBEffect[S, Task](ZIO.succeed(localClient))
+      override def effect = DynamoDBEffect[ZStreamR, TaskR, Any](ZIO.succeed(localClient), ???)
 
       lazy val baseTable = mapper.mapped[Sortable].table("sort").partKey('same)
 

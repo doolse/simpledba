@@ -5,19 +5,23 @@ import java.util.concurrent.CompletableFuture
 import cats.Monad
 import cats.effect.IO
 
-trait JavaEffects[F[_, _]] {
+trait JavaEffects[F[-_, _]] {
   def blockingIO[A](thunk: => A): F[Any, A]
   def fromFuture[A](future: () => CompletableFuture[A]): F[Any, A]
 }
 
-trait Streamable[S[-_, _], F[-_, _]] {
+trait IOEffects[F[-_, _]]
+{
   val unit : F[Any, Unit]
   def delay[A](a: => A): F[Any, A]
-  def productR[R, R1 <: R, A, B](l: F[R, A])(r: F[R1, B]): F[R1, B]
-  def mapS[R, A, B](fa: S[R, A])(f: A => B): S[R, B]
-  def mapF[R, A, B](fa: F[R, A])(f: A => B): F[R, B]
-  def flatMapS[R, R1 <: R, A, B](fa: S[R, A])(fb: A => S[R1, B]): S[R1, B]
   def flatMapF[R, R1 <: R, A, B](fa: F[R, A])(fb: A => F[R1, B]): F[R1, B]
+  def mapF[R, A, B](fa: F[R, A])(f: A => B): F[R, B]
+  def productR[R, R1 <: R, A, B](l: F[R, A])(r: F[R1, B]): F[R1, B]
+}
+
+trait StreamEffects[S[-_, _], F[-_, _]] extends IOEffects[F] {
+  def mapS[R, A, B](fa: S[R, A])(f: A => B): S[R, B]
+  def flatMapS[R, R1 <: R, A, B](fa: S[R, A])(fb: A => S[R1, B]): S[R1, B]
   def eval[R, A](fa: F[R, A]): S[R, A]
   def evalMap[R, R1 <: R, A, B](sa: S[R, A])(f: A => F[R1, B]): S[R1, B]
   def empty[R, A]: S[R, A]
@@ -40,11 +44,10 @@ trait Streamable[S[-_, _], F[-_, _]] {
   def read1[R, A](s: S[R, A]): F[R, A]
 
   def drain[R](s: S[R, _]): F[R, Unit]
-
 }
 
 object JavaEffects {
-  type IOR[R, A] = IO[A]
+  type IOR[-R, A] = IO[A]
   implicit val catsIOJavaEffects: JavaEffects[IOR] = new JavaEffects[IOR] {
 
     case object EmptyValue extends Throwable

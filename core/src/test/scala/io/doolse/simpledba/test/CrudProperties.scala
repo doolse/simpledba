@@ -2,7 +2,7 @@ package io.doolse.simpledba.test
 
 import cats.Monad
 import cats.syntax.all._
-import io.doolse.simpledba.{Streamable, WriteQueries}
+import io.doolse.simpledba.{StreamEffects, WriteQueries}
 import org.scalacheck.Prop._
 import org.scalacheck.{Arbitrary, Gen, Prop, Properties}
 
@@ -15,7 +15,7 @@ trait CrudProperties[SR[-_, _], FR[-_, _], W] {
   type Writes[A] = WriteQueries[SR, FR, Any, W, A]
   def M : Monad[F]
   def SM : Monad[S]
-  def streamable: Streamable[SR, FR]
+  def streamable: StreamEffects[SR, FR]
   def run[A](f: F[A]): A
   def flush(s: S[W]): F[Unit]
   def toVector[A](s: S[A]): F[Vector[A]]

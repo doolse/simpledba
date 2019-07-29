@@ -8,7 +8,7 @@ import _root_.zio.stream._
 import _root_.zio.{Task, TaskR, ZIO}
 import _root_.zio.console._
 import cats.Monad
-import io.doolse.simpledba.{JavaEffects, Streamable, WriteQueries}
+import io.doolse.simpledba.{IOEffects, JavaEffects, StreamEffects, WriteQueries}
 
 package object zio {
 
@@ -22,7 +22,7 @@ package object zio {
       Task.fromCompletionStage(future)
   }
 
-  implicit def zioStreamable = new Streamable[ZStream[-?, Throwable, +?], ZIO[-?, Throwable, +?]] {
+  val zioStreamEffects = new StreamEffects[ZStreamR, TaskR] {
 
     override def eval[R, A](fa: ZIO[R, Throwable, A]): ZStream[R, Throwable, A] =
       ZStream.fromEffect(fa)
@@ -69,4 +69,6 @@ package object zio {
 
     override def delay[A](a: => A): ZIO[Any, Throwable, A] = ZIO.effect(a)
   }
+
+  implicit val taskREffects : IOEffects[TaskR] = zioStreamEffects
 }

@@ -7,7 +7,7 @@ import io.doolse.simpledba.test.Test
 
 case class MyTest(name: String, frogs: Int)
 
-trait DynamoDBTest[S[_], F[_]] extends Test[S, F, DynamoDBWriteOp] with DynamoDBTestHelper[S, F] {
+trait DynamoDBTest[SR[-_,_], FR[-_, _]] extends Test[SR, FR, DynamoDBWriteOp] with DynamoDBTestHelper[SR, FR] {
 
   val userLNTable       = mapper.mapped[User].table("userLN")
     .partKey('lastName).sortKey('firstName)
@@ -25,7 +25,7 @@ trait DynamoDBTest[S[_], F[_]] extends Test[S, F, DynamoDBWriteOp] with DynamoDB
 
   val tables = streamable.emits(Seq(userTable, userLNTable, instTable))
   val writeInst = writes(instTable)
-  implicit def M = effect.S.M
+  implicit val _M = M
   val queries = {
     Queries(
       streamable.drain(streamable.evalMap(tables)(delAndCreate)),

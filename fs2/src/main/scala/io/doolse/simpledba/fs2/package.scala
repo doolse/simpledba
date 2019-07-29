@@ -9,8 +9,10 @@ package object fs2 {
   type IOR[-R, A] = IO[A]
   type FR[F[_], -R, A] = F[A]
 
-  implicit def fs2Stream[F[_]](implicit FS: Sync[F]): Streamable[StreamR[F, -?, ?], FR[F, -?, ?]] =
-    new Streamable[StreamR[F, -?, ?], FR[F, -?, ?]] {
+  implicit val catsIOEffects : IOEffects[IOR] = ???
+
+  def fs2Stream[F[_]](implicit FS: Sync[F]): StreamEffects[StreamR[F, -?, ?], FR[F, -?, ?]] =
+    new StreamEffects[StreamR[F, -?, ?], FR[F, -?, ?]] {
 
       override def eval[R, A](fa: F[A]): Stream[F, A] = Stream.eval(fa)
 

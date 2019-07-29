@@ -3,13 +3,13 @@ package io.doolse.simpledba.test
 import cats.Monad
 import cats.instances.option._
 import cats.syntax.all._
-import io.doolse.simpledba.{Streamable, WriteQueries}
+import io.doolse.simpledba.{StreamEffects, WriteQueries}
 
 trait Test[SR[-_, _], FR[-_, _], W] {
   type S[A] = SR[Any, A]
   type F[A] = FR[Any, A]
   type Writes[A] = WriteQueries[SR, FR, Any, W, A]
-  def streamable: Streamable[SR, FR]
+  def streamable: StreamEffects[SR, FR]
   def last[A](s: S[A]): F[Option[A]]
   def toVector[A](s: S[A]): F[Vector[A]]
   def flush(s: S[W]): F[Unit]

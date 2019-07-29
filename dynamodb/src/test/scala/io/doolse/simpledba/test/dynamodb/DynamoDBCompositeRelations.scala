@@ -8,14 +8,14 @@ import io.doolse.simpledba.test.CompositeRelations
 import io.doolse.simpledba.test.CompositeRelations.{Composite2, Composite3}
 import io.doolse.simpledba.test.zio.ZIOProperties
 import zio.stream._
-import zio.{Task, ZIO}
+import zio.{Task, TaskR, ZIO}
 import zio.interop.catz._
 import io.doolse.simpledba.interop.zio._
 
-object DynamoDBCompositeRelations extends CompositeRelations[Stream[Throwable, ?], Task, DynamoDBWriteOp]("DynamoDB Composite")
-  with ZIOProperties with DynamoDBTestHelper[Stream[Throwable, ?], Task] {
+object DynamoDBCompositeRelations extends CompositeRelations[ZStreamR, TaskR, DynamoDBWriteOp]("DynamoDB Composite")
+  with ZIOProperties with DynamoDBTestHelper[ZStreamR, TaskR] {
 
-  override def effect = DynamoDBEffect[S, Task](ZIO.succeed(localClient))
+  override def effect = DynamoDBEffect[ZStreamR, TaskR, Any](ZIO.succeed(localClient), ???)
 
   lazy val queries2: Queries2 = {
     import mapper.queries._

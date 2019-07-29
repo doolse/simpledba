@@ -3,16 +3,16 @@ package io.doolse.simpledba.test.dynamodb
 import io.doolse.simpledba.dynamodb.DynamoDBEffect
 import io.doolse.simpledba.test.zio.ZIOProperties
 import zio.console._
-import zio.{App, Task, ZIO}
+import zio.{App, Task, TaskR, ZIO}
 import zio.stream.{Stream, ZSink}
 import io.doolse.simpledba.interop.zio._
 import zio.console._
 
 object DynamoDBZIOTest
     extends App
-    with DynamoDBTest[Stream[Throwable, ?], Task]
+    with DynamoDBTest[ZStreamR, TaskR]
     with ZIOProperties {
-  override def effect = DynamoDBEffect[Stream[Throwable, ?], Task](ZIO.succeed(localClient))
+  override def effect = DynamoDBEffect[ZStreamR, TaskR, Any](ZIO.succeed(localClient), ???)
 
   override def run(args: List[String]): ZIO[DynamoDBZIOTest.Environment, Nothing, Int] = {
     prog.tap(putStrLn) fold (t => {

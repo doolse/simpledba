@@ -3,7 +3,7 @@ package io.doolse.simpledba
 trait WriteQueries[S[-_, _], F[-_, _], -R, W, T] {
   self =>
 
-  protected def S: Streamable[S, F]
+  protected def S: StreamEffects[S, F]
 
   def insertAll[R1 <: R]: S[R1, T] => S[R1, W]
 

@@ -290,10 +290,10 @@ case class JDBCQueries[C[A] <: JDBCColumn[A], S[-_, _], F[-_, _], R](effect: JDB
   }
 
   case class DeleteBuilder[DataRec <: HList, InRec <: HList](
-                                                                                                 private[jdbc] val S: Streamable[S, F],
-                                                                                                 private[jdbc] val table: TableRecord[C, DataRec],
-                                                                                                 private[jdbc] val dialect: SQLDialect,
-                                                                                                 private[jdbc] val toWhere: InRec => S[R, (Seq[JDBCWhereClause], Seq[BoundValue])]
+                                                              private[jdbc] val S: StreamEffects[S, F],
+                                                              private[jdbc] val table: TableRecord[C, DataRec],
+                                                              private[jdbc] val dialect: SQLDialect,
+                                                              private[jdbc] val toWhere: InRec => S[R, (Seq[JDBCWhereClause], Seq[BoundValue])]
                                                                                                ) extends WhereBuilder[DataRec, InRec] {
     type WhereOut[NewIn <: HList] = DeleteBuilder[DataRec, NewIn]
     def build[W2](

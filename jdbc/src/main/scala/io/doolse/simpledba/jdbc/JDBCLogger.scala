@@ -1,21 +1,20 @@
 package io.doolse.simpledba.jdbc
 
-import cats.effect.Sync
-import io.doolse.simpledba.Streamable
+import io.doolse.simpledba.IOEffects
 
 trait JDBCLogger[F[-_, _], R] {
   def logPrepare(sql: String): F[R, Unit]
   def logBind(sql: String, values: Seq[Any]): F[R, Unit]
 }
 
-case class NothingLogger[S[-_, _], F[-_, _]](implicit S: Streamable[S, F]) extends JDBCLogger[F, Any] {
-  override def logPrepare(sql: String): F[Any, Unit] = S.unit
+case class NothingLogger[F[-_, _]](implicit E: IOEffects[F]) extends JDBCLogger[F, Any] {
+  override def logPrepare(sql: String): F[Any, Unit] = E.unit
 
-  override def logBind(sql: String, values: Seq[Any]): F[Any, Unit] = S.unit
+  override def logBind(sql: String, values: Seq[Any]): F[Any, Unit] = E.unit
 }
 
-case class PrintLnLogger[S[-_, _], F[-_, _]](logPrepares: Boolean = false, logBinds: Boolean = true)(
-    implicit S: Streamable[S, F])
+case class PrintLnLogger[F[-_, _]](logPrepares: Boolean = false, logBinds: Boolean = true)(
+    implicit S: IOEffects[F])
     extends JDBCLogger[F, Any] {
   override def logPrepare(sql: String): F[Any, Unit] =
     if (logPrepares) S.delay(println(sql)) else S.delay()

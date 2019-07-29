@@ -3,7 +3,7 @@ package io.doolse.simpledba.jdbc
 import java.sql.{Connection, PreparedStatement, ResultSet}
 
 import cats.Monad
-import io.doolse.simpledba.{ColumnRecord, ColumnRetrieve, JavaEffects, Streamable}
+import io.doolse.simpledba.{ColumnRecord, ColumnRetrieve, JavaEffects, StreamEffects}
 import shapeless.HList
 
 trait WithJDBCConnection[S[-_, _], R]
@@ -11,9 +11,9 @@ trait WithJDBCConnection[S[-_, _], R]
   def apply[A](f: Connection => S[R, A]): S[R, A]
 }
 
-case class JDBCEffect[S[-_, _], F[-_, _], R](
+case class JDBCEffect[S[-_, _], F[-_, _], R](S: StreamEffects[S, F],
     inConnection: WithJDBCConnection[S, R],
-    logger: JDBCLogger[F, R])(implicit val S: Streamable[S, F], JE: JavaEffects[F]) {
+    logger: JDBCLogger[F, R])(implicit JE: JavaEffects[F]) {
 
   def withLogger(log: JDBCLogger[F, R]): JDBCEffect[S, F, R] = copy(logger = log)
 
