@@ -75,7 +75,7 @@ case class JDBCQueries[C[A] <: JDBCColumn[A], S[-_, _], F[-_, _], R](effect: JDB
                                                           dialect: SQLDialect) {
   private val S  = effect.S
 
-  def flush(writes: S[R, JDBCWriteOp]) = effect.flush(writes)
+  def flush[R1 <: R](writes: S[R1, JDBCWriteOp]): F[R1, Unit] = effect.flush(writes)
 
   def writes(table: JDBCTable[C]): WriteQueries[S, F, R, JDBCWriteOp, table.Data] =
     new WriteQueries[S, F, R, JDBCWriteOp, table.Data] {

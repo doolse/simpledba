@@ -86,7 +86,7 @@ case class JDBCEffect[S[-_, _], F[-_, _], R](S: StreamEffects[S, F],
     }
   }
 
-  def flush(writes: S[R, JDBCWriteOp]): F[R, Unit] =
+  def flush[R1 <: R](writes: S[R1, JDBCWriteOp]): F[R1, Unit] =
     S.drain(S.flatMapS(writes) {
       case JDBCWriteOp(sql, binder) => executePreparedQuery(sql, binder)
     })
