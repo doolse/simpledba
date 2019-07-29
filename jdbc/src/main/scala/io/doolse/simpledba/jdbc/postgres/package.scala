@@ -69,54 +69,51 @@ package object postgres {
 
   val postgresMapper = JDBCMapper[PostgresColumn](PostgresDialect)
 
-  class PostgresQueries[S[_], F[_]](dialect: SQLDialect, E: JDBCEffect[S, F]) {
+  class PostgresQueries[S[- _, _], F[- _, _], R](dialect: SQLDialect, E: JDBCEffect[S, F, R]) {
+
     def insertWith[A,
                    T,
-                   R <: HList,
+                   Rec <: HList,
                    KeyNames <: HList,
                    AllCols <: HList,
                    WithoutKeys <: HList,
                    JustKeys <: HList,
                    Res](
-        table: JDBCTable.Aux[PostgresColumn, T, R, A :: HNil, KeyNames],
+        table: JDBCTable.Aux[PostgresColumn, T, Rec, A :: HNil, KeyNames],
         sequence: Sequence[A]
     )(
-        implicit keys: Keys.Aux[R, AllCols],
+        implicit keys: Keys.Aux[Rec, AllCols],
         removeAll: RemoveAll.Aux[AllCols, KeyNames, (WithoutKeys, JustKeys)],
-        withoutKeys: ColumnSubsetBuilder[R, JustKeys],
-        sampleValue: SampleValue[A],
-        conv: AutoConvert[Res, S[A => T]]
-    ): Res => F[T] = { res =>
-      val S  = E.S
-      val SM = S.SM
+        withoutKeys: ColumnSubsetBuilder[Rec, JustKeys],
+        sampleValue: SampleValue[A]
+    ): (A => T) => F[R, T] = { res =>
+      val S = E.S
       S.read1 {
-        SM.flatMap(conv(res)) { f =>
-          val fullRec   = table.allColumns.iso.to(f(sampleValue.v))
-          val sscols    = table.allColumns.subset(withoutKeys)
-          val keyCols   = table.keyColumns.columns
-          val seqExpr   = FunctionCall("nextval", Seq(SQLString(sequence.name)))
-          val colValues = sscols.mapRecord(sscols.from(fullRec), BindNamedValues)
-          val colBindings = Seq(keyCols.head._1 -> seqExpr) ++ colValues.map { bc =>
-            bc.name -> Parameter(bc.column.columnType)
-          }
-          import StdSQLDialect._
-          import dialect._
+        val fullRec   = table.allColumns.iso.to(res(sampleValue.v))
+        val sscols    = table.allColumns.subset(withoutKeys)
+        val keyCols   = table.keyColumns.columns
+        val seqExpr   = FunctionCall("nextval", Seq(SQLString(sequence.name)))
+        val colValues = sscols.mapRecord(sscols.from(fullRec), BindNamedValues)
+        val colBindings = Seq(keyCols.head._1 -> seqExpr) ++ colValues.map { bc =>
+          bc.name -> Parameter(bc.column.columnType)
+        }
+        import StdSQLDialect._
+        import dialect._
 
-          val insertSQL =
-            s"INSERT INTO ${escapeTableName(table.name)} " +
-              s"${brackets(colBindings.map(v => escapeColumnName(v._1)))} " +
-              s"VALUES ${brackets(colBindings.map(v => expressionSQL(v._2)))} RETURNING ${keyCols
-                .map(k => escapeColumnName(k._1))
-                .mkString(",")}"
+        val insertSQL =
+          s"INSERT INTO ${escapeTableName(table.name)} " +
+            s"${brackets(colBindings.map(v => escapeColumnName(v._1)))} " +
+            s"VALUES ${brackets(colBindings.map(v => expressionSQL(v._2)))} RETURNING ${keyCols
+              .map(k => escapeColumnName(k._1))
+              .mkString(",")}"
 
-          SM.map(
-            E.streamForQuery(
-              insertSQL,
-              JDBCQueries.bindParameters(colValues.map(_.binder)),
-              Columns(keyCols, Iso.id[A :: HNil])
-            )) { a =>
-            f(a.head)
-          }
+        S.mapS(
+          E.streamForQuery(
+            insertSQL,
+            JDBCQueries.bindParameters(colValues.map(_.binder)),
+            Columns(keyCols, Iso.id[A :: HNil])
+          )) { a =>
+          res(a.head)
         }
       }
     }

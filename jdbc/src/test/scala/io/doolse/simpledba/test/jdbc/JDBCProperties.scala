@@ -13,42 +13,39 @@ object JDBCProperties {
   val config          = ConfigFactory.load()
   lazy val connection = connectionFromConfig(config)
 
-  def mkLogger[F[_]: Sync]: JDBCLogger[F] = {
+  def mkLogger[S[-_, _], F[-_, _]](implicit S: Streamable[S, F]): JDBCLogger[F, Any] = {
     val testConfig = config.getConfig("simpledba.test")
-    if (testConfig.getBoolean("log")) new PrintLnLogger()
-    else new NothingLogger()
+    if (testConfig.getBoolean("log")) PrintLnLogger[S, F]()
+    else NothingLogger[S, F]()
   }
 }
 
-trait JDBCProperties[S[_], F[_]] {
+trait JDBCProperties[S[-_, _], F[-_, _]] {
 
   import JDBCProperties._
 
   implicit def shortCol = HSQLColumn[Short](StdJDBCColumn.shortCol, ColumnType("INTEGER"))
 
   implicit def streamable: Streamable[S, F]
+  implicit def javaEffects : JavaEffects[F]
 
-  def flush(w: S[JDBCWriteOp]): F[Unit] = sqlQueries.flush(w)
-
-  implicit def JE: JavaEffects[F]
-
-  implicit def Sync: Sync[F]
+  def flush(w: S[Any, JDBCWriteOp]): F[Any, Unit] = sqlQueries.flush(w)
 
   lazy val mapper = hsqldbMapper
 
-  def effect = JDBCEffect[S, F](SingleJDBCConnection(connection), mkLogger)
+  def effect = JDBCEffect[S, F, Any](singleJDBCConnection(connection), mkLogger)
 
   lazy val sqlQueries = mapper.queries(effect)
 
   def setup(bq: JDBCTable[HSQLColumn]*): Unit = {
-    implicit val SM = streamable.SM
+    implicit val S = streamable
     import sqlQueries.{flush => _, _}
     run {
       flush {
-        SM.flatMap(streamable.emits(Seq(bq: _*)))(dropAndCreate)
+        S.flatMapS(streamable.emits(Seq(bq: _*)))(dropAndCreate)
       }
     }
   }
 
-  def run[A](fa: F[A]): A
+  def run[A](fa: F[Any, A]): A
 }

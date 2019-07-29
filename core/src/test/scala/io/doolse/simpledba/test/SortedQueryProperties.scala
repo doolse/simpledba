@@ -23,8 +23,8 @@ case class Sortable(pk1: UUID,
                     floatField: Float,
                     uuidField: UUID)
 
-abstract class SortedQueryProperties[S[_], F[_]: Monad, W]
-    extends AbstractRelationsProperties[S, F, W]("Sorting") {
+abstract class SortedQueryProperties[SR[-_, _], FR[-_, _], W]
+    extends AbstractRelationsProperties[SR, FR, W]("Sorting") {
 
   case class Queries(int1: UUID => S[Sortable],
                      int2: UUID => S[Sortable],
@@ -38,7 +38,7 @@ abstract class SortedQueryProperties[S[_], F[_]: Monad, W]
                      float2: UUID => S[Sortable],
                      uuid1: UUID => S[Sortable],
                      uuid2: UUID => S[Sortable],
-                     writes: WriteQueries[S, F, W, Sortable],
+                     writes: Writes[Sortable],
                      truncate: S[W],
                     )
 
@@ -61,7 +61,8 @@ abstract class SortedQueryProperties[S[_], F[_]: Monad, W]
   def checkOrder[A](same: UUID, v: Seq[Sortable], sortQ: Seq[(String, OrderQuery[_])]) = {
     val vSame       = uniqueify[Sortable](v.map(_.copy(same = same)), _.pk1).toVector
     val S           = streamable
-    implicit val SM = S.SM
+    implicit val _SM = SM
+    implicit val _M = M
     for {
       _ <- flush(S.append(queries._1.truncate, queries._1.writes.insertAll(S.emits(vSame))))
       p = sortQ.map {

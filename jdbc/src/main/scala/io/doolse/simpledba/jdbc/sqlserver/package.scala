@@ -82,27 +82,26 @@ package object sqlserver {
     c.copy(columnType = c.columnType.withFlag(IdentityColumn))
   }
 
-  class SQLServerQueries[S[_], F[_]](dialect: SQLDialect, E: JDBCEffect[S, F]) {
+  class SQLServerQueries[S[-_, _], F[-_, _], R](dialect: SQLDialect, E: JDBCEffect[S, F, R]) {
     def insertIdentity[T,
-                       R <: HList,
+                       Rec <: HList,
                        KeyNames <: HList,
                        AllCols <: HList,
                        WithoutKeys <: HList,
                        JustKeys <: HList,
                        A,
                        Res](
-        table: JDBCTable.Aux[SQLServerColumn, T, R, A :: HNil, KeyNames]
+        table: JDBCTable.Aux[SQLServerColumn, T, Rec, A :: HNil, KeyNames]
     )(
-        implicit keys: Keys.Aux[R, AllCols],
+        implicit keys: Keys.Aux[Rec, AllCols],
         removeAll: RemoveAll.Aux[AllCols, KeyNames, (WithoutKeys, JustKeys)],
-        withoutKeys: ColumnSubsetBuilder[R, JustKeys],
+        withoutKeys: ColumnSubsetBuilder[Rec, JustKeys],
         sampleValue: SampleValue[A],
-        conv: AutoConvert[Res, S[A => T]]
-    ): Res => F[T] = { res =>
+        conv: AutoConvert[Res, S[R, A => T]]
+    ): Res => F[R, T] = { res =>
       val S  = E.S
-      val SM = S.SM
       S.read1 {
-        SM.flatMap(conv(res)) { f =>
+        S.flatMapS(conv(res)) { f =>
           val fullRec   = table.allColumns.iso.to(f(sampleValue.v))
           val sscols    = table.allColumns.subset(withoutKeys)
           val keyCols   = table.keyColumns.columns
@@ -118,7 +117,7 @@ package object sqlserver {
               s"OUTPUT ${keyCols.map(k => s"INSERTED.${escapeColumnName(k._1)}").mkString(",")} " +
               s"VALUES ${brackets(colBindings.map(v => expressionSQL(v._2)))}"
 
-          SM.map(
+          S.mapS(
             E.streamForQuery(
               insertSQL,
               JDBCQueries.bindParameters(colValues.map(_.binder)),

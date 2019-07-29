@@ -9,25 +9,26 @@ import org.scalacheck.{Arbitrary, Gen, Prop, Properties}
 /**
   * Created by jolz on 16/06/16.
   */
-trait CrudProperties[S[_], F[_], W] {
-
-  def streamable: Streamable[S, F]
-  def SM = streamable.SM
-  def M: Monad[F] = streamable.M
+trait CrudProperties[SR[-_, _], FR[-_, _], W] {
+  type S[A] = SR[Any, A]
+  type F[A] = FR[Any, A]
+  type Writes[A] = WriteQueries[SR, FR, Any, W, A]
+  def M : Monad[F]
+  def SM : Monad[S]
+  def streamable: Streamable[SR, FR]
   def run[A](f: F[A]): A
   def flush(s: S[W]): F[Unit]
   def toVector[A](s: S[A]): F[Vector[A]]
 
-  def crudProps[A: Arbitrary, K](writes: WriteQueries[S, F, W, A],
+  def crudProps[A: Arbitrary, K](writes: Writes[A],
                                  truncate: S[W],
                                  findAll: A => S[A],
                                  expected: Int,
                                  genUpdate: Gen[(A, A)]) = {
     implicit def runProp(fa: F[Prop]): Prop = run(fa)
 
-    implicit val MV = M
-    implicit val SMV = SM
     new Properties("CRUD ops") {
+      implicit val LM = M
       val countAll = (a: A) => toVector(findAll(a)).map(_.count(a.==))
 
       property("createReadDelete") = forAll { (a: A) =>

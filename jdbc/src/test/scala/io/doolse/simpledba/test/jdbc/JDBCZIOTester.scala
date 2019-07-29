@@ -7,19 +7,17 @@ import io.doolse.simpledba.jdbc._
 import io.doolse.simpledba.test.Test
 import zio.interop.catz._
 import zio.stream.ZStream
-import zio.{Task, ZIO}
+import zio.{Task, TaskR, ZIO}
 import shapeless.HList
 import shapeless.syntax.singleton._
 import io.doolse.simpledba.interop.zio._
 import io.doolse.simpledba.test.zio.ZIOProperties
 
-trait JDBCZIOTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[ZStream[Any, Throwable, ?], Task, JDBCWriteOp]
+trait JDBCZIOTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[ZStreamR, TaskR, JDBCWriteOp]
   with ZIOProperties {
 
-  type F[A] = Task[A]
-
   def connection: Connection
-  def effect = JDBCEffect[S, F](SingleJDBCConnection(connection), PrintLnLogger())
+  def effect = JDBCEffect[ZStreamR, TaskR, Any](singleJDBCConnection(connection), PrintLnLogger[SR, TaskR]())
   def mapper: JDBCMapper[C]
   def builder = mapper.queries(effect)
 

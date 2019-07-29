@@ -29,14 +29,14 @@ object CompositeRelations {
 
 }
 
-abstract class CompositeRelations[S[_], F[_], W](name: String)(implicit M: Monad[F])
-    extends AbstractRelationsProperties[S, F, W](s"$name - Composite") {
+abstract class CompositeRelations[SR[-_, _], FR[-_, _], W](name: String)
+    extends AbstractRelationsProperties[SR, FR, W](s"$name - Composite") {
 
-  case class Queries2(updates: WriteQueries[S, F, W, Composite2],
+  case class Queries2(updates: Writes[Composite2],
                                      byPK: ((Long, UUID)) => S[Composite2],
                                      truncate: S[W])
 
-  case class Queries3(updates: WriteQueries[S, F, W, Composite3],
+  case class Queries3(updates: Writes[Composite3],
                                      byPK: ((Int, String, Boolean)) => S[Composite3],
                                      truncate: S[W])
 

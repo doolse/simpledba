@@ -77,30 +77,29 @@ package object oracle {
 
   val oracleMapper = JDBCMapper[OracleColumn](OracleDialect)
 
-  case class OracleQueries[S[_], F[_]](dialect: SQLDialect, E: JDBCEffect[S, F]) {
+  case class OracleQueries[S[-_, _], F[-_, _], R](dialect: SQLDialect, E: JDBCEffect[S, F, R]) {
 
     def insertWith[A,
                    T,
-                   R <: HList,
+                   Rec <: HList,
                    KeyNames <: HList,
                    AllCols <: HList,
                    WithoutKeys <: HList,
                    JustKeys <: HList,
                    Res](
-        table: JDBCTable.Aux[OracleColumn, T, R, A :: HNil, KeyNames],
+        table: JDBCTable.Aux[OracleColumn, T, Rec, A :: HNil, KeyNames],
         sequence: Sequence[A]
     )(
         implicit
-        keys: Keys.Aux[R, AllCols],
+        keys: Keys.Aux[Rec, AllCols],
         removeAll: RemoveAll.Aux[AllCols, KeyNames, (WithoutKeys, JustKeys)],
-        withoutKeys: ColumnSubsetBuilder[R, JustKeys],
+        withoutKeys: ColumnSubsetBuilder[Rec, JustKeys],
         sampleValue: SampleValue[A],
-        conv: AutoConvert[Res, S[A => T]]
-    ): Res => F[T] = { res =>
+        conv: AutoConvert[Res, S[R, A => T]]
+    ): Res => F[R, T] = { res =>
       val S  = E.S
-      val SM = S.SM
       S.read1 {
-      SM.flatMap(conv(res)) { f =>
+      S.flatMapS(conv(res)) { f =>
         val fullRec   = table.allColumns.iso.to(f(sampleValue.v))
         val sscols    = table.allColumns.subset(withoutKeys)
         val keyCols   = table.keyColumns.columns
@@ -117,7 +116,7 @@ package object oracle {
         val binder =
           JDBCQueries.bindParameters(colValues.map(_.binder))
 
-          SM.map(
+          S.mapS(
             S.evalMap(E.executeStream[PreparedStatement, ResultSet](
               E.logAndPrepare(insertSQL,
                               _.prepareStatement(insertSQL, keyCols.map(_._1).toArray[String])),

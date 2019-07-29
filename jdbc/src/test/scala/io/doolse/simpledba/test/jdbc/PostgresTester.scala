@@ -5,7 +5,7 @@ import java.sql.DriverManager
 import io.doolse.simpledba.jdbc._
 import io.doolse.simpledba.jdbc.postgres._
 import zio.stream.ZSink
-import zio.{App, ZIO}
+import zio.{App, Task, ZIO}
 
 object PostgresTester extends App with JDBCZIOTester[PostgresColumn] with StdPostgresColumns {
 
@@ -25,7 +25,6 @@ object PostgresTester extends App with JDBCZIOTester[PostgresColumn] with StdPos
     prog.fold(_ => 1, v => {println(v); 0})
   }
 
-
-  override def insertInst =
+  override def insertInst : (Long => Inst) => Task[Inst] =
     postgresQueries.insertWith(instTable, seq)
 }

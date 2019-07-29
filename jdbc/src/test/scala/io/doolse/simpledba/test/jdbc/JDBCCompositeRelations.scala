@@ -1,17 +1,18 @@
 package io.doolse.simpledba.test.jdbc
 
 import io.doolse.simpledba.Cols
+import io.doolse.simpledba.interop.zio.ZStreamR
 import io.doolse.simpledba.jdbc.JDBCWriteOp
 import io.doolse.simpledba.test.CompositeRelations
 import io.doolse.simpledba.test.CompositeRelations.{Composite2, Composite3}
 import io.doolse.simpledba.test.zio.ZIOProperties
-import zio.Task
+import zio.{Task, TaskR}
 import zio.interop.catz._
 import zio.stream.ZStream
 
 object JDBCCompositeRelations
-    extends CompositeRelations[ZStream[Any, Throwable, ?], Task, JDBCWriteOp]("JDBC Composite")
-    with JDBCProperties[ZStream[Any, Throwable, ?], Task] with ZIOProperties {
+    extends CompositeRelations[ZStreamR, TaskR, JDBCWriteOp]("JDBC Composite")
+    with JDBCProperties[ZStreamR, TaskR] with ZIOProperties {
 
   import mapper.mapped
 

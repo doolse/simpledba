@@ -4,6 +4,7 @@ import java.sql.DriverManager
 import java.util.UUID
 
 import io.doolse.simpledba.WriteQueries
+import io.doolse.simpledba.interop.zio.ZIOWriteQueries
 import io.doolse.simpledba.jdbc.{JDBCEffect, JDBCWriteOp}
 import zio.stream.{Stream, ZStream}
 import zio._
@@ -17,7 +18,7 @@ object Example extends scala.App {
   trait Queries[W] {
     type S[A]      = Stream[Throwable, A]
     type F[A]      = Task[A]
-    type Writes[A] = WriteQueries[S, F, W, A]
+    type Writes[A] = ZIOWriteQueries[Any, W, A]
 
     def users: Writes[User]
 
@@ -78,10 +79,12 @@ object Example extends scala.App {
     import io.doolse.simpledba.interop.zio._
     import zio.interop.catz._
 
+    type StreamR[-R, +A] = ZStream[R, Throwable, A]
     val mapper           = hsqldbMapper
     val singleConnection = DriverManager.getConnection("jdbc:hsqldb:mem:example")
-    val jdbcQueries = mapper.queries(
-      new JDBCEffect[S, F](SingleJDBCConnection(singleConnection), PrintLnLogger()))
+    val connections = singleJDBCConnection[StreamR, Any](singleConnection)
+    val jdbcEffect = JDBCEffect[StreamR, TaskR, Any](connections, NothingLogger[StreamR, TaskR]())
+    val jdbcQueries = mapper.queries(jdbcEffect)
     val carTable  = mapper.mapped[Car].table("cars").key('id)
     val userTable = mapper.mapped[User].table("users").key('userId)
 

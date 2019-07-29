@@ -11,13 +11,11 @@ import io.doolse.simpledba.test.Test
 import shapeless.HList
 import shapeless.syntax.singleton._
 
-trait JDBCTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[fs2.Stream[IO, ?], IO, JDBCWriteOp]
+trait JDBCTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[StreamIOR, IOR, JDBCWriteOp]
   with FS2Properties {
 
-  type F[A] = IO[A]
-
   def connection: Connection
-  def effect: JDBCEffect[fs2.Stream[IO, ?], F] = JDBCEffect(SingleJDBCConnection(connection), PrintLnLogger())
+  def effect: JDBCEffect[StreamIOR, IOR, Any] = JDBCEffect(singleJDBCConnection(connection), PrintLnLogger[StreamIOR, IOR]())
   def mapper: JDBCMapper[C]
   def builder = mapper.queries(effect)
 

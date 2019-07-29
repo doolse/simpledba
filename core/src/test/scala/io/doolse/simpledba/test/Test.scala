@@ -1,17 +1,20 @@
 package io.doolse.simpledba.test
 
+import cats.Monad
 import cats.instances.option._
 import cats.syntax.all._
 import io.doolse.simpledba.{Streamable, WriteQueries}
 
-trait Test[S[_], F[_], W] {
-
-  def streamable: Streamable[S, F]
+trait Test[SR[-_, _], FR[-_, _], W] {
+  type S[A] = SR[Any, A]
+  type F[A] = FR[Any, A]
+  type Writes[A] = WriteQueries[SR, FR, Any, W, A]
+  def streamable: Streamable[SR, FR]
   def last[A](s: S[A]): F[Option[A]]
   def toVector[A](s: S[A]): F[Vector[A]]
   def flush(s: S[W]): F[Unit]
-
-  implicit def SM             = streamable.SM
+  def SM : Monad[S]
+  def M : Monad[F]
 
   case class EmbeddedFields(adminpassword: String, enabled: Boolean)
 
@@ -22,8 +25,8 @@ trait Test[S[_], F[_], W] {
   case class User(firstName: String, lastName: String, year: Int)
 
   case class Queries(initDB: F[Unit],
-                     writeInst: WriteQueries[S, F, W, Inst],
-                     writeUsers: WriteQueries[S, F, W, User],
+                     writeInst: Writes[Inst],
+                     writeUsers: Writes[User],
                      insertNewInst: (Long => Inst) => F[Inst],
                      instByPK: Long => S[Inst],
                      querybyFirstNameAsc: String => S[User],
@@ -32,7 +35,7 @@ trait Test[S[_], F[_], W] {
                      justYear: Username => S[Int],
                      usersWithLastName: String => S[Int])
 
-  def insertData(writeInst: WriteQueries[S, F, W, Inst], writeUsers: WriteQueries[S, F, W, User]) = {
+  def insertData(writeInst: Writes[Inst], writeUsers: Writes[User]) = {
     writeUsers.insertAll(
       streamable.emits(
         Seq(
@@ -45,7 +48,8 @@ trait Test[S[_], F[_], W] {
 
   def doTest(q: Queries, updateId: (Inst, Inst) => Inst = (o, n) => n) : F[String] = {
     import q._
-    implicit val M = streamable.M
+    implicit val _M = M
+    implicit val _S = SM
     for {
       _    <- flush(insertData(q.writeInst, q.writeUsers))
       orig <- q.insertNewInst(id => Inst(id, EmbeddedFields("pass", enabled = true)))
