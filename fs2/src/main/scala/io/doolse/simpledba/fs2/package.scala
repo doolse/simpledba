@@ -9,7 +9,7 @@ package object fs2 {
   type IOR[-R, A] = IO[A]
   type FR[F[_], -R, A] = F[A]
 
-  implicit val catsIOEffects : IOEffects[IOR] = ???
+  implicit val catsIOEffects : IOEffects[IOR] = fs2Stream[IO]
 
   def fs2Stream[F[_]](implicit FS: Sync[F]): StreamEffects[StreamR[F, -?, ?], FR[F, -?, ?]] =
     new StreamEffects[StreamR[F, -?, ?], FR[F, -?, ?]] {
