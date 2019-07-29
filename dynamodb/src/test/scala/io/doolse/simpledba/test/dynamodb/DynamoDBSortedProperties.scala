@@ -22,7 +22,7 @@ object DynamoDBSortedProperties extends SimpleDBAProperties("DynamoDB") {
     new SortedQueryProperties[ZStreamR, TaskR, DynamoDBWriteOp]() with ZIOProperties
     with DynamoDBTestHelper[ZStreamR, TaskR] {
 
-      override def effect = DynamoDBEffect[ZStreamR, TaskR, Any](ZIO.succeed(localClient), ???)
+      override def effect = DynamoDBEffect[ZStreamR, TaskR, Any](zioStreamEffects, ZIO.succeed(localClient))
 
       lazy val baseTable = mapper.mapped[Sortable].table("sort").partKey('same)
 

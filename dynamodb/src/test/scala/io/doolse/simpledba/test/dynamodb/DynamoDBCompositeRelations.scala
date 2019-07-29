@@ -15,7 +15,7 @@ import io.doolse.simpledba.interop.zio._
 object DynamoDBCompositeRelations extends CompositeRelations[ZStreamR, TaskR, DynamoDBWriteOp]("DynamoDB Composite")
   with ZIOProperties with DynamoDBTestHelper[ZStreamR, TaskR] {
 
-  override def effect = DynamoDBEffect[ZStreamR, TaskR, Any](ZIO.succeed(localClient), ???)
+  override def effect = DynamoDBEffect[ZStreamR, TaskR, Any](zioStreamEffects, ZIO.succeed(localClient))
 
   lazy val queries2: Queries2 = {
     import mapper.queries._

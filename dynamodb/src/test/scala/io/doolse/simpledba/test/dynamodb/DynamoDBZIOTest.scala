@@ -12,7 +12,7 @@ object DynamoDBZIOTest
     extends App
     with DynamoDBTest[ZStreamR, TaskR]
     with ZIOProperties {
-  override def effect = DynamoDBEffect[ZStreamR, TaskR, Any](ZIO.succeed(localClient), ???)
+  override def effect = DynamoDBEffect[ZStreamR, TaskR, Any](zioStreamEffects, ZIO.succeed(localClient))
 
   override def run(args: List[String]): ZIO[DynamoDBZIOTest.Environment, Nothing, Int] = {
     prog.tap(putStrLn) fold (t => {
