@@ -21,7 +21,7 @@ case class NamedColumn(name: String, columnType: ColumnType)
 
 object AggregateOp extends Enumeration {
   type AggregateOp = Value
-  val Count = Value
+  val Count, Max, Min, Sum = Value
 }
 
 object BinOp extends Enumeration {
@@ -56,6 +56,7 @@ case class JDBCSelect(
     table: String,
     columns: Seq[SQLProjection],
     where: Seq[JDBCWhereClause],
+    groupBy: Seq[NamedColumn],
     ordering: Seq[(NamedColumn, Boolean)],
     limit: Boolean
 ) extends JDBCPreparedQuery

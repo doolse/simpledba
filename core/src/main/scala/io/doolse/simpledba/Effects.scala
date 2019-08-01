@@ -39,7 +39,7 @@ trait StreamEffects[S[-_, _], F[-_, _]] extends IOEffects[F] {
       }
     flatMapS(s)(loop)
   }
-  def maxMapped[R, A, B](n: Int, s: S[R, A])(f: Seq[A] => B): S[R, B]
+  def maxMapped[R, R1 <: R, A, B](n: Int, s: S[R, A])(f: Seq[A] => B): S[R1, B]
 
   def read1[R, A](s: S[R, A]): F[R, A]
 

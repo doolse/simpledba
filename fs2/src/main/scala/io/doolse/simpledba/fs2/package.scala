@@ -4,14 +4,15 @@ import _root_.fs2.Stream
 import cats.effect.{IO, Sync}
 
 package object fs2 {
-  type StreamR[+F[_], -R, +A] = Stream[F, A]
   type StreamIOR[-R, +A] = Stream[IO, A]
   type IOR[-R, A] = IO[A]
-  type FR[F[_], -R, A] = F[A]
 
-  implicit val catsIOEffects : IOEffects[IOR] = fs2Stream[IO]
+  private type StreamR[+F[_], -R, +A] = Stream[F, A]
+  private type FR[F[_], -R, A] = F[A]
 
-  def fs2Stream[F[_]](implicit FS: Sync[F]): StreamEffects[StreamR[F, -?, ?], FR[F, -?, ?]] =
+  implicit val catsIOEffects : IOEffects[IOR] = fs2StreamEffects[IO]
+
+  def fs2StreamEffects[F[_]](implicit FS: Sync[F]): StreamEffects[StreamR[F, -?, ?], FR[F, -?, ?]] =
     new StreamEffects[StreamR[F, -?, ?], FR[F, -?, ?]] {
 
       override def eval[R, A](fa: F[A]): Stream[F, A] = Stream.eval(fa)
@@ -47,7 +48,7 @@ package object fs2 {
       override def bracket[R, A](acquire: F[A])(release: A => F[Unit]): Stream[F, A] =
         Stream.bracket(acquire)(release)
 
-      override def maxMapped[R, A, B](n: Int, s: Stream[F, A])(f: Seq[A] => B): Stream[F, B] = s.chunkN(n).map(c => f(c.toVector))
+      override def maxMapped[R, R1 <: R, A, B](n: Int, s: Stream[F, A])(f: Seq[A] => B): Stream[F, B] = s.chunkN(n).map(c => f(c.toVector))
 
       override def read1[R, A](s: Stream[F, A]): F[A] = flatMapF(s.compile.toList)(
         _.headOption.fold[F[A]](FS.raiseError(new Throwable("Expected a single result")))(FS.pure[A]))

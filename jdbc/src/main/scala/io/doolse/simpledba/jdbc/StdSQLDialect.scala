@@ -21,8 +21,15 @@ trait StdSQLDialect extends SQLDialect {
       case FunctionCall(name, params) =>
         s"$name${brackets(params.map(expressionSQL))}"
       case SQLString(s)                       => s"'$s'"
-      case Parameter(sqlType)                 => "?"
-      case Aggregate(AggregateOp.Count, None) => "count(*)"
+      case Parameter(_)                 => "?"
+      case Aggregate(a, col) =>
+        val agg = a match {
+          case AggregateOp.Count => "count"
+          case AggregateOp.Min => "min"
+          case AggregateOp.Max => "max"
+          case AggregateOp.Sum => "sum"
+        }
+        s"$agg(${col.map(n => escapeColumnName(n.name)).getOrElse("*")})"
       case Expressions(exprs) => brackets(exprs.map(expressionSQL))
     }
   }
@@ -49,7 +56,14 @@ trait StdSQLDialect extends SQLDialect {
     def orderClause(t: (NamedColumn, Boolean)) =
       s"${escapeColumnName(t._1.name)} ${if (t._2) "ASC" else "DESC"}"
 
-    if (oc.isEmpty) "" else s"ORDER BY ${oc.map(orderClause).mkString(",")}"
+    if (oc.isEmpty) "" else s" ORDER BY ${oc.map(orderClause).mkString(",")}"
+  }
+
+  protected final def stdGroupBy(gc: Seq[NamedColumn]): String = {
+    def groupClause(t: NamedColumn) =
+      s"${escapeColumnName(t.name)}"
+
+    if (gc.isEmpty) "" else s" GROUP BY ${gc.map(groupClause).mkString(",")}"
   }
 
   protected final def stdWhereClause(w: Seq[JDBCWhereClause]): String = {
@@ -68,24 +82,18 @@ trait StdSQLDialect extends SQLDialect {
         s"${expressionSQL(left)} $opString ${expressionSQL(right)}"
     }
 
-    if (w.isEmpty) "" else s"WHERE ${w.map(clauseToString).mkString(" AND ")}"
+    if (w.isEmpty) "" else s" WHERE ${w.map(clauseToString).mkString(" AND ")}"
   }
 
   protected final def stdQuerySQL(query: JDBCPreparedQuery): String = {
 
     def escapeCol(c: NamedColumn) = escapeColumnName(c.name)
 
-    def returning(ret: Seq[NamedColumn]) = {
-      if (ret.isEmpty) ""
-      else {
-        s" RETURNING ${ret.map(escapeCol).mkString(",")}"
-      }
-    }
     query match {
-      case JDBCSelect(t, prj, w, o, l) =>
-        val limit = if (l) " limit ?" else ""
-        s"SELECT ${prj.map(p => expressionSQL(p.sql)).mkString(",")} FROM ${escapeTableName(t)} ${whereClause(
-          w)} ${orderBy(o)}${limit}"
+      case JDBCSelect(t, prj, w, g, o, l) =>
+        val limit = if (l) " LIMIT ?" else ""
+        s"SELECT ${prj.map(p => expressionSQL(p.sql)).mkString(",")} FROM ${escapeTableName(t)}${whereClause(
+          w)}${stdGroupBy(g)}${orderBy(o)}${limit}"
       case JDBCInsert(t, c) =>
         s"INSERT INTO ${escapeTableName(t)} ${brackets(c.map(v => escapeCol(v.column)))} VALUES ${brackets(
           c.map(v => expressionSQL(v.expression))

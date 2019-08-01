@@ -49,7 +49,7 @@ package object zio {
         release: A => ZIO[R, Throwable, Unit]): ZStream[R, Throwable, A] =
       ZStream.bracket(acquire)(release.andThen(_.ignore))
 
-    override def maxMapped[R, A, B](n: Int, s: ZStream[R, Throwable, A])(f: Seq[A] => B): ZStream[R, Throwable, B]
+    override def maxMapped[R, R1 <: R, A, B](n: Int, s: ZStream[R, Throwable, A])(f: Seq[A] => B): ZStream[R1, Throwable, B]
       = s.transduce(ZSink.identity[A].collectAllN(n).mapError(_ => throw new Throwable("How?")) ).map(f)
 
     override def read1[R, A](s: ZStream[R, Throwable, A]): ZIO[R, Throwable, A] =

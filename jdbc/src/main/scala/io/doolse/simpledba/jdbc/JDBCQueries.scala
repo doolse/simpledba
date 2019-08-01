@@ -4,22 +4,21 @@ import java.sql.{Connection, PreparedStatement}
 
 import cats.data.NonEmptyList
 import io.doolse.simpledba._
+import io.doolse.simpledba.jdbc.AggregateOp.AggregateOp
 import io.doolse.simpledba.jdbc.BinOp.BinOp
 import io.doolse.simpledba.jdbc.JDBCQueries._
 import io.doolse.simpledba.jdbc.JDBCTable.TableRecord
 import shapeless.labelled._
 import shapeless.ops.hlist.{Length, Prepend, Split}
 import shapeless.ops.record.{Keys, Selector, ToMap}
-import shapeless.{::, HList, HNil, LabelledGeneric, Nat, Witness}
+import shapeless.{::, Generic, HList, HNil, LabelledGeneric, Nat, Witness}
 
 import scala.annotation.tailrec
 import scala.collection.mutable
 
 case class JDBCMapper[C[A] <: JDBCColumn[A]](dialect: SQLDialect) {
 
-  def record[R <: HList](implicit cr: ColumnRecord[C, Unit, R]): ColumnRecord[C, Unit, R] = cr
-
-  def queries[S[-_, _], F[-_, _], R](effect: JDBCEffect[S, F, R]): JDBCQueries[C, S, F, R] =
+  def queries[S[- _, _], F[- _, _], R](effect: JDBCEffect[S, F, R]): JDBCQueries[C, S, F, R] =
     JDBCQueries(effect, dialect)
 
   def mapped[T] = new RelationBuilder[T, C]
@@ -31,6 +30,7 @@ case class JDBCMapper[C[A] <: JDBCColumn[A]](dialect: SQLDialect) {
         columns: ColumnBuilder.Aux[C, GR, R]
     ): ColumnBuilder.Aux[C, T, R] = new ColumnBuilder[C, T] {
       type Repr = R
+
       def apply() = columns().compose(Iso(gen.to, gen.from))
     }
 
@@ -71,9 +71,9 @@ object BindUpdate extends ColumnCompare[JDBCColumn, String, BoundColumn] {
   }
 }
 
-case class JDBCQueries[C[A] <: JDBCColumn[A], S[-_, _], F[-_, _], R](effect: JDBCEffect[S, F, R],
-                                                          dialect: SQLDialect) {
-  private val S  = effect.S
+case class JDBCQueries[C[A] <: JDBCColumn[A], S[- _, _], F[- _, _], R](effect: JDBCEffect[S, F, R],
+                                                                       dialect: SQLDialect) {
+  private val S = effect.S
 
   def flush[R1 <: R](writes: S[R1, JDBCWriteOp]): F[R1, Unit] = effect.flush(writes)
 
@@ -142,26 +142,22 @@ case class JDBCQueries[C[A] <: JDBCColumn[A], S[-_, _], F[-_, _], R](effect: JDB
       dialect,
       effect,
       ColumnRecord.empty,
-      identity,
-      _ => S.emit((Seq.empty, Seq.empty)),
-      Seq.empty
+      identity
     )
 
   def deleteFrom(table: JDBCTable[C]) =
     new DeleteBuilder[table.DataRec, HNil](effect.S,
-                                                    table,
-                                                    dialect,
-                                                    _ => S.emit((Seq.empty, Seq.empty)))
+                                           table,
+                                           dialect,
+                                           _ => S.emit((Seq.empty, Seq.empty)))
 
   def query(table: JDBCTable[C]) =
     new QueryBuilder[table.DataRec, HNil, table.DataRec, table.Data](
       table,
       dialect,
       effect,
-      toProjection(table.allColumns),
-      table.allColumns.iso.from,
-      _ => S.emit((Seq.empty, Seq.empty)),
-      Seq.empty
+      toProjection(table.allColumns, ColumnReference),
+      table.allColumns.iso.from
     )
 
   def byPK[WLen <: Nat](table: JDBCTable[C])(
@@ -175,17 +171,26 @@ case class JDBCQueries[C[A] <: JDBCColumn[A], S[-_, _], F[-_, _], R](effect: JDB
   def allRows(table: JDBCTable[C]): S[R, table.Data] =
     query(table).build[Unit].apply()
 
-  def sqlRecord[Params <: HList, OutRec <: HList](
-      sql: String,
-      cr: ColumnRecord[C, _, Params],
-      outRec: ColumnRecord[C, _, OutRec]
-  ): Params => S[R, OutRec] =
-    params => {
-      val bindFunc = bindParameters(cr.mapRecord(params, BindValues))
-      S.evalMap(effect.executeResultSet(sql, bindFunc)) { rs =>
-        effect.resultSetRecord(outRec, 1, rs)
-      }
+  def sqlRecord[In, Out]: PartialSQLRecord[In, Out] =
+    new PartialSQLRecord[In, Out]
+
+  class PartialSQLRecord[In, Out] {
+    def apply[InR <: HList, OutR <: HList](sql: String)(
+      implicit
+      genIn: Generic.Aux[In, InR],
+      genOut: Generic.Aux[Out, OutR],
+      recIn: ColumnRecord[C, Unit, InR],
+      recOut: ColumnRecord[C, Unit, OutR]): In => S[R, Out] = in => apply(sql, recIn.mapRecord(genIn.to(in), BindValues))
+
+    def apply[OutR <: HList](sql: String, values: Seq[BoundValue])(
+      implicit
+      genOut: Generic.Aux[Out, OutR],
+      recOut: ColumnRecord[C, Unit, OutR]): S[R, Out] = S.evalMap(effect.executeResultSet(sql, bindParameters(values))) { rs =>
+      S.mapF(effect.resultSetRecord(recOut, 1, rs))(genOut.from)
     }
+  }
+
+  def executeSqlRecord[Out]: PartialSQLRecord[Nothing, Out] = new PartialSQLRecord
 
   def sql(sql: String): JDBCWriteOp = {
     JDBCWriteOp(sql, (con, ps) => Seq.empty[Any])
@@ -196,23 +201,22 @@ case class JDBCQueries[C[A] <: JDBCColumn[A], S[-_, _], F[-_, _], R](effect: JDB
     S.mapS(S.emits(Seq(dialect.dropTable(definition), dialect.createTable(definition))))(sql)
   }
 
-  case class QueryBuilder[DataRec <: HList,
-    InRec <: HList,
-    OutRec <: HList,
-    Out](
-          private[jdbc] val table: TableRecord[C, DataRec],
-          private[jdbc] val dialect: SQLDialect,
-          private[jdbc] val E: JDBCEffect[S, F, R],
-          private[jdbc] val projections: ColumnRecord[C, SQLProjection, OutRec],
-          private[jdbc] val mapOut: OutRec => Out,
-          private[jdbc] val toWhere: InRec => S[R, (Seq[JDBCWhereClause], Seq[BoundValue])],
-          private[jdbc] val orderCols: Seq[(NamedColumn, Boolean)]
-        ) extends WhereBuilder[DataRec, InRec] {
+  case class QueryBuilder[DataRec <: HList, InRec <: HList, OutRec <: HList, Out](
+      private[jdbc] val table: TableRecord[C, DataRec],
+      private[jdbc] val dialect: SQLDialect,
+      private[jdbc] val E: JDBCEffect[S, F, R],
+      private[jdbc] val projections: ColumnRecord[C, SQLProjection, OutRec],
+      private[jdbc] val mapOut: OutRec => Out,
+      private[jdbc] val toWhere: InRec => S[Any, (Seq[JDBCWhereClause], Seq[BoundValue])] =
+        (_: InRec) => S.emit((Seq.empty[JDBCWhereClause], Seq.empty[BoundValue])),
+      private[jdbc] val orderCols: Seq[(NamedColumn, Boolean)] = Seq.empty,
+      private[jdbc] val groupCols: Seq[NamedColumn] = Seq.empty
+  ) extends WhereBuilder[DataRec, InRec] {
     type WhereOut[NewIn <: HList] = QueryBuilder[DataRec, NewIn, OutRec, Out]
 
     def count(
-               implicit intCol: C[Int]
-             ): QueryBuilder[DataRec, InRec, Int :: OutRec, Int :: OutRec] = {
+        implicit intCol: C[Int]
+    ): QueryBuilder[DataRec, InRec, Int :: OutRec, Int :: OutRec] = {
       val newProjection = ColumnRecord.prepend(
         ColumnRecord[C, SQLProjection, Int :: HNil](
           Seq(SQLProjection(intCol.columnType, Aggregate(AggregateOp.Count, None)) -> intCol)
@@ -225,27 +229,43 @@ case class JDBCQueries[C[A] <: JDBCColumn[A], S[-_, _], F[-_, _], R](effect: JDB
       )
     }
 
-    def cols[CT <: HList, NewOutRec <: HList, ColNames <: HList](cols: Cols[ColNames])(
-      implicit c: ColumnSubsetBuilder.Aux[DataRec, ColNames, CT],
-      prepend: Prepend.Aux[CT, OutRec, NewOutRec]
+    def aggregate[T <: Symbol, CT <: HList, NewOutRec <: HList](w: Witness, op: AggregateOp.Value)(
+        implicit c: ColumnSubsetBuilder.Aux[DataRec, w.T :: HNil, CT],
+        prepend: Prepend.Aux[OutRec, CT, NewOutRec]
     ): QueryBuilder[DataRec, InRec, NewOutRec, NewOutRec] = {
       val newProjection =
-        ColumnRecord.prepend(toProjection(table.allColumns.subset(c)), projections)
-      copy[DataRec, InRec, prepend.Out, prepend.Out](projections = newProjection,
-        mapOut = identity)
+        ColumnRecord.prepend(projections,
+                             toProjection(table.allColumns.subset(c), n => Aggregate(op, Some(n))))
+      copy[DataRec, InRec, prepend.Out, prepend.Out](projections = newProjection, mapOut = identity)
     }
 
+    def cols[CT <: HList, NewOutRec <: HList, ColNames <: HList](cols: Cols[ColNames])(
+        implicit c: ColumnSubsetBuilder.Aux[DataRec, ColNames, CT],
+        prepend: Prepend.Aux[OutRec, CT, NewOutRec]
+    ): QueryBuilder[DataRec, InRec, NewOutRec, NewOutRec] = {
+      val newProjection =
+        ColumnRecord.prepend(projections, toProjection(table.allColumns.subset(c), ColumnReference))
+      copy[DataRec, InRec, prepend.Out, prepend.Out](projections = newProjection, mapOut = identity)
+    }
+
+    def groupBy[CT <: HList, ColNames <: HList](cols: Cols[ColNames])(
+        implicit c: ColumnSubsetBuilder.Aux[DataRec, ColNames, CT]
+    ): QueryBuilder[DataRec, InRec, OutRec, Out] =
+      copy(
+        groupCols =
+          table.allColumns.subset(c).columns.map(cn => NamedColumn(cn._1, cn._2.columnType)))
+
     def orderBy[T <: Symbol](w: Witness, asc: Boolean)(
-      implicit
-      k: Keys.Aux[FieldType[w.T, Boolean] :: HNil, w.T :: HNil],
-      toMap: ToMap.Aux[FieldType[w.T, Boolean] :: HNil, T, Boolean],
-      sel: ColumnSubsetBuilder[DataRec, w.T :: HNil]
-    ) = orderWith(field[w.T](asc) :: HNil)
+        implicit
+        k: Keys.Aux[FieldType[w.T, Boolean] :: HNil, w.T :: HNil],
+        toMap: ToMap.Aux[FieldType[w.T, Boolean] :: HNil, T, Boolean],
+        sel: ColumnSubsetBuilder[DataRec, w.T :: HNil]
+    ): QueryBuilder[DataRec, InRec, OutRec, Out] = orderWith(field[w.T](asc) :: HNil)
 
     def orderWith[OR <: HList, ORK <: HList, Syms <: Symbol](or: OR)(
-      implicit keys: Keys.Aux[OR, ORK],
-      toMap: ToMap.Aux[OR, Syms, Boolean],
-      cssb: ColumnSubsetBuilder[DataRec, ORK]
+        implicit keys: Keys.Aux[OR, ORK],
+        toMap: ToMap.Aux[OR, Syms, Boolean],
+        cssb: ColumnSubsetBuilder[DataRec, ORK]
     ): QueryBuilder[DataRec, InRec, OutRec, Out] = {
       val m         = toMap(or).map { case (s, b) => (s.name, b) }
       val actColMap = table.allColumns.columns.toMap
@@ -254,51 +274,69 @@ case class JDBCQueries[C[A] <: JDBCColumn[A], S[-_, _], F[-_, _], R](effect: JDB
     }
 
     def buildAs[In, Out2](
-                           implicit c: AutoConvert[In, InRec],
-                           cout: AutoConvert[Out, Out2]
-                         ): In => S[R, Out2] = build[In].andThen(o => S.mapS(o)(cout.apply))
+        implicit c: AutoConvert[In, InRec],
+        cout: AutoConvert[Out, Out2]
+    ): In => S[R, Out2] = build[In].andThen(o => S.mapS(o)(cout.apply))
 
     def build[In](
-                   implicit c: AutoConvert[In, InRec],
-                 ): In => S[R, Out] = {
+        implicit c: AutoConvert[In, InRec],
+    ): In => S[R, Out] = { in: In =>
+      S.flatMapS(sqlStream[In].apply(in)) {
+        case (selSQL, binds) =>
+          S.mapS(E.streamForQuery(selSQL, bindParameters(binds), projections))(mapOut)
+      }
+    }
+
+    def sqlStream[In](
+        implicit c: AutoConvert[In, InRec]
+    ): In => S[Any, (String, Seq[BoundValue])] = in => {
       val baseSel =
-        JDBCSelect(table.name, projections.columns.map(_._1), Seq.empty, orderCols, false)
-      w2: In =>
-        S.flatMapS(toWhere(c(w2))) {
-          case (whereClauses, binds) =>
-            val selSQL = dialect.querySQL(baseSel.copy(where = whereClauses))
-            S.mapS(E.streamForQuery(selSQL, bindParameters(binds), projections))(mapOut)
-        }
+        JDBCSelect(table.name,
+                   projections.columns.map(_._1),
+                   Seq.empty,
+                   groupCols,
+                   orderCols,
+                   limit = false)
+      S.mapS(toWhere(c(in))) {
+        case (whereClauses, binds) =>
+          (dialect.querySQL(baseSel.copy(where = whereClauses)), binds)
+      }
     }
 
     def buildLimit[In](limit: Int)(
-      implicit c: AutoConvert[In, InRec], intCol: C[Int]
+        implicit c: AutoConvert[In, InRec],
+        intCol: C[Int]
     ): In => S[R, Out] = {
       val baseSel =
-        JDBCSelect(table.name, projections.columns.map(_._1), Seq.empty, orderCols, true)
+        JDBCSelect(table.name, projections.columns.map(_._1), Seq.empty, groupCols, orderCols, true)
       w2: In =>
         S.flatMapS(toWhere(c(w2))) {
           case (whereClauses, binds) =>
             val selSQL = dialect.querySQL(baseSel.copy(where = whereClauses))
-            S.mapS(E.streamForQuery(selSQL, bindParameters(binds ++ Seq(intCol.bindValue(limit))), projections))(mapOut)
+            S.mapS(
+              E.streamForQuery(selSQL,
+                               bindParameters(binds ++ Seq(intCol.bindValue(limit))),
+                               projections))(mapOut)
         }
     }
 
-    override def withToWhere[NewIn <: HList](f: NewIn => S[R, (Seq[JDBCWhereClause], Seq[BoundValue])])
-    : QueryBuilder[DataRec, NewIn, OutRec, Out] =
+    override def withToWhere[NewIn <: HList](
+        f: NewIn => S[Any, (Seq[JDBCWhereClause], Seq[BoundValue])])
+      : QueryBuilder[DataRec, NewIn, OutRec, Out] =
       copy(toWhere = f)
   }
 
   case class DeleteBuilder[DataRec <: HList, InRec <: HList](
-                                                              private[jdbc] val S: StreamEffects[S, F],
-                                                              private[jdbc] val table: TableRecord[C, DataRec],
-                                                              private[jdbc] val dialect: SQLDialect,
-                                                              private[jdbc] val toWhere: InRec => S[R, (Seq[JDBCWhereClause], Seq[BoundValue])]
-                                                                                               ) extends WhereBuilder[DataRec, InRec] {
+      private[jdbc] val S: StreamEffects[S, F],
+      private[jdbc] val table: TableRecord[C, DataRec],
+      private[jdbc] val dialect: SQLDialect,
+      private[jdbc] val toWhere: InRec => S[Any, (Seq[JDBCWhereClause], Seq[BoundValue])]
+  ) extends WhereBuilder[DataRec, InRec] {
     type WhereOut[NewIn <: HList] = DeleteBuilder[DataRec, NewIn]
+
     def build[W2](
-                   implicit
-                   c: AutoConvert[W2, InRec]): W2 => S[R, JDBCWriteOp] = w => {
+        implicit
+        c: AutoConvert[W2, InRec]): W2 => S[R, JDBCWriteOp] = w => {
       S.mapS(toWhere(c(w))) {
         case (where, values) =>
           val deleteSQL = dialect.querySQL(JDBCDelete(table.name, where))
@@ -306,21 +344,24 @@ case class JDBCQueries[C[A] <: JDBCColumn[A], S[-_, _], F[-_, _], R](effect: JDB
       }
     }
 
-    override def withToWhere[NewIn <: HList](f: NewIn => S[R, (Seq[JDBCWhereClause], Seq[BoundValue])])
-    : DeleteBuilder[DataRec, NewIn] = copy(toWhere = f)
+    override def withToWhere[NewIn <: HList](
+        f: NewIn => S[Any, (Seq[JDBCWhereClause], Seq[BoundValue])])
+      : DeleteBuilder[DataRec, NewIn] =
+      copy(toWhere = f)
   }
 
   trait WhereBuilder[DataRec <: HList, InRec <: HList] {
     type WhereOut[NewIn <: HList]
 
     private[jdbc] def table: TableRecord[C, DataRec]
-    private[jdbc] def toWhere: InRec => S[R, (Seq[JDBCWhereClause], Seq[BoundValue])]
+
+    private[jdbc] def toWhere: InRec => S[Any, (Seq[JDBCWhereClause], Seq[BoundValue])]
 
     protected def withToWhere[NewIn <: HList](
-                                               f: NewIn => S[R, (Seq[JDBCWhereClause], Seq[BoundValue])]): WhereOut[NewIn]
+        f: NewIn => S[Any, (Seq[JDBCWhereClause], Seq[BoundValue])]): WhereOut[NewIn]
 
     protected def addWhere[NewIn <: HList](
-                                            f: NewIn => (InRec, Seq[JDBCWhereClause], Seq[BoundValue])): WhereOut[NewIn] = withToWhere {
+        f: NewIn => (InRec, Seq[JDBCWhereClause], Seq[BoundValue])): WhereOut[NewIn] = withToWhere {
       newIn =>
         val (oldIn, newClause, newBind) = f(newIn)
         S.mapS(this.toWhere(oldIn)) {
@@ -329,11 +370,11 @@ case class JDBCQueries[C[A] <: JDBCColumn[A], S[-_, _], F[-_, _], R](effect: JDB
     }
 
     def whereInNotEmpty[A, NewIn <: HList, WLen <: Nat, K <: Symbol](whereCol: Witness.Aux[K])(
-      implicit
-      select: Selector.Aux[DataRec, K, A],
-      prepend: Prepend.Aux[InRec, NonEmptyList[A] :: HNil, NewIn],
-      length: Length.Aux[InRec, WLen],
-      split: Split.Aux[NewIn, WLen, InRec, NonEmptyList[A] :: HNil]
+        implicit
+        select: Selector.Aux[DataRec, K, A],
+        prepend: Prepend.Aux[InRec, NonEmptyList[A] :: HNil, NewIn],
+        length: Length.Aux[InRec, WLen],
+        split: Split.Aux[NewIn, WLen, InRec, NonEmptyList[A] :: HNil]
     ): WhereOut[NewIn] = {
       val (colName, inCol) = table.allColumns.singleColumn(whereCol)
       addWhere { newIn =>
@@ -346,18 +387,18 @@ case class JDBCQueries[C[A] <: JDBCColumn[A], S[-_, _], F[-_, _], R](effect: JDB
     private def mkInClause[A](colName: String, inCol: C[A], vals: Seq[A]) = {
       val bindVals = vals.map(inCol.bindValue)
       val clause = BinClause(ColumnReference(NamedColumn(colName, inCol.columnType)),
-        BinOp.IN,
-        Expressions(bindVals.map(_ => Parameter(inCol.columnType))))
+                             BinOp.IN,
+                             Expressions(bindVals.map(_ => Parameter(inCol.columnType))))
       (Seq(clause), bindVals)
     }
 
     def whereIn[A, NewIn <: HList, WLen <: Nat](whereCol: Witness)(
-      implicit
-      select: Selector.Aux[DataRec, whereCol.T, A],
-      ev: whereCol.T <:< Symbol,
-      prepend: Prepend.Aux[InRec, S[R, A] :: HNil, NewIn],
-      length: Length.Aux[InRec, WLen],
-      split: Split.Aux[NewIn, WLen, InRec, S[R, A] :: HNil]
+        implicit
+        select: Selector.Aux[DataRec, whereCol.T, A],
+        ev: whereCol.T <:< Symbol,
+        prepend: Prepend.Aux[InRec, S[Any, A] :: HNil, NewIn],
+        length: Length.Aux[InRec, WLen],
+        split: Split.Aux[NewIn, WLen, InRec, S[Any, A] :: HNil]
     ): WhereOut[NewIn] = {
       val (colName, inCol) = table.allColumns.singleColumn(whereCol)
       withToWhere { newIn =>
@@ -373,22 +414,22 @@ case class JDBCQueries[C[A] <: JDBCColumn[A], S[-_, _], F[-_, _], R](effect: JDB
     }
 
     def where[WhereVals <: HList, NewIn <: HList, WLen <: Nat](whereCol: Witness, binOp: BinOp)(
-      implicit
-      csb: ColumnSubsetBuilder.Aux[DataRec, whereCol.T :: HNil, WhereVals],
-      prepend: Prepend.Aux[InRec, WhereVals, NewIn],
-      length: Length.Aux[InRec, WLen],
-      split: Split.Aux[NewIn, WLen, InRec, WhereVals]
+        implicit
+        csb: ColumnSubsetBuilder.Aux[DataRec, whereCol.T :: HNil, WhereVals],
+        prepend: Prepend.Aux[InRec, WhereVals, NewIn],
+        length: Length.Aux[InRec, WLen],
+        split: Split.Aux[NewIn, WLen, InRec, WhereVals]
     ): WhereOut[NewIn] = where(Cols(whereCol), binOp)
 
     def where[ColNames <: HList, WhereVals <: HList, NewIn <: HList, WLen <: Nat](
-                                                                                   whereCols: Cols[ColNames],
-                                                                                   binOp: BinOp)(
-                                                                                   implicit
-                                                                                   css: ColumnSubsetBuilder.Aux[DataRec, ColNames, WhereVals],
-                                                                                   len: Length.Aux[InRec, WLen],
-                                                                                   prepend: Prepend.Aux[InRec, WhereVals, NewIn],
-                                                                                   split: Split.Aux[NewIn, WLen, InRec, WhereVals]
-                                                                                 ): WhereOut[NewIn] = {
+        whereCols: Cols[ColNames],
+        binOp: BinOp)(
+        implicit
+        css: ColumnSubsetBuilder.Aux[DataRec, ColNames, WhereVals],
+        len: Length.Aux[InRec, WLen],
+        prepend: Prepend.Aux[InRec, WhereVals, NewIn],
+        split: Split.Aux[NewIn, WLen, InRec, WhereVals]
+    ): WhereOut[NewIn] = {
       val whereCols = table.allColumns.subset(css)
       addWhere { newIn =>
         val (oldWhere, newWhere) = split(newIn)
@@ -411,8 +452,6 @@ object JDBCQueries {
     }
   }
 
-
-
   def bindParameters(params: Seq[BoundValue]): (Connection, PreparedStatement) => Seq[Any] =
     (con, ps) => {
       @tailrec
@@ -420,7 +459,7 @@ object JDBCQueries {
         if (i < params.length) {
           val c        = params(i)
           val nextOffs = c.bind(offs, con, ps)
-          loop(i + 1, nextOffs,  outvals += c.value)
+          loop(i + 1, nextOffs, outvals += c.value)
         } else outvals
       }
 
@@ -431,12 +470,13 @@ object JDBCQueries {
     ColumnExpression(bound.namedColumn, Parameter(bound.column.columnType))
 
   def toProjection[C[_] <: JDBCColumn[_], R <: HList](
-      cols: ColumnRecord[C, String, R]
+      cols: ColumnRecord[C, String, R],
+      f: NamedColumn => SQLExpression
   ): ColumnRecord[C, SQLProjection, R] = {
     ColumnRecord {
       cols.columns.map {
         case (name, col) =>
-          (SQLProjection(col.columnType, ColumnReference(NamedColumn(name, col.columnType))), col)
+          (SQLProjection(col.columnType, f(NamedColumn(name, col.columnType))), col)
       }
     }
   }
