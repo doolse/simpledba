@@ -10,7 +10,7 @@ lazy val config = ConfigFactory.parseFile(prjDir / "application.conf")
 
 val commonSettings = Seq(
   organization := "io.github.doolse",
-  version := "0.1.8",
+  version := "0.1.9",
   scalaVersion := "2.12.6",
   resolvers += Resolver.sonatypeRepo("snapshots"),
 
