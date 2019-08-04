@@ -5,7 +5,7 @@ import java.sql.{Connection, DriverManager, PreparedStatement}
 import cats.data.{Kleisli, StateT}
 import cats.effect.{IO, LiftIO}
 import com.typesafe.config.{Config, ConfigFactory}
-import fs2.{Sink, Stream}
+import fs2.{Pipe, Stream}
 
 package object jdbc {
 
@@ -17,13 +17,13 @@ package object jdbc {
 
   type ParamBinder = (Int, Connection, PreparedStatement) => Unit
 
-  implicit val flusher : Flushable[JDBCIO] = new Flushable[JDBCIO] {
-    def flush: Sink[JDBCIO, WriteOp] = JDBCQueries.flush
+  implicit val flusher: Flushable[JDBCIO] = new Flushable[JDBCIO] {
+    def flush: Pipe[JDBCIO, WriteOp, Unit] = JDBCQueries.flush
   }
 
   def connectionFromConfig(config: Config = ConfigFactory.load()): Connection = {
     val jdbcConfig = config.getConfig("simpledba.jdbc")
-    val jdbcUrl = jdbcConfig.getString("url")
+    val jdbcUrl    = jdbcConfig.getString("url")
     if (jdbcConfig.hasPath("credentials")) {
       val cc = jdbcConfig.getConfig("credentials")
       DriverManager.getConnection(jdbcUrl, cc.getString("username"), cc.getString("password"))
@@ -34,7 +34,9 @@ package object jdbc {
     JDBCWriteOp(JDBCRawSQL(sql), config, Kleisli.pure(Seq.empty))
   }
 
-  def rawSQLStream(sql: Stream[JDBCIO, String])(implicit config: JDBCConfig): Stream[JDBCIO, WriteOp] = {
+  def rawSQLStream(
+      sql: Stream[JDBCIO, String]
+  )(implicit config: JDBCConfig): Stream[JDBCIO, WriteOp] = {
     sql.map(rawSQL)
   }
 }

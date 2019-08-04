@@ -15,13 +15,14 @@ import scala.reflect.ClassTag
 
 package object postgres {
 
-  case class PostgresColumn[A](wrapped: StdJDBCColumn[A], columnType: ColumnType) extends WrappedColumn[A]
+  case class PostgresColumn[A](wrapped: StdJDBCColumn[A], columnType: ColumnType)
+      extends WrappedColumn[A]
 
-  trait StdPostgresColumns extends StdColumns
-  {
+  trait StdPostgresColumns extends StdColumns {
     type C[A] = PostgresColumn[A]
 
-    implicit def uuidCol = PostgresColumn[UUID](StdJDBCColumn.uuidCol(JDBCType.NULL), ColumnType("UUID"))
+    implicit def uuidCol =
+      PostgresColumn[UUID](StdJDBCColumn.uuidCol(JDBCType.NULL), ColumnType("UUID"))
 
     implicit def longCol = PostgresColumn[Long](StdJDBCColumn.longCol, ColumnType("BIGINT"))
 
@@ -31,19 +32,27 @@ package object postgres {
 
     implicit def boolCol = PostgresColumn[Boolean](StdJDBCColumn.boolCol, ColumnType("BOOLEAN"))
 
-    implicit def instantCol = PostgresColumn[Instant](StdJDBCColumn.instantCol, ColumnType("TIMESTAMP"))
+    implicit def instantCol =
+      PostgresColumn[Instant](StdJDBCColumn.instantCol, ColumnType("TIMESTAMP"))
 
     implicit def floatCol = PostgresColumn[Float](StdJDBCColumn.floatCol, ColumnType("REAL"))
 
-    implicit def doubleCol = PostgresColumn[Double](StdJDBCColumn.doubleCol, ColumnType("DOUBLE PRECISION"))
+    implicit def doubleCol =
+      PostgresColumn[Double](StdJDBCColumn.doubleCol, ColumnType("DOUBLE PRECISION"))
 
-    implicit def pgArrayCol[A : ClassTag](implicit inner: PostgresColumn[A]): PostgresColumn[Array[A]] =
-      PostgresColumn(StdJDBCColumn.arrayCol(inner.columnType.typeName, inner.wrapped),
-        inner.columnType.copy(typeName = inner.columnType.typeName + "[]"))
+    implicit def pgArrayCol[A: ClassTag](
+        implicit inner: PostgresColumn[A]
+    ): PostgresColumn[Array[A]] =
+      PostgresColumn(
+        StdJDBCColumn.arrayCol(inner.columnType.typeName, inner.wrapped),
+        inner.columnType.copy(typeName = inner.columnType.typeName + "[]")
+      )
 
-    override def wrap[A, B](col: PostgresColumn[A],
-                            edit: StdJDBCColumn[A] => StdJDBCColumn[B],
-                            editType: ColumnType => ColumnType): PostgresColumn[B] =
+    override def wrap[A, B](
+        col: PostgresColumn[A],
+        edit: StdJDBCColumn[A] => StdJDBCColumn[B],
+        editType: ColumnType => ColumnType
+    ): PostgresColumn[B] =
       col.copy(wrapped = edit(col.wrapped), columnType = editType(col.columnType))
 
     override def sizedStringType(size: Int): String = s"VARCHAR($size)"
@@ -53,53 +62,70 @@ package object postgres {
 
   def postgresExpressions(config: JDBCConfig)(c: SQLExpression): String = c match {
     case Parameter(ColumnType("JSONB", _, _)) => "?::JSONB"
-    case o => stdExpressionSQL(config)(o)
+    case o                                    => stdExpressionSQL(config)(o)
   }
 
-  val postgresConfig = JDBCSQLConfig[PostgresColumn](defaultEscapeReserved, defaultEscapeReserved,
-    stdSQLQueries, postgresExpressions, stdTypeNames, PgSchemaSQL.apply)
+  val postgresConfig = JDBCSQLConfig[PostgresColumn](
+    defaultEscapeReserved,
+    defaultEscapeReserved,
+    stdSQLQueries,
+    postgresExpressions,
+    stdTypeNames,
+    PgSchemaSQL.apply
+  )
 
   case class PgSchemaSQL(config: JDBCConfig) extends StandardSchemaSQL(config) {
     override def dropTable(t: TableDefinition): String =
       s"DROP TABLE IF EXISTS ${config.escapeTableName(t.name)} CASCADE"
   }
 
-
-  def insertWith[A, C[_] <: JDBCColumn, T, R <: HList,
-  KeyNames <: HList,
-  AllCols <: HList,
-  WithoutKeys <: HList,
-  JustKeys <: HList,
-  Res](table: JDBCTable.Aux[C, T, R, A :: HNil, KeyNames], sequence: Sequence[A])(
-    implicit keys: Keys.Aux[R, AllCols], removeAll: RemoveAll.Aux[AllCols, KeyNames, (WithoutKeys, JustKeys)],
-    withoutKeys: ColumnSubsetBuilder[R, JustKeys],
-    sampleValue: SampleValue[A],
-    conv: AutoConvert[Res, Stream[JDBCIO, A => T]]): Res => Stream[JDBCIO, T] = {
-    res =>
-      conv(res).flatMap { f =>
-        val fullRec = table.allColumns.iso.to(f(sampleValue.v))
-        val sscols = table.allColumns.subset(withoutKeys)
-        val keyCols = table.keyColumns.columns
-        val seqExpr = FunctionCall("nextval", Seq(SQLString(sequence.name)))
-        val colValues = JDBCQueries.bindValues(sscols._1, sscols._2(fullRec)).columns
-        val colBindings = Seq(keyCols.head._1 -> seqExpr) ++ colValues.map {
-          case ((_, name), col) => name -> Parameter(col.columnType)
-        }
-        val mc = table.config
-
-        val insertSQL =
-          s"INSERT INTO ${mc.escapeTableName(table.name)} " +
-            s"${brackets(colBindings.map(v => mc.escapeColumnName(v._1)))} " +
-            s"VALUES ${
-              brackets(colBindings.map(v =>
-                mc.exprToSQL(v._2)))
-            } RETURNING ${keyCols.map(k => mc.escapeColumnName(k._1)).mkString(",")}"
-
-        val insert = JDBCRawSQL(insertSQL)
-        JDBCQueries.streamForQuery(table.config, insert,
-          JDBCQueries.bindParameters(colValues.map(_._1._1)).map(c => Seq(ValueLog(c))), Columns(keyCols, Iso.id[A :: HNil])).map {
-          a => f(a.head)
-        }
+  def insertWith[A,
+                 C[_] <: JDBCColumn,
+                 T,
+                 R <: HList,
+                 KeyNames <: HList,
+                 AllCols <: HList,
+                 WithoutKeys <: HList,
+                 JustKeys <: HList,
+                 Res](
+      table: JDBCTable.Aux[C, T, R, A :: HNil, KeyNames],
+      sequence: Sequence[A]
+  )(
+      implicit keys: Keys.Aux[R, AllCols],
+      removeAll: RemoveAll.Aux[AllCols, KeyNames, (WithoutKeys, JustKeys)],
+      withoutKeys: ColumnSubsetBuilder[R, JustKeys],
+      sampleValue: SampleValue[A],
+      conv: AutoConvert[Res, Stream[JDBCIO, A => T]]
+  ): Res => Stream[JDBCIO, T] = { res =>
+    conv(res).flatMap { f =>
+      val fullRec   = table.allColumns.iso.to(f(sampleValue.v))
+      val sscols    = table.allColumns.subset(withoutKeys)
+      val keyCols   = table.keyColumns.columns
+      val seqExpr   = FunctionCall("nextval", Seq(SQLString(sequence.name)))
+      val colValues = JDBCQueries.bindValues(sscols._1, sscols._2(fullRec)).columns
+      val colBindings = Seq(keyCols.head._1 -> seqExpr) ++ colValues.map {
+        case ((_, name), col) => name -> Parameter(col.columnType)
       }
+      val mc = table.config
+
+      val insertSQL =
+        s"INSERT INTO ${mc.escapeTableName(table.name)} " +
+          s"${brackets(colBindings.map(v => mc.escapeColumnName(v._1)))} " +
+          s"VALUES ${brackets(colBindings.map(v => mc.exprToSQL(v._2)))} RETURNING ${keyCols
+            .map(k => mc.escapeColumnName(k._1))
+            .mkString(",")}"
+
+      val insert = JDBCRawSQL(insertSQL)
+      JDBCQueries
+        .streamForQuery(
+          table.config,
+          insert,
+          JDBCQueries.bindParameters(colValues.map(_._1._1)).map(c => Seq(ValueLog(c))),
+          Columns(keyCols, Iso.id[A :: HNil])
+        )
+        .map { a =>
+          f(a.head)
+        }
+    }
   }
 }

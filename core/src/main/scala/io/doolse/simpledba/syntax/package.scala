@@ -7,8 +7,7 @@ package object syntax {
     def flush = F.flush(fa)
   }
 
-  implicit class AutoConvertOps[A](a: A)
-  {
+  implicit class AutoConvertOps[A](a: A) {
     def as[B](implicit convert: AutoConvert[A, B]): B = convert(a)
   }
 

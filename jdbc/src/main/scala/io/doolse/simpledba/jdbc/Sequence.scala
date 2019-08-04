@@ -2,8 +2,7 @@ package io.doolse.simpledba.jdbc
 
 case class SampleValue[A](v: A)
 
-object SampleValue
-{
+object SampleValue {
   implicit val sv: SampleValue[Long] = SampleValue(0L)
 }
 
