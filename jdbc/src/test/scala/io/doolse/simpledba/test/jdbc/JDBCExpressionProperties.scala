@@ -2,29 +2,27 @@ package io.doolse.simpledba.test.jdbc
 
 import java.util.UUID
 
-import io.doolse.simpledba.test.SimpleDBAProperties
-import zio.{Task, TaskR}
-import zio.stream.{ZSink, ZStream}
-import org.scalacheck._
-import org.scalacheck.Prop._
-import Arbitrary._
 import io.doolse.simpledba.interop.zio.ZStreamR
 import io.doolse.simpledba.jdbc.BinOp
 import io.doolse.simpledba.jdbc.BinOp.BinOp
+import io.doolse.simpledba.test.SimpleDBAProperties
 import io.doolse.simpledba.test.zio.ZIOProperties
+import org.scalacheck.Arbitrary._
+import org.scalacheck.Prop._
+import org.scalacheck._
+import zio.stream.ZStream
+import zio.{RIO, Task}
 
 case class SimpleTable(id: UUID, value1: Int, value2: String)
 
 object JDBCExpressionProperties
     extends SimpleDBAProperties("JDBC Expressions")
-    with JDBCProperties[ZStreamR, TaskR]
+    with JDBCProperties[ZStreamR, RIO]
     with ZIOProperties {
 
   val simpleTable = mapper.mapped[SimpleTable].table("simpleTable").key('id)
 
   val writer = sqlQueries.writes(simpleTable)
-
-  import sqlQueries.flush
 
   setup(simpleTable)
 

@@ -3,21 +3,21 @@ package io.doolse.simpledba.test.jdbc
 import java.sql.Connection
 
 import io.doolse.simpledba.Cols
+import io.doolse.simpledba.interop.zio._
 import io.doolse.simpledba.jdbc._
 import io.doolse.simpledba.test.Test
-import zio.interop.catz._
-import zio.stream.ZStream
-import zio.{Task, TaskR, ZIO}
+import io.doolse.simpledba.test.zio.ZIOProperties
 import shapeless.HList
 import shapeless.syntax.singleton._
-import io.doolse.simpledba.interop.zio._
-import io.doolse.simpledba.test.zio.ZIOProperties
+import zio.interop.catz._
+import zio.stream.ZStream
+import zio.{RIO, Task}
 
-trait JDBCZIOTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[ZStreamR, TaskR, JDBCWriteOp]
+trait JDBCZIOTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[ZStreamR, RIO, JDBCWriteOp]
   with ZIOProperties {
 
   def connection: Connection
-  def effect = JDBCEffect[ZStreamR, TaskR, Any](zioStreamEffects,
+  def effect = JDBCEffect[ZStreamR, RIO, Any](zioStreamEffects,
     singleJDBCConnection(connection), PrintLnLogger())
   def mapper: JDBCMapper[C]
   def builder = mapper.queries(effect)

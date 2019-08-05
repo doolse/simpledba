@@ -2,20 +2,20 @@ package io.doolse.simpledba.test.dynamodb
 
 import java.util.UUID
 
-import io.doolse.simpledba.{AutoConvert, Cols}
+import io.doolse.simpledba.Cols
 import io.doolse.simpledba.dynamodb.{DynamoDBEffect, DynamoDBWriteOp}
+import io.doolse.simpledba.interop.zio._
 import io.doolse.simpledba.test.CompositeRelations
 import io.doolse.simpledba.test.CompositeRelations.{Composite2, Composite3}
 import io.doolse.simpledba.test.zio.ZIOProperties
-import zio.stream._
-import zio.{Task, TaskR, ZIO}
 import zio.interop.catz._
-import io.doolse.simpledba.interop.zio._
+import zio.stream._
+import zio.{RIO, ZIO}
 
-object DynamoDBCompositeRelations extends CompositeRelations[ZStreamR, TaskR, DynamoDBWriteOp]("DynamoDB Composite")
-  with ZIOProperties with DynamoDBTestHelper[ZStreamR, TaskR] {
+object DynamoDBCompositeRelations extends CompositeRelations[ZStreamR, RIO, DynamoDBWriteOp]("DynamoDB Composite")
+  with ZIOProperties with DynamoDBTestHelper[ZStreamR, RIO] {
 
-  override def effect = DynamoDBEffect[ZStreamR, TaskR, Any](zioStreamEffects, ZIO.succeed(localClient))
+  override def effect = DynamoDBEffect[ZStreamR, RIO, Any](zioStreamEffects, ZIO.succeed(localClient))
 
   lazy val queries2: Queries2 = {
     import mapper.queries._

@@ -4,25 +4,24 @@ import java.util.UUID
 
 import cats.instances.vector._
 import cats.syntax.foldable._
-import io.doolse.simpledba.dynamodb.{BinaryKey, DynamoDBEffect, DynamoDBSortTable, DynamoDBTable, DynamoDBWriteOp, FullKeyTable}
+import io.doolse.simpledba.dynamodb._
+import io.doolse.simpledba.interop.zio._
 import io.doolse.simpledba.test.zio.ZIOProperties
 import io.doolse.simpledba.test.{SafeString, SimpleDBAProperties, Sortable, SortedQueryProperties}
-import shapeless._
 import software.amazon.awssdk.core.SdkBytes
 import zio.interop.catz._
 import zio.stream._
-import zio.{Task, TaskR, ZIO}
+import zio.{RIO, ZIO}
 
 import scala.collection.mutable
-import io.doolse.simpledba.interop.zio._
 
 object DynamoDBSortedProperties extends SimpleDBAProperties("DynamoDB") {
 
   include(
-    new SortedQueryProperties[ZStreamR, TaskR, DynamoDBWriteOp]() with ZIOProperties
-    with DynamoDBTestHelper[ZStreamR, TaskR] {
+    new SortedQueryProperties[ZStreamR, RIO, DynamoDBWriteOp]() with ZIOProperties
+    with DynamoDBTestHelper[ZStreamR, RIO] {
 
-      override def effect = DynamoDBEffect[ZStreamR, TaskR, Any](zioStreamEffects, ZIO.succeed(localClient))
+      override def effect = DynamoDBEffect[ZStreamR, RIO, Any](zioStreamEffects, ZIO.succeed(localClient))
 
       lazy val baseTable = mapper.mapped[Sortable].table("sort").partKey('same)
 

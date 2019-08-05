@@ -2,16 +2,16 @@ package io.doolse.simpledba.test.zio
 
 import cats.Monad
 import cats.effect.Sync
-import io.doolse.simpledba.{IOEffects, JavaEffects, StreamEffects}
-import zio.stream._
-import zio.{DefaultRuntime, Task, TaskR, ZIO}
-import zio.interop.catz._
 import io.doolse.simpledba.interop.zio._
+import io.doolse.simpledba.{JavaEffects, StreamEffects}
+import zio.interop.catz._
+import zio.stream._
+import zio.{DefaultRuntime, RIO, Task, ZIO}
 
 trait ZIOProperties {
   type SR[-R, A] = ZStream[R, Throwable, A]
-  def streamable : StreamEffects[SR, TaskR] = zioStreamEffects
-  def M = implicitly[Monad[TaskR[Any, ?]]]
+  def streamable : StreamEffects[SR, RIO] = zioStreamEffects
+  def M = implicitly[Monad[RIO[Any, ?]]]
   def SM = new Monad[ZStream[Any, Throwable, ?]] {
     override def pure[A](x: A): ZStream[Any, Throwable, A] = ZStream.succeed(x)
 
@@ -19,7 +19,7 @@ trait ZIOProperties {
 
     override def tailRecM[A, B](a: A)(f: A => ZStream[Any, Throwable, Either[A, B]]): ZStream[Any, Throwable, B] = ???
   }
-  def javaEffects : JavaEffects[TaskR] = implicitly[JavaEffects[TaskR]]
+  def javaEffects : JavaEffects[RIO] = implicitly[JavaEffects[RIO]]
   def Sync : Sync[Task] = implicitly[Sync[Task]]
   def attempt[A](f: Task[A]) : Task[Either[Throwable, A]] = f.fold(Left.apply, Right.apply)
   lazy val runtime = new DefaultRuntime {}

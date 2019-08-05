@@ -6,13 +6,12 @@ import io.doolse.simpledba.jdbc.JDBCWriteOp
 import io.doolse.simpledba.test.CompositeRelations
 import io.doolse.simpledba.test.CompositeRelations.{Composite2, Composite3}
 import io.doolse.simpledba.test.zio.ZIOProperties
-import zio.{Task, TaskR}
+import zio.RIO
 import zio.interop.catz._
-import zio.stream.ZStream
 
 object JDBCCompositeRelations
-    extends CompositeRelations[ZStreamR, TaskR, JDBCWriteOp]("JDBC Composite")
-    with JDBCProperties[ZStreamR, TaskR] with ZIOProperties {
+    extends CompositeRelations[ZStreamR, RIO, JDBCWriteOp]("JDBC Composite")
+    with JDBCProperties[ZStreamR, RIO] with ZIOProperties {
 
   import mapper.mapped
 

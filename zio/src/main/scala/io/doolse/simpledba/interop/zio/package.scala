@@ -5,7 +5,7 @@ import java.util.concurrent.CompletableFuture
 import _root_.zio.interop.catz._
 import _root_.zio.interop.javaconcurrent._
 import _root_.zio.stream._
-import _root_.zio.{Task, TaskR, ZIO}
+import _root_.zio.{Task, TaskR, ZIO, RIO}
 import _root_.zio.console._
 import cats.Monad
 import io.doolse.simpledba.{IOEffects, JavaEffects, StreamEffects, WriteQueries}
@@ -13,16 +13,16 @@ import io.doolse.simpledba.{IOEffects, JavaEffects, StreamEffects, WriteQueries}
 package object zio {
 
   type ZStreamR[-R, +A] = ZStream[R, Throwable, A]
-  type ZIOWriteQueries[-R, W, T] = WriteQueries[ZStreamR, TaskR, R, W, T]
+  type ZIOWriteQueries[-R, W, T] = WriteQueries[ZStreamR, RIO, R, W, T]
 
-  implicit def zioJavaEffect = new JavaEffects[TaskR] {
-    override def blockingIO[A](thunk: => A): TaskR[Any, A] = TaskR(thunk)
+  implicit def zioJavaEffect = new JavaEffects[RIO] {
+    override def blockingIO[A](thunk: => A): RIO[Any, A] = RIO(thunk)
 
-    override def fromFuture[A](future: () => CompletableFuture[A]): TaskR[Any, A] =
+    override def fromFuture[A](future: () => CompletableFuture[A]): RIO[Any, A] =
       Task.fromCompletionStage(future)
   }
 
-  val zioStreamEffects = new StreamEffects[ZStreamR, TaskR] {
+  val zioStreamEffects = new StreamEffects[ZStreamR, RIO] {
 
     override def eval[R, A](fa: ZIO[R, Throwable, A]): ZStream[R, Throwable, A] =
       ZStream.fromEffect(fa)
@@ -50,7 +50,7 @@ package object zio {
       ZStream.bracket(acquire)(release.andThen(_.ignore))
 
     override def maxMapped[R, R1 <: R, A, B](n: Int, s: ZStream[R, Throwable, A])(f: Seq[A] => B): ZStream[R1, Throwable, B]
-      = s.transduce(ZSink.identity[A].collectAllN(n).mapError(_ => throw new Throwable("How?")) ).map(f)
+      = s.transduce(ZSink.foldUntil[List[A], A](Nil, n)((s,a) => a :: s)).map(l => f(l.reverse))
 
     override def read1[R, A](s: ZStream[R, Throwable, A]): ZIO[R, Throwable, A] =
       s.run(ZSink.read1[Throwable, A](_ => new Throwable("Expected one value"))(_ => true))
@@ -70,5 +70,5 @@ package object zio {
     override def delay[A](a: => A): ZIO[Any, Throwable, A] = ZIO.effect(a)
   }
 
-  implicit val taskREffects : IOEffects[TaskR] = zioStreamEffects
+  implicit val taskREffects : IOEffects[RIO] = zioStreamEffects
 }

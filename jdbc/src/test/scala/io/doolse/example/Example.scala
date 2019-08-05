@@ -57,7 +57,7 @@ object Example extends scala.App {
       }
     }
 
-    def querySomeData: TaskR[Console, Unit] =
+    def querySomeData: RIO[Console, Unit] =
       (for {
         user <- queries.usersByFirstName("Jolse")
         _ <- ZStream.fromEffect {
