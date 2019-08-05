@@ -8,7 +8,7 @@ import io.doolse.simpledba.fs2._
 trait FS2Properties {
   type StreamR[-R, A] = fs2.Stream[IO, A]
   type IOR[-R, A] = IO[A]
-  def streamable : StreamEffects[StreamR, IOR] = fs2StreamEffects[IO]
+  def streamable : StreamEffects[StreamR, IOR] = fs2StreamEffects[IOR]
   def javaEffects : JavaEffects[IOR] = implicitly[JavaEffects[IOR]]
   def M = implicitly[Monad[IO]]
   def SM = implicitly[Monad[fs2.Stream[IO, ?]]]

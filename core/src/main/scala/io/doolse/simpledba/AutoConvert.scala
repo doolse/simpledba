@@ -15,9 +15,11 @@ trait AutoConvertLP {
 
 object AutoConvert extends AutoConvertLP {
 
-  implicit def idConv[A]: AutoConvert[A, A] = new AutoConvert[A, A] {
-    def apply(a: A): A = a
-  }
+  implicit def idConv[A]: AutoConvert[A, A] = (a: A) => a
+
+  implicit def fromTuple1[A]: AutoConvert[Tuple1[A], A] = (v1: Tuple1[A]) => v1._1
+
+  implicit def toTuple1[A]: AutoConvert[A, Tuple1[A]] = (v1: A) => Tuple1(v1)
 
   implicit def acSF[A, B, C, D, F[_]](
       implicit F: Functor[F],
