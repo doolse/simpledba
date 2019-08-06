@@ -18,7 +18,7 @@ trait JDBCZIOTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[ZStre
 
   def connection: Connection
   def effect = JDBCEffect[ZStreamR, RIO, Any](zioStreamEffects,
-    singleJDBCConnection(connection), PrintLnLogger())
+    providedJDBCConnection(connection), PrintLnLogger())
   def mapper: JDBCMapper[C]
   def builder = mapper.queries(effect)
 

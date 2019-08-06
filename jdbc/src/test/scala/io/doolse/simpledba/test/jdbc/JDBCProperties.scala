@@ -35,7 +35,7 @@ trait JDBCProperties[S[-_, _], F[-_, _]] {
 
   def effect = {
     implicit val ioEffects : IOEffects[F] = streamable
-    JDBCEffect(streamable, singleJDBCConnection(connection), mkLogger)
+    JDBCEffect(streamable, providedJDBCConnection(connection), mkLogger)
   }
 
   lazy val sqlQueries = mapper.queries(effect)
