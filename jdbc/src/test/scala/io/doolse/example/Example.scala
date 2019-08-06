@@ -83,7 +83,7 @@ object Example extends scala.App {
     val mapper           = hsqldbMapper
     val singleConnection = DriverManager.getConnection("jdbc:hsqldb:mem:example")
     val connections = providedJDBCConnection[StreamR, Any](singleConnection)
-    val jdbcEffect = JDBCEffect(zioStreamEffects, connections, NothingLogger())
+    val jdbcEffect = JDBCEffect(zioStreamEffects, connections)
     val jdbcQueries = mapper.queries(jdbcEffect)
     val carTable  = mapper.mapped[Car].table("cars").key('id)
     val userTable = mapper.mapped[User].table("users").key('userId)
@@ -98,7 +98,7 @@ object Example extends scala.App {
       val flush: S[JDBCWriteOp] => F[Unit]    = jdbcQueries.flush
     }
     override val initSchema: F[Unit] = jdbcQueries.flush {
-      Stream(carTable, userTable).flatMap(dropAndCreate)
+      Stream(carTable, userTable).flatMap(ddl.dropAndCreate)
     }
   }
 

@@ -16,7 +16,9 @@ package object postgres {
   case class PostgresColumn[A](wrapped: StdJDBCColumn[A], columnType: ColumnType)
       extends WrappedColumn[A]
 
-  trait StdPostgresColumns extends StdColumns[PostgresColumn] {
+  trait StdPostgresColumns extends StdColumns {
+    type C[A] = PostgresColumn[A]
+
     implicit def uuidCol =
       PostgresColumn[UUID](StdJDBCColumn.uuidCol(JDBCType.NULL), ColumnType("UUID"))
 

@@ -13,11 +13,11 @@ import zio.interop.catz._
 import zio.stream.ZStream
 import zio.{RIO, Task}
 
-trait JDBCZIOTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[ZStreamR, RIO, JDBCWriteOp]
+trait JDBCZIOTester extends StdColumns with Test[ZStreamR, RIO, JDBCWriteOp]
   with ZIOProperties {
 
   def connection: Connection
-  def effect = JDBCEffect[ZStreamR, RIO, Any](zioStreamEffects,
+  def effect = JDBCEffect.withLogger[ZStreamR, RIO, Any](zioStreamEffects,
     providedJDBCConnection(connection), PrintLnLogger())
   def mapper: JDBCMapper[C]
   def builder = mapper.queries(effect)
@@ -40,7 +40,7 @@ trait JDBCZIOTester[C[A] <: JDBCColumn[A]] extends StdColumns[C] with Test[ZStre
 
     Queries(
       flush {
-        S.emits(Seq(instTable, userTable)).flatMap(dropAndCreate)
+        S.emits(Seq(instTable, userTable)).flatMap(ddl.dropAndCreate)
       },
       writes(instTable),
       writes(userTable),

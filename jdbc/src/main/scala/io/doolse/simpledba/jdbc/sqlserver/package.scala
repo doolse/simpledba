@@ -12,7 +12,8 @@ package object sqlserver {
   case class SQLServerColumn[A](wrapped: StdJDBCColumn[A], columnType: ColumnType)
       extends WrappedColumn[A]
 
-  trait StdSQLServerColumns extends StdColumns[SQLServerColumn] {
+  trait StdSQLServerColumns extends StdColumns {
+    type C[A] = SQLServerColumn[A]
 
     implicit def longCol = SQLServerColumn[Long](StdJDBCColumn.longCol, ColumnType("BIGINT"))
 

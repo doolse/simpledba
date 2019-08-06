@@ -5,7 +5,7 @@ import java.sql.DriverManager
 import fs2.Stream
 import io.doolse.simpledba.jdbc.sqlserver._
 
-object SQLServerTester extends App with JDBCTester[SQLServerColumn] with StdSQLServerColumns {
+object SQLServerTester extends App with JDBCTester with StdSQLServerColumns {
 
   lazy val connection = DriverManager.getConnection(
     "jdbc:sqlserver://localhost:1433;database=simpledba;",

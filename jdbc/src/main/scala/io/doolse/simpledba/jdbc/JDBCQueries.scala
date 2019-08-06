@@ -196,9 +196,18 @@ case class JDBCQueries[C[A] <: JDBCColumn[A], S[- _, _], F[- _, _], R](effect: J
     JDBCWriteOp(sql, (con, ps) => Seq.empty[Any])
   }
 
-  def dropAndCreate(t: JDBCTable[C]): S[R, JDBCWriteOp] = {
-    val definition = t.definition
-    S.mapS(S.emits(Seq(dialect.dropTable(definition), dialect.createTable(definition))))(sql)
+  val ddl  = new {
+    private def dialectSql(t: JDBCTable[C], d: SQLDialect => TableDefinition => String): JDBCWriteOp = {
+      sql(d(dialect)(t.definition))
+    }
+    def dropAndCreate(t: JDBCTable[C]): S[R, JDBCWriteOp] = S.append(drop(t), create(t))
+
+    def drop(t: JDBCTable[C]): S[R, JDBCWriteOp] =
+      S.emit(dialectSql(t, _.dropTable))
+
+    def create(t: JDBCTable[C]): S[R, JDBCWriteOp] = {
+      S.emit(dialectSql(t, _.createTable))
+    }
   }
 
   case class QueryBuilder[DataRec <: HList, InRec <: HList, OutRec <: HList, Out](

@@ -2,15 +2,15 @@ package io.doolse.simpledba.jdbc
 
 import io.doolse.simpledba.IOEffects
 
-trait JDBCLogger[F[-_, _], R] {
+trait JDBCLogger[F[-_, _], -R] {
   def logPrepare(sql: String): F[R, Unit]
   def logBind(sql: String, values: Seq[Any]): F[R, Unit]
 }
 
-case class NothingLogger[F[-_, _]](implicit E: IOEffects[F]) extends JDBCLogger[F, Any] {
-  override def logPrepare(sql: String): F[Any, Unit] = E.unit
+case class NothingLogger[F[-_, _], R](implicit E: IOEffects[F]) extends JDBCLogger[F, R] {
+  override def logPrepare(sql: String): F[R, Unit] = E.unit
 
-  override def logBind(sql: String, values: Seq[Any]): F[Any, Unit] = E.unit
+  override def logBind(sql: String, values: Seq[Any]): F[R, Unit] = E.unit
 }
 
 case class PrintLnLogger[F[-_, _]](logPrepares: Boolean = false, logBinds: Boolean = true)(

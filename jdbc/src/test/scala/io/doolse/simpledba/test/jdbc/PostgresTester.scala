@@ -7,7 +7,7 @@ import io.doolse.simpledba.jdbc.postgres._
 import zio.stream.ZSink
 import zio.{App, Task, ZIO}
 
-object PostgresTester extends App with JDBCZIOTester[PostgresColumn] with StdPostgresColumns {
+object PostgresTester extends App with JDBCZIOTester with StdPostgresColumns {
 
   lazy val connection = DriverManager.getConnection("jdbc:postgresql:simpledba2", "equellauser", "tle010")
 

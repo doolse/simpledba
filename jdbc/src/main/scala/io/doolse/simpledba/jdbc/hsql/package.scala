@@ -8,7 +8,9 @@ package object hsql {
   case class HSQLColumn[A](wrapped: StdJDBCColumn[A], columnType: ColumnType)
       extends WrappedColumn[A]
 
-  trait StdHSQLColumns extends StdColumns[HSQLColumn] {
+  trait StdHSQLColumns extends StdColumns {
+    type C[A] = HSQLColumn[A]
+
     implicit def uuidCol =
       HSQLColumn[UUID](StdJDBCColumn.uuidCol(JDBCType.NVARCHAR), ColumnType("UUID"))
 

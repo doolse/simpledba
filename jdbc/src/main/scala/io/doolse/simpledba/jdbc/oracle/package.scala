@@ -13,7 +13,9 @@ package object oracle {
   case class OracleColumn[AA](wrapped: StdJDBCColumn[AA], columnType: ColumnType)
       extends WrappedColumn[AA]
 
-  trait StdOracleColumns extends StdColumns[OracleColumn] {
+  trait StdOracleColumns extends StdColumns {
+    type C[A] = OracleColumn[A]
+
     implicit def stringCol = OracleColumn(StdJDBCColumn.stringCol, ColumnType("NCLOB"))
 
     implicit def longCol = OracleColumn[Long](StdJDBCColumn.longCol, ColumnType("NUMBER(19)"))

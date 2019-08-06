@@ -6,7 +6,7 @@ import fs2.Stream
 import io.doolse.simpledba.jdbc._
 import io.doolse.simpledba.jdbc.oracle._
 
-object OracleTester extends App with JDBCTester[OracleColumn] with StdOracleColumns {
+object OracleTester extends App with JDBCTester with StdOracleColumns {
 
   lazy val connection = DriverManager.getConnection("jdbc:oracle:thin:@localhost:1521:OraDoc",
                                                "simpledba",

@@ -16,7 +16,7 @@ object JDBCProperties {
   def mkLogger[F[-_, _]](implicit S: IOEffects[F]): JDBCLogger[F, Any] = {
     val testConfig = config.getConfig("simpledba.test")
     if (testConfig.getBoolean("log")) PrintLnLogger[F]()
-    else NothingLogger[F]()
+    else NothingLogger()
   }
 }
 
@@ -33,9 +33,9 @@ trait JDBCProperties[S[-_, _], F[-_, _]] {
 
   lazy val mapper = hsqldbMapper
 
-  def effect = {
+  def effect: JDBCEffect[S, F, Any] = {
     implicit val ioEffects : IOEffects[F] = streamable
-    JDBCEffect(streamable, providedJDBCConnection(connection), mkLogger)
+    JDBCEffect.withLogger(streamable, providedJDBCConnection(connection), mkLogger)
   }
 
   lazy val sqlQueries = mapper.queries(effect)
@@ -45,7 +45,7 @@ trait JDBCProperties[S[-_, _], F[-_, _]] {
     import sqlQueries.{flush => _, _}
     run {
       flush {
-        S.flatMapS(streamable.emits(Seq(bq: _*)))(dropAndCreate)
+        S.flatMapS(streamable.emits(Seq(bq: _*)))(ddl.dropAndCreate)
       }
     }
   }

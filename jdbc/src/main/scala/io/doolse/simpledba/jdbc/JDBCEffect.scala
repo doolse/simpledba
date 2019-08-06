@@ -2,20 +2,18 @@ package io.doolse.simpledba.jdbc
 
 import java.sql.{Connection, PreparedStatement, ResultSet}
 
-import cats.Monad
 import io.doolse.simpledba.{ColumnRecord, ColumnRetrieve, JavaEffects, StreamEffects}
 import shapeless.HList
 
-trait WithJDBCConnection[S[-_, _], R]
-{
+trait WithJDBCConnection[S[- _, _], R] {
   def apply[A](f: Connection => S[R, A]): S[R, A]
 }
 
-case class JDBCEffect[S[-_, _], F[-_, _], R](S: StreamEffects[S, F],
-    inConnection: WithJDBCConnection[S, R],
-    logger: JDBCLogger[F, R])(implicit JE: JavaEffects[F]) {
+class JDBCEffect[S[- _, _], F[- _, _], R](val S: StreamEffects[S, F],
+                                          inConnection: WithJDBCConnection[S, R],
+                                          logger: JDBCLogger[F, R])(implicit JE: JavaEffects[F]) {
 
-  def withLogger(log: JDBCLogger[F, R]): JDBCEffect[S, F, R] = copy(logger = log)
+  def withLogger(l: JDBCLogger[F, R]): JDBCEffect[S, F, R] = new JDBCEffect(S, inConnection, l)
 
   def blockingIO[A](thunk: => A): F[Any, A] = JE.blockingIO(thunk)
 
@@ -32,8 +30,9 @@ case class JDBCEffect[S[-_, _], F[-_, _], R](S: StreamEffects[S, F],
         S.productR(logger.logBind(sql, log))(blockingIO(f(ps)))
     }
 
-  def executeStream[PS <: AutoCloseable, A](prepare: Connection => F[R, PS],
-                                            bindAndExecute: (Connection, PS) => F[R, A]): S[R, A] = {
+  def executeStream[PS <: AutoCloseable, A](
+      prepare: Connection => F[R, PS],
+      bindAndExecute: (Connection, PS) => F[R, A]): S[R, A] = {
     inConnection { con =>
       S.flatMapS(S.bracket(prepare(con))(ps => blockingIO(ps.close()))) { ps =>
         S.eval(bindAndExecute(con, ps))
@@ -91,4 +90,20 @@ case class JDBCEffect[S[-_, _], F[-_, _], R](S: StreamEffects[S, F],
       case JDBCWriteOp(sql, binder) => executePreparedQuery(sql, binder)
     })
 
+}
+
+object JDBCEffect {
+  def apply[S[- _, _], F[- _, _], R](
+      S: StreamEffects[S, F],
+      inConnection: WithJDBCConnection[S, R])(implicit JE: JavaEffects[F]): JDBCEffect[S, F, R] = {
+    implicit val ioe = S
+    new JDBCEffect[S, F, R](S, inConnection, NothingLogger())
+  }
+
+  def withLogger[S[- _, _], F[- _, _], R](
+      S: StreamEffects[S, F],
+      inConnection: WithJDBCConnection[S, R],
+      logger: JDBCLogger[F, R])(implicit JE: JavaEffects[F]): JDBCEffect[S, F, R] = {
+    new JDBCEffect[S, F, R](S, inConnection, logger)
+  }
 }
