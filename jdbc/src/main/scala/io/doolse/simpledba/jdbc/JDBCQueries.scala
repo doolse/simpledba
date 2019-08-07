@@ -378,9 +378,10 @@ case class JDBCQueries[C[A] <: JDBCColumn[A], S[- _, _], F[- _, _], R](effect: J
         }
     }
 
-    def whereInNotEmpty[A, NewIn <: HList, WLen <: Nat, K <: Symbol](whereCol: Witness.Aux[K])(
+    def whereInNotEmpty[A, NewIn <: HList, WLen <: Nat](whereCol: Witness)(
         implicit
-        select: Selector.Aux[DataRec, K, A],
+        ev: whereCol.T <:< Symbol,
+        select: Selector.Aux[DataRec, whereCol.T, A],
         prepend: Prepend.Aux[InRec, NonEmptyList[A] :: HNil, NewIn],
         length: Length.Aux[InRec, WLen],
         split: Split.Aux[NewIn, WLen, InRec, NonEmptyList[A] :: HNil]
