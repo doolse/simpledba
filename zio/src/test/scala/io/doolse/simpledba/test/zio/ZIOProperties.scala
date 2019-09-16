@@ -28,6 +28,6 @@ trait ZIOProperties {
   def toVector[A](s: ZStream[Any, Throwable, A]): ZIO[Any, Throwable, Vector[A]] =
     s.run(ZSink.collectAll[A]).map(_.toVector)
   def last[A](s: ZStream[Any, Throwable, A]): ZIO[Any, Throwable, Option[A]] =
-    s.run(ZSink.identity[A].?)
+    s.run(ZSink.collectAllN[A](1).map(_.headOption))
 
 }

@@ -37,7 +37,7 @@ package object zio {
     override def emits[A](a: Seq[A]): ZStream[Any, Throwable, A] = ZStream(a: _*)
 
     override def foldLeft[R, O, O2](s: ZStream[R, Throwable, O], z: O2)(
-        f: (O2, O) => O2): ZStream[R, Throwable, O2] = ZStream.fromEffect(s.foldLeft(z)(f).use(ZIO.succeed[O2]))
+        f: (O2, O) => O2): ZStream[R, Throwable, O2] = ZStream.fromEffect(s.foldLeft(z)(f))
 
     override def append[R, R1 <: R, A](a: ZStream[R, Throwable, A],
                            b: ZStream[R1, Throwable, A]): ZStream[R1, Throwable, A] = a ++ b
