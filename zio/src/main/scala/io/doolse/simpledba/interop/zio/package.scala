@@ -3,9 +3,10 @@ package io.doolse.simpledba.interop
 import java.util.concurrent.CompletableFuture
 
 import _root_.zio.interop.catz._
-import _root_.zio.interop.javaconcurrent._
+import _root_.zio.UIO
+import _root_.zio.interop.javaz._
 import _root_.zio.stream._
-import _root_.zio.{Task, TaskR, ZIO, RIO}
+import _root_.zio.{RIO, Task, TaskR, ZIO}
 import _root_.zio.console._
 import cats.Monad
 import io.doolse.simpledba.{IOEffects, JavaEffects, StreamEffects, WriteQueries}
@@ -18,8 +19,8 @@ package object zio {
   implicit def zioJavaEffect = new JavaEffects[RIO] {
     override def blockingIO[A](thunk: => A): RIO[Any, A] = RIO(thunk)
 
-    override def fromFuture[A](future: () => CompletableFuture[A]): RIO[Any, A] =
-      Task.fromCompletionStage(future)
+    override def fromFuture[A](future: => CompletableFuture[A]): RIO[Any, A] =
+      fromCompletionStage(UIO(future))
   }
 
   val zioStreamEffects = new StreamEffects[ZStreamR, RIO] {
@@ -37,7 +38,7 @@ package object zio {
     override def emits[A](a: Seq[A]): ZStream[Any, Throwable, A] = ZStream(a: _*)
 
     override def foldLeft[R, O, O2](s: ZStream[R, Throwable, O], z: O2)(
-        f: (O2, O) => O2): ZStream[R, Throwable, O2] = ZStream.fromEffect(s.foldLeft(z)(f))
+        f: (O2, O) => O2): ZStream[R, Throwable, O2] = ZStream.fromEffect(s.fold(z)(f))
 
     override def append[R, R1 <: R, A](a: ZStream[R, Throwable, A],
                            b: ZStream[R1, Throwable, A]): ZStream[R1, Throwable, A] = a ++ b

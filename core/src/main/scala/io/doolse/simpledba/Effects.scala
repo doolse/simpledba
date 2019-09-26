@@ -7,7 +7,7 @@ import cats.effect.IO
 
 trait JavaEffects[F[-_, _]] {
   def blockingIO[A](thunk: => A): F[Any, A]
-  def fromFuture[A](future: () => CompletableFuture[A]): F[Any, A]
+  def fromFuture[A](future: => CompletableFuture[A]): F[Any, A]
 }
 
 trait IOEffects[F[-_, _]]
@@ -54,8 +54,8 @@ object JavaEffects {
 
     override def blockingIO[A](thunk: => A): IO[A] = IO.delay(thunk)
 
-    override def fromFuture[A](future: () => CompletableFuture[A]): IO[A] = IO.async { cb =>
-      future().handle[Unit] { (value: A, t: Throwable) =>
+    override def fromFuture[A](future: => CompletableFuture[A]): IO[A] = IO.async { cb =>
+      future.handle[Unit] { (value: A, t: Throwable) =>
         if (t != null) cb(Left(t))
         else if (value != null) cb(Right(value))
         else cb(Left(EmptyValue))
