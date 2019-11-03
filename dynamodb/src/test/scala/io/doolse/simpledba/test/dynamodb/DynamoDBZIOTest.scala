@@ -12,7 +12,7 @@ object DynamoDBZIOTest
     with ZIOProperties {
   override def effect = DynamoDBEffect[ZStreamR, RIO, Any](zioStreamEffects, ZIO.succeed(localClient))
 
-  override def run(args: List[String]): ZIO[DynamoDBZIOTest.Environment, Nothing, Int] = {
+  override def run(args: List[String]): ZIO[Console, Nothing, Int] = {
     prog.tap(putStrLn) fold (t => {
       t.printStackTrace()
       1

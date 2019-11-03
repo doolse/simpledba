@@ -2,13 +2,9 @@ package io.doolse.simpledba.interop
 
 import java.util.concurrent.CompletableFuture
 
-import _root_.zio.interop.catz._
-import _root_.zio.UIO
 import _root_.zio.interop.javaz._
 import _root_.zio.stream._
-import _root_.zio.{RIO, Task, TaskR, ZIO}
-import _root_.zio.console._
-import cats.Monad
+import _root_.zio.{RIO, UIO, ZIO}
 import io.doolse.simpledba.{IOEffects, JavaEffects, StreamEffects, WriteQueries}
 
 package object zio {

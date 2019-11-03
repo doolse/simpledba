@@ -21,7 +21,7 @@ object PostgresTester extends App with JDBCZIOTester with StdPostgresColumns {
     r <- doTest(q)
   } yield r
 
-  override def run(args: List[String]): ZIO[PostgresTester.Environment, Nothing, Int] = {
+  override def run(args: List[String]) = {
     prog.fold(_ => 1, v => {println(v); 0})
   }
 
