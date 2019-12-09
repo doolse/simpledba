@@ -1,20 +1,13 @@
 package io.doolse.simpledba.test
 
-import cats.Monad
+import cats.{FlatMap, Monad}
 import cats.instances.option._
 import cats.syntax.all._
-import io.doolse.simpledba.{StreamEffects, WriteQueries}
+import io.doolse.simpledba.{Streamable, WriteQueries}
 
-trait Test[SR[-_, _], FR[-_, _], W] {
-  type S[A] = SR[Any, A]
-  type F[A] = FR[Any, A]
-  type Writes[A] = WriteQueries[SR, FR, Any, W, A]
-  def streamable: StreamEffects[SR, FR]
-  def last[A](s: S[A]): F[Option[A]]
-  def toVector[A](s: S[A]): F[Vector[A]]
+trait Test[S[_], F[_], W] extends TestEffects [S, F] {
+  type Writes[A] = WriteQueries[S, F, W, A]
   def flush(s: S[W]): F[Unit]
-  def SM : Monad[S]
-  def M : Monad[F]
 
   case class EmbeddedFields(adminpassword: String, enabled: Boolean)
 
@@ -48,7 +41,7 @@ trait Test[SR[-_, _], FR[-_, _], W] {
 
   def doTest(q: Queries, updateId: (Inst, Inst) => Inst = (o, n) => n) : F[String] = {
     import q._
-    implicit val _M = M
+    implicit val _M = sync
     implicit val _S = SM
     for {
       _    <- flush(insertData(q.writeInst, q.writeUsers))

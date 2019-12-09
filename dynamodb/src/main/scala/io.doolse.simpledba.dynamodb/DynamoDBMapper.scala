@@ -183,12 +183,12 @@ object DynamoDBMapper {
   val derivedSK = Witness('derivedSK)
 }
 
-class DynamoDBMapper[S[-_, _], F[-_, _], R](effect: DynamoDBEffect[S, F, R]) {
+class DynamoDBMapper[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
 
   def mapped[T] = new RelationBuilder[T]
   private val S = effect.S
 
-  def flush(writes: S[R, DynamoDBWriteOp]): F[R, Unit] = {
+  def flush(writes: S[DynamoDBWriteOp]): F[Unit] = {
     S.drain {
       S.flatMapS(S.eval(effect.asyncClient)) { client =>
         S.evalMap(writes) {
@@ -201,5 +201,5 @@ class DynamoDBMapper[S[-_, _], F[-_, _], R](effect: DynamoDBEffect[S, F, R]) {
     }
   }
 
-  val queries: DynamoDBQueries[S, F, R] = new DynamoDBQueries[S, F, R](effect)
+  val queries: DynamoDBQueries[S, F] = new DynamoDBQueries[S, F](effect)
 }

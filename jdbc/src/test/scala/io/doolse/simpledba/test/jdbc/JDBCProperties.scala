@@ -1,41 +1,41 @@
 package io.doolse.simpledba.test.jdbc
 
 import cats.effect.Sync
-import io.doolse.simpledba.{IOEffects, JavaEffects, StreamEffects}
+import io.doolse.simpledba.{JavaEffects, Streamable}
 import io.doolse.simpledba.jdbc._
 import io.doolse.simpledba.jdbc.hsql._
-import io.doolse.simpledba.syntax._
-import cats.syntax.functor._
-import cats.syntax.flatMap._
 import com.typesafe.config.ConfigFactory
 
 object JDBCProperties {
   val config          = ConfigFactory.load()
   lazy val connection = connectionFromConfig(config)
 
-  def mkLogger[F[-_, _]](implicit S: IOEffects[F]): JDBCLogger[F, Any] = {
+  def mkLogger[F[_]](implicit S: Sync[F]): JDBCLogger[F] = {
     val testConfig = config.getConfig("simpledba.test")
     if (testConfig.getBoolean("log")) PrintLnLogger[F]()
     else NothingLogger()
   }
 }
 
-trait JDBCProperties[S[-_, _], F[-_, _]] {
+trait JDBCProperties[S[_], F[_]] {
 
   import JDBCProperties._
 
   implicit def shortCol = HSQLColumn[Short](StdJDBCColumn.shortCol, ColumnType("INTEGER"))
 
-  def streamable: StreamEffects[S, F]
   implicit def javaEffects : JavaEffects[F]
 
-  def flush(w: S[Any, JDBCWriteOp]): F[Any, Unit] = sqlQueries.flush(w)
+  def sync: Sync[F]
+  def streamable: Streamable[S, F]
+
+  def flush(w: S[JDBCWriteOp]): F[Unit] = sqlQueries.flush(w)
 
   lazy val mapper = hsqldbMapper
 
-  def effect: JDBCEffect[S, F, Any] = {
-    implicit val ioEffects : IOEffects[F] = streamable
-    JDBCEffect.withLogger(streamable, providedJDBCConnection(connection), mkLogger)
+  def effect: JDBCEffect[S, F] = {
+    implicit val S = streamable
+    implicit val F = sync
+    JDBCEffect.withLogger[S, F](providedJDBCConnection(connection), mkLogger[F])
   }
 
   lazy val sqlQueries = mapper.queries(effect)
@@ -50,5 +50,5 @@ trait JDBCProperties[S[-_, _], F[-_, _]] {
     }
   }
 
-  def run[A](fa: F[Any, A]): A
+  def run[A](fa: F[A]): A
 }

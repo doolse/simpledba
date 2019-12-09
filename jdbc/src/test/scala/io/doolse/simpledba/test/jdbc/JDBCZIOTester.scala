@@ -10,19 +10,18 @@ import io.doolse.simpledba.test.zio.ZIOProperties
 import shapeless.HList
 import shapeless.syntax.singleton._
 import zio.interop.catz._
-import zio.stream.ZStream
+import zio.stream.Stream
 import zio.{RIO, Task}
 
-trait JDBCZIOTester extends StdColumns with Test[ZStreamR, RIO, JDBCWriteOp]
+trait JDBCZIOTester extends StdColumns with Test[Stream[Throwable, *], Task, JDBCWriteOp]
   with ZIOProperties {
 
   def connection: Connection
-  def effect = JDBCEffect.withLogger[ZStreamR, RIO, Any](zioStreamEffects,
-    providedJDBCConnection(connection), PrintLnLogger())
+  def effect = JDBCEffect.withLogger[Stream[Throwable, *], Task](providedJDBCConnection(connection), PrintLnLogger())
   def mapper: JDBCMapper[C]
   def builder = mapper.queries(effect)
 
-  override def flush(s: ZStream[Any, Throwable, JDBCWriteOp]): Task[Unit] = builder.flush(s)
+  override def flush(s: Stream[Throwable, JDBCWriteOp]): Task[Unit] = builder.flush(s)
 
   implicit def cols = mapper.mapped[EmbeddedFields].embedded
 

@@ -71,7 +71,7 @@ package object postgres {
 
   val postgresMapper = JDBCMapper[PostgresColumn](PostgresDialect)
 
-  class PostgresQueries[S[- _, _], F[- _, _], R](dialect: SQLDialect, E: JDBCEffect[S, F, R]) {
+  class PostgresQueries[S[_], F[_]](dialect: SQLDialect, E: JDBCEffect[S, F]) {
 
     def insertWith[A,
                    T,
@@ -88,7 +88,7 @@ package object postgres {
         removeAll: RemoveAll.Aux[AllCols, KeyNames, (WithoutKeys, JustKeys)],
         withoutKeys: ColumnSubsetBuilder[Rec, JustKeys],
         sampleValue: SampleValue[A]
-    ): (A => T) => F[R, T] = { res =>
+    ): (A => T) => F[T] = { res =>
       val S = E.S
       S.read1 {
         val fullRec   = table.allColumns.iso.to(res(sampleValue.v))

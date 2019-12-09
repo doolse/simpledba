@@ -1,26 +1,28 @@
 package io.doolse.simpledba.test.zio
 
-import cats.Monad
+import cats.{FlatMap, Monad}
 import cats.effect.Sync
 import io.doolse.simpledba.interop.zio._
-import io.doolse.simpledba.{JavaEffects, StreamEffects}
+import io.doolse.simpledba.test.TestEffects
+import io.doolse.simpledba.{JavaEffects, Streamable}
 import zio.interop.catz._
 import zio.stream._
 import zio.{DefaultRuntime, RIO, Task, ZIO}
 
-trait ZIOProperties {
-  type SR[-R, A] = ZStream[R, Throwable, A]
-  def streamable : StreamEffects[SR, RIO] = zioStreamEffects
-  def M = implicitly[Monad[RIO[Any, ?]]]
-  def SM = new Monad[ZStream[Any, Throwable, ?]] {
-    override def pure[A](x: A): ZStream[Any, Throwable, A] = ZStream.succeed(x)
+trait ZIOProperties extends TestEffects[Stream[Throwable, *], Task] {
+  def streamable = implicitly[Streamable[Stream[Throwable, *], Task]]
+  def sync = implicitly[Sync[Task]]
+  def javaEffects = implicitly[JavaEffects[Task]]
 
-    override def flatMap[A, B](fa: ZStream[Any, Throwable, A])(f: A => ZStream[Any, Throwable, B]): ZStream[Any, Throwable, B] = fa.flatMap(f)
+  def SM  = new Monad[Stream[Throwable, *]] {
+    override def flatMap[A, B](fa: Stream[Throwable, A])(f: A => Stream[Throwable, B]): Stream[Throwable, B] = fa.flatMap(f)
 
-    override def tailRecM[A, B](a: A)(f: A => ZStream[Any, Throwable, Either[A, B]]): ZStream[Any, Throwable, B] = ???
+    override def tailRecM[A, B](a: A)(f: A => Stream[Throwable, Either[A, B]]): Stream[Throwable, B] = ???
+
+    override def map[A, B](fa: Stream[Throwable, A])(f: A => B): Stream[Throwable, B] = fa.map(f)
+
+    override def pure[A](x: A): Stream[Throwable, A] = ZStream(x)
   }
-  def javaEffects : JavaEffects[RIO] = implicitly[JavaEffects[RIO]]
-  def Sync : Sync[Task] = implicitly[Sync[Task]]
   def attempt[A](f: Task[A]) : Task[Either[Throwable, A]] = f.fold(Left.apply, Right.apply)
   lazy val runtime = new DefaultRuntime {}
   def run[A](prog: Task[A]): A = runtime.unsafeRun(prog)

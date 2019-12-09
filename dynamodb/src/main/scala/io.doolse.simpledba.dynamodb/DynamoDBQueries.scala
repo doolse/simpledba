@@ -21,12 +21,13 @@ object AttributeMapper extends ColumnMapper[DynamoDBColumn, String, (String, Att
     a -> column.toAttribute(value)
 }
 
-class DynamoDBQueries[S[-_, _], F[-_, _], R](effect: DynamoDBEffect[S, F, R]) {
+class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
 
   private val S  = effect.S
+  private val M = effect.M
 
-  def writes[T](tables: DynamoDBTable.SameT[T]*): WriteQueries[S, F, R, DynamoDBWriteOp, T] =
-    new WriteQueries[S, F, R, DynamoDBWriteOp, T] {
+  def writes[T](tables: DynamoDBTable.SameT[T]*): WriteQueries[S, F, DynamoDBWriteOp, T] =
+    new WriteQueries[S, F, DynamoDBWriteOp, T] {
       def S = effect.S
 
       def putItem(table: DynamoDBTable)(t: table.T): DynamoDBWriteOp = {
@@ -39,7 +40,7 @@ class DynamoDBQueries[S[-_, _], F[-_, _], R](effect: DynamoDBEffect[S, F, R]) {
         PutItem(b.build())
       }
 
-      override def insertAll[R1 <: R] =
+      override def insertAll =
         ts =>
           S.flatMapS(ts) { t: T =>
             S.emits {
@@ -49,11 +50,11 @@ class DynamoDBQueries[S[-_, _], F[-_, _], R](effect: DynamoDBEffect[S, F, R]) {
             }
         }
 
-      override def updateAll[R1 <: R] =
+      override def updateAll =
         in =>
           S.flatMapS(in) {
             case (o, n) =>
-              tables.foldLeft(S.empty[R1, DynamoDBWriteOp])((ops, table) => {
+              tables.foldLeft(S.empty[DynamoDBWriteOp])((ops, table) => {
                 val b          = UpdateItemRequest.builder()
                 val allColumns = table.columns
                 val oldKey     = table.keyValue(o)
@@ -61,7 +62,7 @@ class DynamoDBQueries[S[-_, _], F[-_, _], R](effect: DynamoDBEffect[S, F, R]) {
                 val nextWrites = if (oldKey != keyVal) {
                   S.emits(Seq(deleteItem(table)(oldKey), putItem(table)(n)))
                 } else {
-                  S.empty[R1, DynamoDBWriteOp]
+                  S.empty[DynamoDBWriteOp]
                 }
                 S.append(ops, nextWrites)
               })
@@ -74,7 +75,7 @@ class DynamoDBQueries[S[-_, _], F[-_, _], R](effect: DynamoDBEffect[S, F, R]) {
         DeleteItem(b.build())
       }
 
-      override def deleteAll[R1 <: R] =
+      override def deleteAll =
         ts =>
           S.flatMapS(ts) { t: T =>
             S.emits {
@@ -158,18 +159,18 @@ class DynamoDBQueries[S[-_, _], F[-_, _], R](effect: DynamoDBEffect[S, F, R]) {
       qb
     }
 
-    def responseStream(qb: QueryRequest.Builder): S[R, QueryResponse] =
+    def responseStream(qb: QueryRequest.Builder): S[QueryResponse] =
       S.eval {
-        S.flatMapF(effect.asyncClient) { client =>
+        M.flatMap(effect.asyncClient) { client =>
           effect.fromFuture(client.query(qb.build()))
         }
       }
 
-    def count[Inp](implicit convert: AutoConvert[Inp, KeyInp]): Inp => S[R, Int] = inp => {
+    def count[Inp](implicit convert: AutoConvert[Inp, KeyInp]): Inp => S[Int] = inp => {
       S.mapS(responseStream(query(true, convert(inp))))(r => r.scannedCount())
     }
 
-    def build[Inp](asc: Boolean)(implicit convert: AutoConvert[Inp, KeyInp]): Inp => S[R, T] =
+    def build[Inp](asc: Boolean)(implicit convert: AutoConvert[Inp, KeyInp]): Inp => S[T] =
       inp => {
         S.flatMapS(responseStream(query(asc, convert(inp)))) { response =>
           S.flatMapS(S.emits(response.items().asScala)) { attrsJ =>
@@ -190,7 +191,7 @@ class DynamoDBQueries[S[-_, _], F[-_, _], R](effect: DynamoDBEffect[S, F, R]) {
                                        selectCol: ColumnRetriever[DynamoDBColumn, String, Output],
                                        selectAll: Boolean) {
 
-    def build[Inp](implicit convert: AutoConvert[Inp, Input]): Inp => S[R, Output] = inp => {
+    def build[Inp](implicit convert: AutoConvert[Inp, Input]): Inp => S[Output] = inp => {
       S.flatMapS {
         S.evalMap(S.eval {
           effect.asyncClient

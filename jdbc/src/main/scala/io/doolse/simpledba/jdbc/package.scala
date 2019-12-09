@@ -20,8 +20,8 @@ package object jdbc {
     } else DriverManager.getConnection(jdbcUrl)
   }
 
-  def providedJDBCConnection[S[-_, _], R](con: Connection) : WithJDBCConnection[S, R] = new WithJDBCConnection[S, R] {
-    override def apply[A](f: Connection => S[R, A]): S[R, A] = f(con)
+  def providedJDBCConnection[S[_]](con: Connection) : WithJDBCConnection[S] = new WithJDBCConnection[S] {
+    override def apply[A](f: Connection => S[A]): S[A] = f(con)
   }
 
 }

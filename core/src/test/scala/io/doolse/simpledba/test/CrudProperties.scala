@@ -1,21 +1,16 @@
 package io.doolse.simpledba.test
 
-import cats.Monad
+import cats.{FlatMap, Monad}
 import cats.syntax.all._
-import io.doolse.simpledba.{StreamEffects, WriteQueries}
+import io.doolse.simpledba.{Streamable, WriteQueries}
 import org.scalacheck.Prop._
 import org.scalacheck.{Arbitrary, Gen, Prop, Properties}
 
 /**
   * Created by jolz on 16/06/16.
   */
-trait CrudProperties[SR[-_, _], FR[-_, _], W] {
-  type S[A] = SR[Any, A]
-  type F[A] = FR[Any, A]
-  type Writes[A] = WriteQueries[SR, FR, Any, W, A]
-  def M : Monad[F]
-  def SM : Monad[S]
-  def streamable: StreamEffects[SR, FR]
+trait CrudProperties[S[_], F[_], W] extends TestEffects[S, F] {
+  type Writes[A] = WriteQueries[S, F, W, A]
   def run[A](f: F[A]): A
   def flush(s: S[W]): F[Unit]
   def toVector[A](s: S[A]): F[Vector[A]]
@@ -28,7 +23,7 @@ trait CrudProperties[SR[-_, _], FR[-_, _], W] {
     implicit def runProp(fa: F[Prop]): Prop = run(fa)
 
     new Properties("CRUD ops") {
-      implicit val LM = M
+      implicit val LM = sync
       val countAll = (a: A) => toVector(findAll(a)).map(_.count(a.==))
 
       property("createReadDelete") = forAll { (a: A) =>

@@ -11,17 +11,17 @@ import io.doolse.simpledba.test.{SafeString, SimpleDBAProperties, Sortable, Sort
 import software.amazon.awssdk.core.SdkBytes
 import zio.interop.catz._
 import zio.stream._
-import zio.{RIO, ZIO}
+import zio.{Task, ZIO}
 
 import scala.collection.mutable
 
 object DynamoDBSortedProperties extends SimpleDBAProperties("DynamoDB") {
 
   include(
-    new SortedQueryProperties[ZStreamR, RIO, DynamoDBWriteOp]() with ZIOProperties
-    with DynamoDBTestHelper[ZStreamR, RIO] {
+    new SortedQueryProperties[StreamTask, Task, DynamoDBWriteOp]() with ZIOProperties
+    with DynamoDBTestHelper[StreamTask, Task] {
 
-      override def effect = DynamoDBEffect[ZStreamR, RIO, Any](zioStreamEffects, ZIO.succeed(localClient))
+      override def effect = DynamoDBEffect[StreamTask, Task](ZIO.succeed(localClient))
 
       lazy val baseTable = mapper.mapped[Sortable].table("sort").partKey('same)
 

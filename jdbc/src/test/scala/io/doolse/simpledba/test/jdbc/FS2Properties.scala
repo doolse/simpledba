@@ -2,17 +2,15 @@ package io.doolse.simpledba.test.jdbc
 
 import cats.Monad
 import cats.effect.{IO, Sync}
-import io.doolse.simpledba.{JavaEffects, StreamEffects}
+import io.doolse.simpledba.{JavaEffects, Streamable}
 import io.doolse.simpledba.fs2._
+import io.doolse.simpledba.test.TestEffects
 
-trait FS2Properties {
-  type StreamR[-R, A] = fs2.Stream[IO, A]
-  type IOR[-R, A] = IO[A]
-  def streamable : StreamEffects[StreamR, IOR] = fs2StreamEffects[IOR]
-  def javaEffects : JavaEffects[IOR] = implicitly[JavaEffects[IOR]]
-  def M = implicitly[Monad[IO]]
-  def SM = implicitly[Monad[fs2.Stream[IO, ?]]]
-  def Sync : Sync[IO] = implicitly[Sync[IO]]
+trait FS2Properties extends TestEffects[fs2.Stream[IO, *], IO] {
+  def streamable = implicitly[Streamable[fs2.Stream[IO, *], IO]]
+  def javaEffects : JavaEffects[IO] = implicitly[JavaEffects[IO]]
+  def SM = implicitly[Monad[fs2.Stream[IO, *]]]
+  def sync : Sync[IO] = implicitly[Sync[IO]]
   def run[A](prog: IO[A]): A = prog.unsafeRunSync()
 
   def toVector[A](s: fs2.Stream[IO, A]): IO[Vector[A]] = s.compile.toVector

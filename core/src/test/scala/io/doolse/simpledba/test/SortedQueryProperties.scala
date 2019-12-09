@@ -23,8 +23,8 @@ case class Sortable(pk1: UUID,
                     floatField: Float,
                     uuidField: UUID)
 
-abstract class SortedQueryProperties[SR[-_, _], FR[-_, _], W]
-    extends AbstractRelationsProperties[SR, FR, W]("Sorting") {
+abstract class SortedQueryProperties[S[_], F[_], W]
+    extends AbstractRelationsProperties[S, F, W]("Sorting") {
 
   case class Queries(int1: UUID => S[Sortable],
                      int2: UUID => S[Sortable],
@@ -62,7 +62,7 @@ abstract class SortedQueryProperties[SR[-_, _], FR[-_, _], W]
     val vSame       = uniqueify[Sortable](v.map(_.copy(same = same)), _.pk1).toVector
     val S           = streamable
     implicit val _SM = SM
-    implicit val _M = M
+    implicit val _M = sync
     for {
       _ <- flush(S.append(queries._1.truncate, queries._1.writes.insertAll(S.emits(vSame))))
       p = sortQ.map {

@@ -2,37 +2,37 @@ package io.doolse.simpledba.jdbc
 
 import java.sql.{Connection, PreparedStatement, ResultSet}
 
-import io.doolse.simpledba.{ColumnRecord, ColumnRetrieve, JavaEffects, StreamEffects}
+import cats.Monad
+import io.doolse.simpledba.{ColumnRecord, ColumnRetrieve, JavaEffects, Streamable}
 import shapeless.HList
 
-trait WithJDBCConnection[S[- _, _], R] {
-  def apply[A](f: Connection => S[R, A]): S[R, A]
+trait WithJDBCConnection[S[_]] {
+  def apply[A](f: Connection => S[A]): S[A]
 }
 
-class JDBCEffect[S[- _, _], F[- _, _], R](val S: StreamEffects[S, F],
-                                          inConnection: WithJDBCConnection[S, R],
-                                          logger: JDBCLogger[F, R])(implicit JE: JavaEffects[F]) {
+class JDBCEffect[S[_], F[_]](inConnection: WithJDBCConnection[S],
+                                          logger: JDBCLogger[F])(implicit JE: JavaEffects[F], val S: Streamable[S, F], val M: Monad[F]) {
 
-  def withLogger(l: JDBCLogger[F, R]): JDBCEffect[S, F, R] = new JDBCEffect(S, inConnection, l)
+  def withLogger(l: JDBCLogger[F]): JDBCEffect[S, F] = new JDBCEffect(inConnection, l)
 
-  def blockingIO[A](thunk: => A): F[Any, A] = JE.blockingIO(thunk)
+  def blockingIO[A](thunk: => A): F[A] = JE.blockingIO(thunk)
 
-  def logAndPrepare[PS](sql: String, f: Connection => PS): Connection => F[R, PS] =
-    con => S.productR(logger.logPrepare(sql))(blockingIO(f(con)))
+  def logAndPrepare[PS](sql: String, f: Connection => PS): Connection => F[PS] =
+    con => M.productR(logger.logPrepare(sql))(blockingIO(f(con)))
 
   def logAndBind[A](sql: String,
                     bindFunc: (Connection, PreparedStatement) => Seq[Any],
-                    f: PreparedStatement => A): (Connection, PreparedStatement) => F[R, A] =
+                    f: PreparedStatement => A): (Connection, PreparedStatement) => F[A] =
     (con, ps) =>
-      S.flatMapF {
+      M.flatMap {
         blockingIO(bindFunc(con, ps))
       } { log =>
-        S.productR(logger.logBind(sql, log))(blockingIO(f(ps)))
+        M.productR(logger.logBind(sql, log))(blockingIO(f(ps)))
     }
 
   def executeStream[PS <: AutoCloseable, A](
-      prepare: Connection => F[R, PS],
-      bindAndExecute: (Connection, PS) => F[R, A]): S[R, A] = {
+      prepare: Connection => F[PS],
+      bindAndExecute: (Connection, PS) => F[A]): S[A] = {
     inConnection { con =>
       S.flatMapS(S.bracket(prepare(con))(ps => blockingIO(ps.close()))) { ps =>
         S.eval(bindAndExecute(con, ps))
@@ -42,7 +42,7 @@ class JDBCEffect[S[- _, _], F[- _, _], R](val S: StreamEffects[S, F],
 
   def executePreparedQuery(
       sql: String,
-      bindFunc: (Connection, PreparedStatement) => Seq[Any]): S[R, (PreparedStatement, Boolean)] = {
+      bindFunc: (Connection, PreparedStatement) => Seq[Any]): S[(PreparedStatement, Boolean)] = {
 
     executeStream[PreparedStatement, (PreparedStatement, Boolean)](
       logAndPrepare(sql, _.prepareStatement(sql)),
@@ -53,11 +53,11 @@ class JDBCEffect[S[- _, _], F[- _, _], R](val S: StreamEffects[S, F],
   }
 
   def executeResultSet(sql: String,
-                       bindFunc: (Connection, PreparedStatement) => Seq[Any]): S[R, ResultSet] = {
+                       bindFunc: (Connection, PreparedStatement) => Seq[Any]): S[ResultSet] = {
     S.flatMapS(executePreparedQuery(sql, bindFunc)) {
       case (ps, _) =>
         S.read(blockingIO(ps.getResultSet))(rs => blockingIO(rs.close())) { rs: ResultSet =>
-          S.mapF(blockingIO(rs.next()))(b => if (b) Some(rs) else None)
+          M.map(blockingIO(rs.next()))(b => if (b) Some(rs) else None)
         }
     }
   }
@@ -66,7 +66,7 @@ class JDBCEffect[S[- _, _], F[- _, _], R](val S: StreamEffects[S, F],
       cols: ColumnRecord[C, A, Rec],
       i: Int,
       rs: ResultSet
-  ): F[R, Rec] = blockingIO {
+  ): F[Rec] = blockingIO {
     cols.mkRecord(new ColumnRetrieve[JDBCColumn, A] {
       override def apply[V](column: JDBCColumn[V], offset: Int, name: A): V =
         column.read(offset + i, rs) match {
@@ -79,13 +79,13 @@ class JDBCEffect[S[- _, _], F[- _, _], R](val S: StreamEffects[S, F],
   def streamForQuery[C[A] <: JDBCColumn[A], Out <: HList](
       sql: String,
       bind: (Connection, PreparedStatement) => Seq[Any],
-      resultCols: ColumnRecord[C, _, Out]): S[R, Out] = {
+      resultCols: ColumnRecord[C, _, Out]): S[Out] = {
     S.evalMap(executeResultSet(sql, bind)) { rs =>
       resultSetRecord(resultCols, 1, rs)
     }
   }
 
-  def flush[R1 <: R](writes: S[R1, JDBCWriteOp]): F[R1, Unit] =
+  def flush(writes: S[JDBCWriteOp]): F[Unit] =
     S.drain(S.flatMapS(writes) {
       case JDBCWriteOp(sql, binder) => executePreparedQuery(sql, binder)
     })
@@ -93,17 +93,14 @@ class JDBCEffect[S[- _, _], F[- _, _], R](val S: StreamEffects[S, F],
 }
 
 object JDBCEffect {
-  def apply[S[- _, _], F[- _, _], R](
-      S: StreamEffects[S, F],
-      inConnection: WithJDBCConnection[S, R])(implicit JE: JavaEffects[F]): JDBCEffect[S, F, R] = {
-    implicit val ioe = S
-    new JDBCEffect[S, F, R](S, inConnection, NothingLogger())
+  def apply[S[_], F[_]: Monad](
+            inConnection: WithJDBCConnection[S])(implicit JE: JavaEffects[F], S: Streamable[S, F]): JDBCEffect[S, F] = {
+    new JDBCEffect[S, F](inConnection, NothingLogger())
   }
 
-  def withLogger[S[- _, _], F[- _, _], R](
-      S: StreamEffects[S, F],
-      inConnection: WithJDBCConnection[S, R],
-      logger: JDBCLogger[F, R])(implicit JE: JavaEffects[F]): JDBCEffect[S, F, R] = {
-    new JDBCEffect[S, F, R](S, inConnection, logger)
+  def withLogger[S[_], F[_]: Monad](
+      inConnection: WithJDBCConnection[S],
+      logger: JDBCLogger[F])(implicit JE: JavaEffects[F], S: Streamable[S, F]): JDBCEffect[S, F] = {
+    new JDBCEffect[S, F](inConnection, logger)
   }
 }

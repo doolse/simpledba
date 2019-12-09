@@ -29,8 +29,8 @@ object CompositeRelations {
 
 }
 
-abstract class CompositeRelations[SR[-_, _], FR[-_, _], W](name: String)
-    extends AbstractRelationsProperties[SR, FR, W](s"$name - Composite") {
+abstract class CompositeRelations[S[_], F[_], W](name: String)
+    extends AbstractRelationsProperties[S, F, W](s"$name - Composite") {
 
   case class Queries2(updates: Writes[Composite2],
                                      byPK: ((Long, UUID)) => S[Composite2],
