@@ -67,7 +67,7 @@ object DynamoDBSortedProperties extends SimpleDBAProperties("DynamoDB") {
           query(float2),
           query(uuid1),
           query(uuid2),
-          q.writes(tables: _*),
+          q.writes(tables.toSeq: _*),
           Stream.empty
         )
       }

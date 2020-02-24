@@ -81,7 +81,7 @@ sealed trait ColumnRecord[C[_], A, R <: HList] {
     }
 
     loop(0, r)
-    out
+    out.toSeq
   }
 
   def compareRecords[C2[_], B](r1: R, r2: R, f: ColumnCompare[C2, A, B])(implicit ev: C[_] <:< C2[_]): Seq[B] = {
@@ -99,7 +99,7 @@ sealed trait ColumnRecord[C[_], A, R <: HList] {
     }
 
     loop(0, r1, r2)
-    out
+    out.toSeq
   }
 
   def mkRecord[C2[_]](f: ColumnRetrieve[C2, A])(implicit ev: C[_] <:< C2[_]): R = {

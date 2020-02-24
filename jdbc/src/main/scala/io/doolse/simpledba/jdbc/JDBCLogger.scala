@@ -8,7 +8,7 @@ trait JDBCLogger[F[_]] {
   def logBind(sql: String, values: Seq[Any]): F[Unit]
 }
 
-case class NothingLogger[F[_]](implicit E: Applicative[F]) extends JDBCLogger[F] {
+case class NothingLogger[F[_]]()(implicit E: Applicative[F]) extends JDBCLogger[F] {
   override def logPrepare(sql: String): F[Unit] = E.unit
 
   override def logBind(sql: String, values: Seq[Any]): F[Unit] = E.unit

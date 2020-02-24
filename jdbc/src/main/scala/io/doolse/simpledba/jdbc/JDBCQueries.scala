@@ -475,7 +475,7 @@ object JDBCQueries {
         } else outvals
       }
 
-      loop(0, 1, mutable.Buffer.empty)
+      loop(0, 1, mutable.Buffer.empty).toSeq
     }
 
   def columnExpression[A](bound: BoundColumn): ColumnExpression =

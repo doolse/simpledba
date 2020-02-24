@@ -12,7 +12,7 @@ lazy val config = ConfigFactory
 val commonSettings = Seq(
   organization := "io.github.doolse",
   version := "0.1.11-SNAPSHOT",
-  scalaVersion := "2.12.8",
+  scalaVersion := "2.13.1",
   resolvers += Resolver.sonatypeRepo("snapshots"),
   licenses := Seq("BSD-style" -> url("http://www.opensource.org/licenses/bsd-license.php")),
   homepage := Some(url("https://github.com/doolse/simpledba")),
@@ -45,7 +45,6 @@ parallelExecution in ThisBuild := false
 val subSettings = Seq(
   name := "simpledba-" + baseDirectory.value.getName,
   testOptions in Test += Tests.Argument(TestFrameworks.ScalaCheck, "-s", "10"),
-  scalacOptions += "-Ypartial-unification",
   scalacOptions ++= Seq("-P:splain:implicits:true", "-P:splain:color:false"),
   addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.10.3"),
   addCompilerPlugin("io.tryp"       % "splain"          % "0.4.1" cross CrossVersion.patch)

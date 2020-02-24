@@ -173,7 +173,7 @@ class DynamoDBQueries[S[_], F[_]](effect: DynamoDBEffect[S, F]) {
     def build[Inp](asc: Boolean)(implicit convert: AutoConvert[Inp, KeyInp]): Inp => S[T] =
       inp => {
         S.flatMapS(responseStream(query(asc, convert(inp)))) { response =>
-          S.flatMapS(S.emits(response.items().asScala)) { attrsJ =>
+          S.flatMapS(S.emits(response.items().asScala.toSeq)) { attrsJ =>
             val attrs = attrsJ.asScala.toMap
             if (attrs.isEmpty) {
               S.empty
