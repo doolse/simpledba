@@ -15,10 +15,11 @@ import zio.{RIO, Task, ZIO}
 object DynamoDBCompositeRelations extends CompositeRelations[StreamTask, Task, DynamoDBWriteOp]("DynamoDB Composite")
   with ZIOProperties with DynamoDBTestHelper[StreamTask, Task] {
 
-  override lazy val effect = {
-    println("Getting effect")
-    val lc = localClient
-    DynamoDBEffect[StreamTask, Task](ZIO(lc))
+  override def effect = {
+    DynamoDBEffect[StreamTask, Task] {
+      val lc = localClient
+      ZIO(lc)
+    }
   }
 
   lazy val queries2: Queries2 = {

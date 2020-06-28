@@ -19,7 +19,7 @@ trait DynamoDBTestHelper[S[_], F[_]] extends TestEffects[S, F] {
   implicit def uuidIso = Iso.uuidString
   implicit def uuidKey = new DynamoDBPKColumn[UUID]
 
-  lazy val localClient = {
+  def localClient = {
     val builder = DynamoDbAsyncClient.builder()
     builder
       .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create("test", "test")))
@@ -40,15 +40,12 @@ trait DynamoDBTestHelper[S[_], F[_]] extends TestEffects[S, F] {
     implicit val _M = sync
     for {
       client <- effect.asyncClient
-      a <- attempt(effect.fromFuture {
+      _ <- attempt(effect.fromFuture {
         client.deleteTable(DeleteTableRequest.builder().tableName(table.name).build())
       })
-      _ <- effect.M.pure(println("HI"))
-      b <- attempt(effect.fromFuture {
-        println("Doing create table");
+      _ <- effect.fromFuture {
         client.createTable(table.tableDefiniton.build())
-      })
-      _ = println(b)
+      }
     } yield ()
   }
 
