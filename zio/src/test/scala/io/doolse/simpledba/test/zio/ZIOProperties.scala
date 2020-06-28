@@ -24,7 +24,9 @@ trait ZIOProperties extends TestEffects[Stream[Throwable, *], Task] {
     override def pure[A](x: A): Stream[Throwable, A] = ZStream(x)
   }
   def attempt[A](f: Task[A]) : Task[Either[Throwable, A]] = f.fold(Left.apply, Right.apply)
-  lazy val runtime = new BootstrapRuntime {}
+
+  lazy val runtime = new BootstrapRuntime { }
+
   def run[A](prog: Task[A]): A = runtime.unsafeRun(prog)
 
   def toVector[A](s: ZStream[Any, Throwable, A]): ZIO[Any, Throwable, Vector[A]] =

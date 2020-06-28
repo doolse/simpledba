@@ -13,6 +13,7 @@ import software.amazon.awssdk.auth.credentials.{AwsBasicCredentials, AwsCredenti
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient
 import software.amazon.awssdk.services.dynamodb.model.DeleteTableRequest
+import zio.ZIO
 
 trait DynamoDBTestHelper[S[_], F[_]] extends TestEffects[S, F] {
   implicit def uuidIso = Iso.uuidString
@@ -39,12 +40,15 @@ trait DynamoDBTestHelper[S[_], F[_]] extends TestEffects[S, F] {
     implicit val _M = sync
     for {
       client <- effect.asyncClient
-      _ <- attempt(effect.fromFuture {
+      a <- attempt(effect.fromFuture {
         client.deleteTable(DeleteTableRequest.builder().tableName(table.name).build())
       })
-      _ <- effect.fromFuture {
+      _ <- effect.M.pure(println("HI"))
+      b <- attempt(effect.fromFuture {
+        println("Doing create table");
         client.createTable(table.tableDefiniton.build())
-      }
+      })
+      _ = println(b)
     } yield ()
   }
 

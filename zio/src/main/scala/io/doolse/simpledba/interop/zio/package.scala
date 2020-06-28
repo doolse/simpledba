@@ -2,9 +2,8 @@ package io.doolse.simpledba.interop
 
 import java.util.concurrent.CompletableFuture
 
-import _root_.zio.interop.javaz._
 import _root_.zio.stream._
-import _root_.zio.{RIO, UIO, ZIO}
+import _root_.zio.{RIO, UIO, ZIO, Task}
 import io.doolse.simpledba.{JavaEffects, Streamable, WriteQueries}
 
 package object zio {
@@ -16,7 +15,7 @@ package object zio {
     override def blockingIO[A](thunk: => A): RIO[R, A] = RIO(thunk)
 
     override def fromFuture[A](future: => CompletableFuture[A]): RIO[R, A] =
-      fromCompletionStage(UIO(future))
+      Task.fromCompletionStage(future)
   }
 
   implicit def zioStreamEffects[R]: Streamable[ZStream[R, Throwable, *], RIO[R, *]] = new Streamable[ZStream[R, Throwable, *], RIO[R, *]] {
