@@ -5,7 +5,7 @@ import java.sql.DriverManager
 import io.doolse.simpledba.jdbc._
 import io.doolse.simpledba.jdbc.postgres._
 import zio.stream.ZSink
-import zio.{App, Task, ZIO}
+import zio.{App, ExitCode, Task, ZIO}
 
 object PostgresTester extends App with JDBCZIOTester with StdPostgresColumns {
 
@@ -22,7 +22,7 @@ object PostgresTester extends App with JDBCZIOTester with StdPostgresColumns {
   } yield r
 
   override def run(args: List[String]) = {
-    prog.fold(_ => 1, v => {println(v); 0})
+    prog.fold(_ => ExitCode.failure, v => {println(v); ExitCode.success})
   }
 
   override def insertInst : (Long => Inst) => Task[Inst] =

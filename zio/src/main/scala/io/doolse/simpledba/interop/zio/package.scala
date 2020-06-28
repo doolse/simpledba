@@ -47,10 +47,10 @@ package object zio {
       ZStream.bracket(acquire)(release.andThen(_.ignore))
 
     override def maxMapped[A, B](n: Int, s: ZStream[R, Throwable, A])(f: Seq[A] => B): ZStream[R, Throwable, B]
-    = s.transduce(ZSink.foldUntil[List[A], A](Nil, n)((s, a) => a :: s)).map(l => f(l.reverse))
+    = s.transduce(ZTransducer.collectAllN(n)).map(f)
 
     override def read1[A](s: ZStream[R, Throwable, A]): ZIO[R, Throwable, A] =
-      s.run(ZSink.read1[Throwable, A](_ => new Throwable("Expected one value"))(_ => true))
+      s.runHead.flatMap(o => ZIO.fromOption(o).mapError(_ => new Error("Expected one value")))
 
     override def flatMapS[A, B](fa: ZStream[R, Throwable, A])(fb: A => ZStream[R, Throwable, B]): ZStream[R, Throwable, B] = fa.flatMap(fb)
 

@@ -7,7 +7,7 @@ import io.doolse.simpledba.test.TestEffects
 import io.doolse.simpledba.{JavaEffects, Streamable}
 import zio.interop.catz._
 import zio.stream._
-import zio.{DefaultRuntime, RIO, Task, ZIO}
+import zio.{BootstrapRuntime, Task, ZIO}
 
 trait ZIOProperties extends TestEffects[Stream[Throwable, *], Task] {
   def streamable = implicitly[Streamable[Stream[Throwable, *], Task]]
@@ -24,12 +24,12 @@ trait ZIOProperties extends TestEffects[Stream[Throwable, *], Task] {
     override def pure[A](x: A): Stream[Throwable, A] = ZStream(x)
   }
   def attempt[A](f: Task[A]) : Task[Either[Throwable, A]] = f.fold(Left.apply, Right.apply)
-  lazy val runtime = new DefaultRuntime {}
+  lazy val runtime = new BootstrapRuntime {}
   def run[A](prog: Task[A]): A = runtime.unsafeRun(prog)
 
   def toVector[A](s: ZStream[Any, Throwable, A]): ZIO[Any, Throwable, Vector[A]] =
     s.run(ZSink.collectAll[A]).map(_.toVector)
   def last[A](s: ZStream[Any, Throwable, A]): ZIO[Any, Throwable, Option[A]] =
-    s.run(ZSink.collectAllN[A](1).map(_.headOption))
+    s.runLast
 
 }

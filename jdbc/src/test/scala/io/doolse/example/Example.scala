@@ -67,7 +67,7 @@ object Example extends scala.App {
         }
       } yield ()).runDrain
 
-    val runtime = new DefaultRuntime {}
+    val runtime = new BootstrapRuntime {}
 
     runtime.unsafeRun(initSchema *> initData *> querySomeData)
   }
