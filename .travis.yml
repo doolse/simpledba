@@ -15,15 +15,16 @@ before_install:
   - docker run --name dynamodb -d -p 8000:8000 tray/dynamodb-local -inMemory
 
 script:
-  - sbt clean coverage test coverageReport &&
-    sbt coverageAggregate
+  - sbt test
+#  - sbt clean coverage test coverageReport &&
+#    sbt coverageAggregate
 
 after_success:
   - sbt coveralls
 
 cache:
   directories:
-  - $HOME/.sbt/0.13/dependency
+  - $HOME/.sbt/1.0/dependency
   - $HOME/.sbt/boot/scala*
   - $HOME/.sbt/launchers
   - $HOME/.ivy2/cache
