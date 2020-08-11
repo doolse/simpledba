@@ -1,5 +1,5 @@
-val ZioVersion = "1.0.0-RC21-1"
-val ZioCats = "2.1.3.0-RC16"
+val ZioVersion = "1.0.0"
+val ZioCats = "2.1.4.0"
 val ZioGroup = "dev.zio"
 
 libraryDependencies ++= Seq("zio",
